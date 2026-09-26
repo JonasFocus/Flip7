@@ -1,27 +1,15 @@
-# Flip 7 · Family Game Night
+# Flip 7 · Family scorekeeper
 
-A mobile-first scorekeeper and virtual card table for playing Flip 7 with family and friends. Host a room, join by numeric code, play with up to 10 people, or start a solo game with bots.
+A mobile-first family scorekeeper and virtual Flip 7 card table.
 
-## Features
+This repository contains the current deployed frontend build from the Sites app. The Sites project exposes the built page and browser assets, but not its original editable React, TypeScript, Worker, or test source files. The files here are the exact public frontend assets served by the live app, kept in their original paths.
 
-- Real-time multiplayer rooms with ready-up, turn order, running totals, and round results
-- Virtual cards, Hit/Stay decisions, Freeze targeting, bust detection, and animated reveals
-- Physical-card scorekeeping with optional photo scanning
-- Bot opponents for solo testing
-- Responsive card table for portrait and landscape phones
+The live app is available at <https://flip-seven-family.jonasinfocus.chatgpt.site>.
 
-## Run locally
+## Serving the build
 
-Requires Node.js 22.13+ and pnpm 11.25.0.
+Serve this repository from the domain root. The page loads its JavaScript and CSS from `/_next/static/` and calls the live app's `/api/` endpoints, so it needs a compatible Worker backend to provide full gameplay.
 
-```sh
-corepack enable
-pnpm install --frozen-lockfile
-pnpm dev
-```
-
-The app is built with React, TypeScript, Vinext, and Cloudflare Workers/D1. Its production deployment uses the ChatGPT Sites hosting configuration in `.openai/hosting.json`; a local install uses the development configuration. The OCR assets in `public/ocr` are bundled for card photo scanning. See `tests/virtual.test.ts` for gameplay coverage.
-
-Live app: https://flip-seven-family.jonasinfocus.chatgpt.site
+This build is a deployment snapshot. It is not a replacement for the missing editable source project or a standalone GitHub Pages deployment.
 
 Flip 7 is a trademark of its respective owner. This is an independent family project.
