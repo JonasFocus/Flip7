@@ -1,0 +1,277 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: var(--font-bungee), ui-rounded, system-ui, sans-serif;
+  --font-sans: var(--font-outfit), ui-sans-serif, system-ui, sans-serif;
+
+  /* Ink surfaces */
+  --color-bg: oklch(0.15 0.03 275);
+  --color-surface: oklch(0.2 0.035 275);
+  --color-surface-2: oklch(0.25 0.04 275);
+  --color-line: oklch(0.33 0.045 275);
+  --color-fg: oklch(0.97 0.01 275);
+  --color-muted: oklch(0.74 0.03 275);
+  --color-ink: oklch(0.19 0.04 275);
+
+  /* Electric primary */
+  --color-accent: oklch(0.89 0.18 98);
+  --color-accent-deep: oklch(0.62 0.13 80);
+
+  /* Player status */
+  --color-active: oklch(0.85 0.16 160);
+  --color-stayed: oklch(0.78 0.12 250);
+  --color-frozen: oklch(0.86 0.12 215);
+  --color-busted: oklch(0.68 0.2 25);
+  --color-flip7: oklch(0.89 0.18 98);
+  --color-danger: oklch(0.68 0.2 25);
+  --color-danger-deep: oklch(0.45 0.15 25);
+
+  /* Card faces: each number has its own color, 0 is pearl */
+  --color-card-0: oklch(0.94 0.012 275);
+  --color-card-1: oklch(0.8 0.14 350);
+  --color-card-2: oklch(0.76 0.15 312);
+  --color-card-3: oklch(0.74 0.13 282);
+  --color-card-4: oklch(0.76 0.13 252);
+  --color-card-5: oklch(0.82 0.12 222);
+  --color-card-6: oklch(0.85 0.12 192);
+  --color-card-7: oklch(0.85 0.17 158);
+  --color-card-8: oklch(0.89 0.18 128);
+  --color-card-9: oklch(0.91 0.16 102);
+  --color-card-10: oklch(0.85 0.15 76);
+  --color-card-11: oklch(0.79 0.15 52);
+  --color-card-12: oklch(0.72 0.17 25);
+  --color-card-mod: oklch(0.94 0.012 275);
+  --color-card-freeze: oklch(0.86 0.12 215);
+  --color-card-flip3: oklch(0.71 0.24 345);
+  --color-card-chance: oklch(0.89 0.2 130);
+
+  --radius-card: 0.16em;
+  --shadow-hard: 0 4px 0 0 oklch(0.08 0.02 275);
+  --shadow-glow: 0 0 0 2px var(--color-accent), 0 0 24px -2px oklch(0.89 0.18 98 / 0.55);
+
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+
+  --animate-deal: deal 380ms var(--ease-spring) both;
+  --animate-flip: flip 320ms var(--ease-out) both;
+  --animate-shake: shake 420ms cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+  --animate-pop: pop 280ms var(--ease-spring) both;
+  --animate-glow: glow 1.6s ease-in-out infinite;
+
+  @keyframes deal {
+    from {
+      opacity: 0;
+      transform: translateY(-28px) scale(0.9) rotate(-6deg);
+    }
+  }
+  @keyframes flip {
+    from {
+      opacity: 0.4;
+      transform: perspective(600px) rotateY(-90deg);
+    }
+  }
+  @keyframes shake {
+    10%, 90% { transform: translateX(-2px); }
+    20%, 80% { transform: translateX(4px); }
+    30%, 50%, 70% { transform: translateX(-7px); }
+    40%, 60% { transform: translateX(7px); }
+  }
+  @keyframes pop {
+    0% { opacity: 0; transform: scale(0.9); }
+    60% { opacity: 1; transform: scale(1.12); }
+    100% { transform: scale(1); }
+  }
+  @keyframes glow {
+    0%, 100% { box-shadow: 0 0 0 2px var(--color-accent), 0 0 12px -2px oklch(0.89 0.18 98 / 0.35); }
+    50% { box-shadow: 0 0 0 2px var(--color-accent), 0 0 28px 0 oklch(0.89 0.18 98 / 0.7); }
+  }
+}
+
+@utility pt-safe { padding-top: env(safe-area-inset-top); }
+@utility pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+@utility pl-safe { padding-left: env(safe-area-inset-left); }
+@utility pr-safe { padding-right: env(safe-area-inset-right); }
+@utility px-safe {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+/* e.g. pb-safe-4 = safe area + spacing(4) */
+@utility pt-safe-* { padding-top: calc(env(safe-area-inset-top) + --spacing(--value(integer))); }
+@utility pb-safe-* { padding-bottom: calc(env(safe-area-inset-bottom) + --spacing(--value(integer))); }
+
+/* Hard-shadow button that physically depresses. Set --press-shadow per variant. */
+@utility press {
+  --press-depth: 4px;
+  box-shadow: 0 var(--press-depth) 0 0 var(--press-shadow, oklch(0.08 0.02 275));
+  transition: transform 120ms var(--ease-out), box-shadow 120ms var(--ease-out), background-color 150ms ease;
+  &:active:not(:disabled) {
+    transform: translateY(calc(var(--press-depth) - 1px));
+    box-shadow: 0 1px 0 0 var(--press-shadow, oklch(0.08 0.02 275));
+  }
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    background-color: var(--color-bg);
+    background-image: radial-gradient(oklch(1 0 0 / 0.045) 1px, transparent 1.2px);
+    background-size: 22px 22px;
+    background-attachment: fixed;
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior-y: none;
+  }
+  button, [role="button"] { cursor: pointer; user-select: none; -webkit-user-select: none; }
+  input, textarea, select { font-size: max(16px, 1em); }
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  /* ---- Cards: font-size = card width, everything inside is in em ---- */
+  .card {
+    position: relative;
+    flex: none;
+    width: 1em;
+    aspect-ratio: 5 / 7;
+    border-radius: var(--radius-card);
+    border: max(1.5px, 0.045em) solid var(--c);
+    background: var(--c);
+    color: var(--color-ink);
+    box-shadow: 0 max(2px, 0.06em) 0 0 color-mix(in oklch, var(--c) 45%, black);
+    display: grid;
+    place-items: center;
+    font-family: var(--font-display);
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    user-select: none;
+    -webkit-user-select: none;
+    overflow: hidden;
+  }
+  .card::after {
+    content: "";
+    position: absolute;
+    inset: 0.05em;
+    border-radius: calc(var(--radius-card) - 0.04em);
+    box-shadow: inset 0 0 0 max(1px, 0.02em) oklch(0.19 0.04 275 / 0.14);
+    pointer-events: none;
+  }
+  .card[data-kind="number"] { --c: var(--color-card-0); }
+  .card[data-v="1"] { --c: var(--color-card-1); }
+  .card[data-v="2"] { --c: var(--color-card-2); }
+  .card[data-v="3"] { --c: var(--color-card-3); }
+  .card[data-v="4"] { --c: var(--color-card-4); }
+  .card[data-v="5"] { --c: var(--color-card-5); }
+  .card[data-v="6"] { --c: var(--color-card-6); }
+  .card[data-v="7"] { --c: var(--color-card-7); }
+  .card[data-v="8"] { --c: var(--color-card-8); }
+  .card[data-v="9"] { --c: var(--color-card-9); }
+  .card[data-v="10"] { --c: var(--color-card-10); }
+  .card[data-v="11"] { --c: var(--color-card-11); }
+  .card[data-v="12"] { --c: var(--color-card-12); }
+
+  /* Specials are dark cards with a colored rim */
+  .card[data-kind="plus"], .card[data-kind="x2"] { --c: var(--color-card-mod); }
+  .card[data-kind="freeze"] { --c: var(--color-card-freeze); }
+  .card[data-kind="flipThree"] { --c: var(--color-card-flip3); }
+  .card[data-kind="secondChance"] { --c: var(--color-card-chance); }
+  .card[data-dark] {
+    background: var(--color-surface);
+    color: var(--c);
+  }
+  .card[data-dark]::after { box-shadow: inset 0 0 0 max(1px, 0.02em) color-mix(in oklch, var(--c) 30%, transparent); }
+
+  .card-num { font-size: 0.6em; letter-spacing: -0.04em; margin-top: 0.06em; }
+  .card-num[data-wide] { font-size: 0.46em; letter-spacing: -0.08em; }
+  .card-num[data-underline] { text-decoration: underline; text-decoration-thickness: 0.06em; text-underline-offset: 0.08em; }
+  .card-mod { font-size: 0.4em; letter-spacing: -0.06em; }
+  .card-icon { width: 0.58em; height: 0.58em; }
+  .card-corner {
+    position: absolute;
+    top: 0.55em;
+    left: 0.6em;
+    font-size: 0.15em;
+    letter-spacing: -0.02em;
+  }
+  .card-label {
+    position: absolute;
+    bottom: 0.1em;
+    inset-inline: 0;
+    text-align: center;
+    font-size: 0.085em;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .card[data-highlight] {
+    outline: max(2px, 0.04em) solid var(--color-accent);
+    outline-offset: max(2px, 0.04em);
+  }
+  .card[data-dim] { opacity: 0.35; filter: saturate(0.4); }
+
+  .card-back {
+    --c: var(--color-line);
+    background:
+      repeating-linear-gradient(135deg, oklch(1 0 0 / 0.035) 0 0.04em, transparent 0.04em 0.1em),
+      var(--color-surface-2);
+    color: var(--color-accent);
+  }
+  .card-back::after {
+    inset: 0.09em;
+    border-radius: calc(var(--radius-card) - 0.07em);
+    box-shadow: inset 0 0 0 max(1px, 0.02em) oklch(0.89 0.18 98 / 0.35);
+  }
+  .card-back-mark {
+    font-size: 0.44em;
+    text-shadow: 0 0.06em 0 var(--color-accent-deep);
+  }
+
+  /* ---- Bottom sheet on native <dialog> ---- */
+  .sheet {
+    inset: auto 0 0 0;
+    margin: 0 auto;
+    width: 100%;
+    max-width: 32rem;
+    max-height: 88dvh;
+    padding: 0;
+    border: 0;
+    color: var(--color-fg);
+    background: var(--color-surface);
+    border-radius: 1.5rem 1.5rem 0 0;
+    box-shadow: 0 -1px 0 0 var(--color-line), 0 -12px 40px oklch(0 0 0 / 0.4);
+    transform: translateY(100%);
+    transition:
+      transform 300ms var(--ease-drawer),
+      display 300ms allow-discrete,
+      overlay 300ms allow-discrete;
+  }
+  .sheet[open] { transform: translateY(0); }
+  @starting-style { .sheet[open] { transform: translateY(100%); } }
+  .sheet::backdrop {
+    background: oklch(0.08 0.02 275 / 0.7);
+    opacity: 0;
+    transition: opacity 300ms ease, display 300ms allow-discrete, overlay 300ms allow-discrete;
+  }
+  .sheet[open]::backdrop { opacity: 1; }
+  @starting-style { .sheet[open]::backdrop { opacity: 0; } }
+
+  .toast {
+    transition: opacity 200ms ease, transform 260ms var(--ease-out);
+    @starting-style { opacity: 0; transform: translateY(-12px) scale(0.96); }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-deal, .animate-flip, .animate-shake, .animate-pop { animation: none !important; }
+  .animate-glow { animation: none !important; box-shadow: var(--shadow-glow); }
+  .sheet, .sheet::backdrop, .toast, .press { transition-duration: 1ms !important; }
+  .press:active:not(:disabled) { transform: none !important; }
+}

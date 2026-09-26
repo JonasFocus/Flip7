@@ -1,0 +1,69 @@
+/* Keyframes for table moments. Colors come from the globals.css theme tokens. */
+@keyframes m-rise {
+  from { opacity: 0; transform: translateY(10px) scale(0.97); }
+}
+@keyframes m-flash {
+  0% { opacity: 0; }
+  15% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@keyframes m-stamp {
+  0% { opacity: 0; transform: scale(1.6) rotate(-8deg); }
+  35% { opacity: 1; transform: scale(0.95) rotate(-4deg); }
+  50% { transform: scale(1.02) rotate(-4deg); }
+  80% { opacity: 1; }
+  100% { opacity: 0; transform: scale(1) rotate(-4deg); }
+}
+@keyframes m-shake {
+  10%, 90% { translate: -2px 0; }
+  20%, 80% { translate: 4px 0; }
+  30%, 50%, 70% { translate: -8px 0; }
+  40%, 60% { translate: 8px 0; }
+}
+@keyframes m-burst {
+  0% { opacity: 1; transform: rotate(var(--a)) translateY(0) scale(0.6); }
+  70% { opacity: 1; }
+  100% { opacity: 0; transform: rotate(var(--a)) translateY(calc(var(--d) * -1)) scale(1) rotate(var(--spin)); }
+}
+@keyframes m-fall {
+  0% { opacity: 0; transform: translateY(-10vh) rotate(0); }
+  10% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(40vh) rotate(180deg); }
+}
+@keyframes m-scan {
+  from { transform: scaleX(0); }
+}
+
+.m-rise { animation: m-rise 260ms var(--ease-out) both; }
+.m-flash { animation: m-flash 900ms var(--ease-out) both; }
+.m-stamp { animation: m-stamp 1300ms var(--ease-out) both; }
+.m-shake { animation: m-shake 420ms cubic-bezier(0.36, 0.07, 0.19, 0.97) 120ms both; }
+.m-bar { transform-origin: left; animation: m-scan 700ms var(--ease-out) both; }
+
+.m-bit {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 10px;
+  height: 14px;
+  margin: -7px 0 0 -5px;
+  border-radius: 3px;
+  background: var(--c);
+  animation: m-burst 1100ms var(--ease-out) both;
+}
+.m-flake {
+  position: absolute;
+  top: 0;
+  color: var(--color-frozen);
+  animation: m-fall 1400ms var(--ease-out) both;
+}
+
+.m-vignette-danger { box-shadow: inset 0 0 120px 20px oklch(0.68 0.2 25 / 0.55); }
+.m-vignette-frost { box-shadow: inset 0 0 140px 30px oklch(0.86 0.12 215 / 0.45); }
+.m-vignette-gold { background: radial-gradient(circle at 50% 45%, oklch(0.89 0.18 98 / 0.35), transparent 65%); }
+
+@media (prefers-reduced-motion: reduce) {
+  .m-rise, .m-shake, .m-bar { animation: none !important; }
+  .m-bit, .m-flake { display: none; }
+  .m-stamp { animation: m-flash 1300ms linear both !important; }
+}

@@ -1,27 +1,36 @@
 # Flip 7 · Family Game Night
 
-A mobile-first scorekeeper and virtual card table for playing Flip 7 with family and friends. Host a room, join by numeric code, play with up to 10 people, or start a solo game with bots.
+A mobile-first web app for playing the Flip 7 card game with family:
 
-## Features
+- **Play online**: one phone per player, realtime rooms joined by a 6-digit code (up to 10 players, bots optional).
+- **Play vs bots**: solo on one device, no server needed.
+- **Scorekeeper**: play with real cards and let the app tally each round.
 
-- Real-time multiplayer rooms with ready-up, turn order, running totals, and round results
-- Virtual cards, Hit/Stay decisions, Freeze targeting, bust detection, and animated reveals
-- Physical-card scorekeeping with optional photo scanning
-- Bot opponents for solo testing
-- Responsive card table for portrait and landscape phones
+No accounts. Next.js (App Router) frontend, a plain Node `ws` game server with in-memory rooms, and a pure shared rules engine in `lib/engine`.
 
 ## Run locally
 
-Requires Node.js 22.13+ and pnpm 11.25.0.
+Requires Node 24+ and pnpm.
 
-```sh
-corepack enable
-pnpm install --frozen-lockfile
-pnpm dev
+```bash
+pnpm install
+cp .env.example .env.local   # NEXT_PUBLIC_WS_URL=ws://localhost:8787
+pnpm dev:server              # game server on :8787
+pnpm dev                     # web app on :3000
 ```
 
-The app is built with React, TypeScript, Vinext, and Cloudflare Workers/D1. Its production deployment uses the ChatGPT Sites hosting configuration in `.openai/hosting.json`; a local install uses the development configuration. The OCR assets in `public/ocr` are bundled for card photo scanning. See `tests/virtual.test.ts` for gameplay coverage.
+To test on a phone on the same Wi-Fi, set `NEXT_PUBLIC_WS_URL=ws://<your-lan-ip>:8787` and open `http://<your-lan-ip>:3000`.
 
-Live app: https://flip-seven-family.jonasinfocus.chatgpt.site
+Checks: `pnpm exec tsc --noEmit -p .`, `pnpm lint`, `pnpm test`, `pnpm build`.
+
+## Deploy
+
+**Game server (Railway).** Create a service from this repo. `railway.json` sets the start command (`node server/index.ts`), the `/health` check and restart policy. Railway provides `PORT`. Rooms live in memory, so run a single instance.
+
+**Frontend (Vercel).** Import the repo as a Next.js project and set `NEXT_PUBLIC_WS_URL` to the Railway public URL with the `wss://` scheme, e.g. `wss://flip7-server.up.railway.app`. Redeploy after changing it, since it is inlined at build time.
+
+## Rules
+
+Game rules follow the published Flip 7 rules (94-card deck: numbers 0 to 12, five plus modifiers and x2, Freeze, Flip Three, Second Chance; first to 200 wins). The in-app "How to play" panel summarizes them.
 
 Flip 7 is a trademark of its respective owner. This is an independent family project.
