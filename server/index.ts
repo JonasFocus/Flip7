@@ -164,16 +164,21 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
     const delay = nextRoundMs(events);
     const timer = setTimeout(() => {
       live.nextRound = null;
-      const current = live.room;
-      if (current.mode !== "virtual" || current.game.phase !== "roundOver" || current.game.round !== round) return;
-      if (inRoom(current.code).length === 0) return; // nobody watching; the next reconnect restarts the wait
-      const res = applyIntent(current.game, current.hostId, { type: "nextRound" }, { isHost: true });
-      if (!res.ok) {
-        console.error(`next round in ${current.code}: ${res.error}`);
-        return;
+      // A throw in a timer is uncaught and would take down every room, same as the bot timer.
+      try {
+        const current = live.room;
+        if (current.mode !== "virtual" || current.game.phase !== "roundOver" || current.game.round !== round) return;
+        if (inRoom(current.code).length === 0) return; // nobody watching; the next reconnect restarts the wait
+        const res = applyIntent(current.game, current.hostId, { type: "nextRound" }, { isHost: true });
+        if (!res.ok) {
+          console.error(`next round in ${current.code}: ${res.error}`);
+          return;
+        }
+        current.game = res.state;
+        changed(live, res.events);
+      } catch (err) {
+        console.error("next round error", err);
       }
-      current.game = res.state;
-      changed(live, res.events);
     }, delay);
     live.nextRound = { round, at: Date.now() + delay, timer };
   }
