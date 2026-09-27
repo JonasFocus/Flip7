@@ -34,3 +34,7 @@ Checks: `pnpm exec tsc --noEmit -p .`, `pnpm lint`, `pnpm test`, `pnpm build`.
 Game rules follow the published Flip 7 rules (94-card deck: numbers 0 to 12, five plus modifiers and x2, Freeze, Flip Three, Second Chance; first to 200 wins). The in-app "How to play" panel summarizes them.
 
 Flip 7 is a trademark of its respective owner. This is an independent family project.
+
+## Legacy snapshot
+
+`legacy-snapshot/` holds the compiled frontend of the original ChatGPT Sites version (no source). It is kept for reference only and is not part of the build.
