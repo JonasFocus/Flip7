@@ -1,10 +1,28 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { RoomSummary } from "@/lib/protocol";
+import type { RoomMode, RoomSummary } from "@/lib/protocol";
 import { fetchOpenRooms } from "@/lib/client/rooms";
-import { Badge } from "@/components/ui/Badge";
+import { Badge, type BadgeTone } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+
+export const MODE_LABEL: Record<RoomMode, string> = {
+  virtual: "Online",
+  physical: "Scorekeeper",
+  imposter: "Imposter",
+  liarsdice: "Liar's Dice",
+  hotpotato: "Hot Potato",
+  spyfall: "Where Are We?",
+};
+
+const MODE_TONE: Record<RoomMode, BadgeTone> = {
+  virtual: "accent",
+  physical: "neutral",
+  imposter: "chance",
+  liarsdice: "chance",
+  hotpotato: "chance",
+  spyfall: "chance",
+};
 
 const POLL_MS = 5000;
 const PREVIEW = 5;
@@ -103,9 +121,7 @@ export function OpenTables({ load, exclude, onJoin }: { load: Load; exclude: str
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-semibold">{r.hostName}&rsquo;s table</span>
                   <span className="mt-0.5 flex items-center gap-2 text-xs text-muted">
-                    <Badge tone={r.mode === "physical" ? "neutral" : r.mode === "imposter" ? "chance" : "accent"}>
-                      {r.mode === "virtual" ? "Online" : r.mode === "imposter" ? "Imposter" : "Scorekeeper"}
-                    </Badge>
+                    <Badge tone={MODE_TONE[r.mode]}>{MODE_LABEL[r.mode]}</Badge>
                     <span className="tabular-nums">
                       {r.playerCount} {r.playerCount === 1 ? "player" : "players"} · {ago(r.lastActive)}
                     </span>

@@ -1,6 +1,9 @@
 import type { Intent, PhysicalEntry, ScoreIntent } from "../lib/engine/types.ts";
 import type { ImposterIntent } from "../lib/imposter/types.ts";
-import type { ClientMessage } from "../lib/protocol.ts";
+import type { DiceIntent } from "../lib/liarsdice/types.ts";
+import type { PotatoIntent } from "../lib/hotpotato/types.ts";
+import type { SpyIntent } from "../lib/spyfall/types.ts";
+import { isRoomMode, type ClientMessage } from "../lib/protocol.ts";
 
 type Obj = Record<string, unknown>;
 
@@ -108,6 +111,59 @@ function parseImposterIntent(v: unknown): ImposterIntent | null {
   }
 }
 
+const isText = (v: unknown, max: number): v is string => typeof v === "string" && v.length >= 1 && v.length <= max;
+
+function parseDiceIntent(v: unknown): DiceIntent | null {
+  if (!isObj(v)) return null;
+  switch (v.type) {
+    case "setDice":
+      return v.count === 3 || v.count === 4 || v.count === 5 ? { type: "setDice", count: v.count } : null;
+    case "bid":
+      return isInt(v.count, 1, 40) && isInt(v.face, 2, 6) ? { type: "bid", count: v.count, face: v.face } : null;
+    case "start":
+    case "liar":
+    case "nextRound":
+    case "playAgain":
+      return { type: v.type };
+    default:
+      return null;
+  }
+}
+
+function parsePotatoIntent(v: unknown): PotatoIntent | null {
+  if (!isObj(v)) return null;
+  switch (v.type) {
+    case "setLives":
+      return v.lives === 1 || v.lives === 2 || v.lives === 3 || v.lives === 5 ? { type: "setLives", lives: v.lives } : null;
+    case "setCategory":
+      return isText(v.categoryId, 40) ? { type: "setCategory", categoryId: v.categoryId } : null;
+    case "start":
+    case "pass":
+    case "playAgain":
+      return { type: v.type };
+    default:
+      return null;
+  }
+}
+
+function parseSpyIntent(v: unknown): SpyIntent | null {
+  if (!isObj(v)) return null;
+  switch (v.type) {
+    case "setTimer":
+      return v.minutes === 4 || v.minutes === 6 || v.minutes === 8 ? { type: "setTimer", minutes: v.minutes } : null;
+    case "guess":
+      return isText(v.location, 60) ? { type: "guess", location: v.location } : null;
+    case "vote":
+      return isId(v.targetId) ? { type: "vote", targetId: v.targetId } : null;
+    case "start":
+    case "startVoting":
+    case "playAgain":
+      return { type: v.type };
+    default:
+      return null;
+  }
+}
+
 export function parseMessage(raw: string): ClientMessage | null {
   let v: unknown;
   try {
@@ -119,7 +175,7 @@ export function parseMessage(raw: string): ClientMessage | null {
   switch (v.t) {
     case "create": {
       const name = cleanName(v.name);
-      if (!name || !isId(v.clientId) || (v.mode !== "virtual" && v.mode !== "physical" && v.mode !== "imposter")) return null;
+      if (!name || !isId(v.clientId) || !isRoomMode(v.mode)) return null;
       return { t: "create", mode: v.mode, name, clientId: v.clientId };
     }
     case "join": {
@@ -138,6 +194,18 @@ export function parseMessage(raw: string): ClientMessage | null {
     case "imposter": {
       const intent = parseImposterIntent(v.intent);
       return intent ? { t: "imposter", intent } : null;
+    }
+    case "liarsdice": {
+      const intent = parseDiceIntent(v.intent);
+      return intent ? { t: "liarsdice", intent } : null;
+    }
+    case "hotpotato": {
+      const intent = parsePotatoIntent(v.intent);
+      return intent ? { t: "hotpotato", intent } : null;
+    }
+    case "spyfall": {
+      const intent = parseSpyIntent(v.intent);
+      return intent ? { t: "spyfall", intent } : null;
     }
     case "removePlayer":
       return isId(v.playerId) ? { t: "removePlayer", playerId: v.playerId } : null;

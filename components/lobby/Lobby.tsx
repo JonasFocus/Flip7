@@ -148,7 +148,7 @@ export async function shareInvite(code: string): Promise<string | null> {
   const url = `${location.origin}/room/${code}`;
   if (typeof navigator.share === "function") {
     try {
-      await navigator.share({ title: "Flip 7", text: `Join my Flip 7 table: code ${code}`, url });
+      await navigator.share({ title: "Flip 7", text: `Join my table on Flip 7: code ${code}`, url });
       return null;
     } catch (e) {
       if (e instanceof DOMException && e.name === "AbortError") return null;

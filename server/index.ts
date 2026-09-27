@@ -25,8 +25,11 @@ import {
   removeImposterPlayer,
   setImposterConnected,
 } from "../lib/imposter/index.ts";
-import { KICKED_MESSAGE, MAX_PLAYERS, nextRoundDelayMs, REPLACED_CLOSE_CODE, REPLACED_MESSAGE, ROOM_TTL_MS } from "../lib/protocol.ts";
-import type { ClientMessage, Room, RoomSummary, ServerMessage } from "../lib/protocol.ts";
+import * as dice from "../lib/liarsdice/index.ts";
+import * as potato from "../lib/hotpotato/index.ts";
+import * as spy from "../lib/spyfall/index.ts";
+import { isPartyMode, KICKED_MESSAGE, MAX_PLAYERS, nextRoundDelayMs, REPLACED_CLOSE_CODE, REPLACED_MESSAGE, ROOM_TTL_MS } from "../lib/protocol.ts";
+import type { ClientMessage, PartyGames, PartyMode, PartyRoom, Room, RoomSummary, ServerMessage } from "../lib/protocol.ts";
 import { parseMessage } from "./validate.ts";
 
 const TOO_MANY_JOINS = "Too many joins, try again in a minute";
@@ -45,6 +48,104 @@ export const AUTO_PLAY_MS = 30_000;
 // The client's id is a secret resume token; everyone else only ever sees this hash of it (and can't forge a bot's "bot-" id).
 export const publicId = (secret: string) => createHash("sha256").update(secret).digest("base64url").slice(0, 22);
 
+// The uniform engine shape of the party games; the server only talks to them through this.
+interface PartyEngine<S, I> {
+  maxPlayers: number;
+  create: () => S;
+  add: (s: S, p: { id: string; name: string }) => S;
+  remove: (s: S, id: string, opts: { now: number }) => S;
+  setConnected: (s: S, id: string, connected: boolean, now: number) => S;
+  apply: (s: S, actorId: string, intent: I, opts: { isHost: boolean; now: number }) => { ok: true; state: S } | { ok: false; error: string };
+  redact: (s: S, viewerId: string) => S;
+  serverDeadline: (s: S) => number | null; // when onDeadline has work (may be secret, e.g. the potato fuse)
+  visibleDeadline: (s: S) => number | null; // what players may see counting down
+  onDeadline: (s: S, now: number) => S;
+  intentOf: (msg: ClientMessage) => I | null;
+}
+
+const PARTY: { [M in PartyMode]: PartyEngine<PartyGames[M]["state"], PartyGames[M]["intent"]> } = {
+  liarsdice: {
+    maxPlayers: dice.MAX_DICE_PLAYERS,
+    create: dice.createDiceGame,
+    add: dice.addDicePlayer,
+    remove: dice.removeDicePlayer,
+    setConnected: dice.setDiceConnected,
+    apply: dice.applyDiceIntent,
+    redact: dice.redactDice,
+    serverDeadline: dice.serverDeadline,
+    visibleDeadline: dice.visibleDeadline,
+    onDeadline: dice.onDeadline,
+    intentOf: (m) => (m.t === "liarsdice" ? m.intent : null),
+  },
+  hotpotato: {
+    maxPlayers: potato.MAX_POTATO_PLAYERS,
+    create: potato.createPotatoGame,
+    add: potato.addPotatoPlayer,
+    remove: potato.removePotatoPlayer,
+    setConnected: potato.setPotatoConnected,
+    apply: potato.applyPotatoIntent,
+    redact: potato.redactPotato,
+    serverDeadline: potato.serverDeadline,
+    visibleDeadline: potato.visibleDeadline,
+    onDeadline: potato.onDeadline,
+    intentOf: (m) => (m.t === "hotpotato" ? m.intent : null),
+  },
+  spyfall: {
+    maxPlayers: spy.MAX_SPY_PLAYERS,
+    create: spy.createSpyGame,
+    add: spy.addSpyPlayer,
+    remove: spy.removeSpyPlayer,
+    setConnected: spy.setSpyConnected,
+    apply: spy.applySpyIntent,
+    redact: spy.redactSpy,
+    serverDeadline: spy.serverDeadline,
+    visibleDeadline: spy.visibleDeadline,
+    onDeadline: spy.onDeadline,
+    intentOf: (m) => (m.t === "spyfall" ? m.intent : null),
+  },
+};
+
+// A party room opened with its engine: `set` writes the game back, `view` builds a snapshot of this room.
+interface Party<S, I> {
+  e: PartyEngine<S, I>;
+  game: S;
+  set: (game: S) => void;
+  view: (game: S, deadlineInMs: number | undefined) => Room;
+}
+
+const isParty = (room: Room): room is PartyRoom => isPartyMode(room.mode);
+
+function withParty<R>(room: PartyRoom, fn: <S, I>(p: Party<S, I>) => R): R {
+  switch (room.mode) {
+    case "liarsdice": {
+      const r = room;
+      return fn({ e: PARTY.liarsdice, game: r.game, set: (g) => void (r.game = g), view: (game, deadlineInMs) => ({ ...r, game, deadlineInMs }) });
+    }
+    case "hotpotato": {
+      const r = room;
+      return fn({ e: PARTY.hotpotato, game: r.game, set: (g) => void (r.game = g), view: (game, deadlineInMs) => ({ ...r, game, deadlineInMs }) });
+    }
+    case "spyfall": {
+      const r = room;
+      return fn({ e: PARTY.spyfall, game: r.game, set: (g) => void (r.game = g), view: (game, deadlineInMs) => ({ ...r, game, deadlineInMs }) });
+    }
+  }
+}
+
+function newPartyRoom(mode: PartyMode, code: string, player: { id: string; name: string }): PartyRoom {
+  const base = { code, hostId: player.id };
+  switch (mode) {
+    case "liarsdice":
+      return { ...base, mode, game: PARTY.liarsdice.add(PARTY.liarsdice.create(), player) };
+    case "hotpotato":
+      return { ...base, mode, game: PARTY.hotpotato.add(PARTY.hotpotato.create(), player) };
+    case "spyfall":
+      return { ...base, mode, game: PARTY.spyfall.add(PARTY.spyfall.create(), player) };
+  }
+}
+
+const maxPlayersOf = (room: Room) => (isParty(room) ? PARTY[room.mode].maxPlayers : MAX_PLAYERS);
+
 interface LiveRoom {
   room: Room;
   lastActive: number;
@@ -52,6 +153,7 @@ interface LiveRoom {
   botTimer: NodeJS.Timeout | null;
   nextRound: { round: number; at: number; timer: NodeJS.Timeout } | null; // roundOver: the server deals the next round at `at`
   cluesTimer: NodeJS.Timeout | null; // imposter clues phase: starts voting at game.cluesDeadline
+  partyTimer: NodeJS.Timeout | null; // party games: fires onDeadline at the engine's serverDeadline
   disconnectedAt: Map<string, number>; // humans who dropped mid-game; they get auto-played after AUTO_PLAY_MS
   awayStays: Map<string, { round: number; event: GameEvent }>; // auto-stays to replay to that human when they return
   kicked: Set<string>; // virtual: removed by the host, rejoin refused. physical: lost their last seat, rejoin as spectator (Late arrival re-seats on purpose)
@@ -118,6 +220,12 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
       const cluesEndsInMs = deadline !== null ? Math.max(0, deadline - Date.now()) : undefined;
       return { ...room, game: redactImposter(room.game, viewerId), cluesEndsInMs };
     }
+    if (isParty(room)) {
+      return withParty(room, (p) => {
+        const at = p.e.visibleDeadline(p.game);
+        return p.view(p.e.redact(p.game, viewerId), at === null ? undefined : Math.max(0, at - Date.now()));
+      });
+    }
     if (room.mode !== "virtual") return room;
     const game = redactGame(room.game);
     const awaited = awaitingPlayerId(game);
@@ -138,9 +246,9 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
     const humans =
       room.mode === "virtual"
         ? room.game.players.filter((p) => !p.isBot).map((p) => p.id)
-        : room.mode === "imposter"
-          ? room.game.players.map((p) => p.id)
-          : room.game.players.map((p) => p.ownerId);
+        : room.mode === "physical"
+          ? room.game.players.map((p) => p.ownerId)
+          : room.game.players.map((p) => p.id);
     const present = inRoom(room.code);
     const online = new Set(present.map((c) => c.clientId));
     const eligible = (id: string) => online.has(id) && (room.mode === "physical" || humans.includes(id));
@@ -158,6 +266,7 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
     ensureHost(live);
     scheduleNextRound(live, events);
     scheduleClues(live);
+    scheduleParty(live);
     broadcast(live, events);
     scheduleBot(live);
   }
@@ -167,6 +276,7 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
     if (live?.botTimer) clearTimeout(live.botTimer);
     if (live?.nextRound) clearTimeout(live.nextRound.timer);
     if (live?.cluesTimer) clearTimeout(live.cluesTimer);
+    if (live?.partyTimer) clearTimeout(live.partyTimer);
     rooms.delete(code);
   }
 
@@ -224,6 +334,33 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
         console.error("clues timer error", err);
       }
     }, Math.max(0, deadline - Date.now()));
+  }
+
+  // Same contract as scheduleClues: re-armed on every change from the engine's own deadline.
+  function scheduleParty(live: LiveRoom) {
+    if (live.partyTimer) clearTimeout(live.partyTimer);
+    live.partyTimer = null;
+    const { room } = live;
+    if (!isParty(room)) return;
+    const at = withParty(room, (p) => p.e.serverDeadline(p.game));
+    if (at === null) return;
+    live.partyTimer = setTimeout(() => {
+      live.partyTimer = null;
+      try {
+        const current = live.room;
+        if (!isParty(current)) return;
+        const moved = withParty(current, (p) => {
+          const next = p.e.onDeadline(p.game, Date.now());
+          p.set(next);
+          return next !== p.game;
+        });
+        // Timer fired a hair before the deadline: wait again. A no-op past the deadline is left alone so it can't spin.
+        if (moved) changed(live, []);
+        else if (at > Date.now()) scheduleParty(live);
+      } catch (err) {
+        console.error("party timer error", err);
+      }
+    }, Math.max(0, at - Date.now()));
   }
 
   function scheduleBot(live: LiveRoom) {
@@ -286,6 +423,14 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
       if (leaving) room.game = removeImposterPlayer(room.game, id);
       else if (!isOnline(room.code, id)) room.game = setImposterConnected(room.game, id, false);
       if (room.game.players.length === 0) return deleteRoom(room.code);
+    } else if (isParty(room)) {
+      const now = Date.now();
+      const offline = !isOnline(room.code, id);
+      withParty(room, (p) => {
+        if (leaving) p.set(p.e.remove(p.game, id, { now }));
+        else if (offline) p.set(p.e.setConnected(p.game, id, false, now));
+      });
+      if (room.game.players.length === 0) return deleteRoom(room.code);
     } else if (leaving && room.game.phase === "lobby") {
       // Mid-game seats stay so their round history survives; the host can remove them from the board.
       const gone = new Set(room.game.players.filter((p) => p.ownerId === id).map((p) => p.id));
@@ -343,7 +488,7 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
   function isSoloLobby(live: LiveRoom, clientId: string): boolean {
     const { room } = live;
     if (room.game.phase !== "lobby") return false;
-    if (room.mode === "imposter") return !room.game.players.some((p) => p.id !== clientId);
+    if (room.mode !== "virtual" && room.mode !== "physical") return !room.game.players.some((p) => p.id !== clientId);
     return room.mode === "virtual"
       ? !room.game.players.some((p) => !p.isBot && p.id !== clientId)
       : !room.game.players.some((p) => p.ownerId !== clientId) && inRoom(room.code).every((o) => o.clientId === clientId);
@@ -353,13 +498,14 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
     if (!allow(createsByIp, c.ip, createsPerIpPerMin)) return fail(c, "Too many new tables, try again in a minute");
     if (!makeRoomSpace()) return fail(c, "Server is busy, try again soon");
     const code = newCode();
-    const room: Room =
-      mode === "virtual"
+    const room: Room = isPartyMode(mode)
+      ? newPartyRoom(mode, code, { id: clientId, name })
+      : mode === "virtual"
         ? { code, mode, hostId: clientId, game: addPlayer(createGame(), { id: clientId, name, isBot: false }) }
         : mode === "imposter"
           ? { code, mode, hostId: clientId, game: addImposterPlayer(createImposterGame(), { id: clientId, name }) }
           : { code, mode, hostId: clientId, game: addScoreSeat(createScoreGame(), { id: clientId, name, ownerId: clientId }) };
-    const live: LiveRoom = { room, lastActive: Date.now(), creatorId: clientId, botTimer: null, nextRound: null, cluesTimer: null, disconnectedAt: new Map(), awayStays: new Map(), kicked: new Set() };
+    const live: LiveRoom = { room, lastActive: Date.now(), creatorId: clientId, botTimer: null, nextRound: null, cluesTimer: null, partyTimer: null, disconnectedAt: new Map(), awayStays: new Map(), kicked: new Set() };
     rooms.set(code, live);
     attach(c, live, clientId, name);
   }
@@ -390,6 +536,14 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
       else if (room.game.players.length >= MAX_PLAYERS) return fail(c, "Room is full");
       else if (!allow(joinsByIp, c.ip, joinsPerIpPerMin)) return fail(c, TOO_MANY_JOINS);
       else room.game = addImposterPlayer(room.game, { id: clientId, name });
+    } else if (isParty(room)) {
+      const seated = room.game.players.some((p) => p.id === clientId);
+      if (!seated && live.kicked.has(clientId)) return fail(c, KICKED_MESSAGE);
+      if (!seated && room.game.phase !== "lobby") return fail(c, "Game already started");
+      if (!seated && room.game.players.length >= PARTY[room.mode].maxPlayers) return fail(c, "Room is full");
+      if (!seated && !allow(joinsByIp, c.ip, joinsPerIpPerMin)) return fail(c, TOO_MANY_JOINS);
+      const now = Date.now();
+      withParty(room, (p) => p.set(seated ? p.e.setConnected(p.game, clientId, true, now) : p.e.add(p.game, { id: clientId, name })));
     } else if (!room.game.players.some((p) => p.ownerId === clientId) && !live.kicked.has(clientId)) {
       if (room.game.phase === "gameOver") return fail(c, "Game is over");
       if (room.game.players.length >= MAX_PLAYERS) return fail(c, "Room is full");
@@ -417,6 +571,7 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
     if (playerId === c.clientId) return fail(c, "Use leave instead");
     if (!room.game.players.some((p) => p.id === playerId)) return fail(c, "No such player");
     if (room.mode === "imposter") room.game = removeImposterPlayer(room.game, playerId);
+    else if (isParty(room)) withParty(room, (p) => p.set(p.e.remove(p.game, playerId, { now: Date.now() })));
     else room.game = removePlayer(room.game, playerId);
     live.disconnectedAt.delete(playerId);
     live.awayStays.delete(playerId);
@@ -486,6 +641,22 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
         live.room.game = res.state;
         return changed(live, []);
       }
+      case "liarsdice":
+      case "hotpotato":
+      case "spyfall": {
+        const { room } = live;
+        const actorId = c.clientId;
+        if (!isParty(room) || room.mode !== msg.t) return fail(c, "Wrong game for this room");
+        const error = withParty(room, (p) => {
+          const intent = p.e.intentOf(msg);
+          if (!intent) return "Wrong game for this room";
+          const res = p.e.apply(p.game, actorId, intent, { isHost, now: Date.now() });
+          if (!res.ok) return res.error;
+          p.set(res.state);
+          return null;
+        });
+        return error ? fail(c, error) : changed(live, []);
+      }
       case "addBot":
         return isHost ? addBot(c, live) : fail(c, "Only the host can add bots");
       case "removePlayer":
@@ -514,7 +685,7 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
           playerCount: room.game.players.length,
           joinable:
             (online.get(room.code) ?? 0) > 0 &&
-            room.game.players.length < MAX_PLAYERS &&
+            room.game.players.length < maxPlayersOf(room) &&
             (room.mode === "physical" ? room.game.phase !== "gameOver" : room.game.phase === "lobby"),
           lastActive,
         };

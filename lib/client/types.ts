@@ -1,6 +1,11 @@
 import type { GameEvent, GameState, Intent, ScoreIntent, ScoreState } from "../engine/types.ts";
 import type { ImposterIntent, ImposterState } from "../imposter/types.ts";
 
+// The party games define their own connection shapes next to their state.
+export type { DiceConnection } from "../liarsdice/types.ts";
+export type { PotatoConnection } from "../hotpotato/types.ts";
+export type { SpyConnection } from "../spyfall/types.ts";
+
 export type ConnectionStatus = "connecting" | "open" | "reconnecting" | "closed";
 
 // What every virtual-table screen consumes. Implemented by useRoom (online, Railway)

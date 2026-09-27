@@ -11,21 +11,23 @@ import { Button } from "@/components/ui/Button";
 import { Toast } from "@/components/ui/Toast";
 import { cx } from "@/components/ui/cx";
 import { JoinCode } from "./JoinCode";
-import { OpenTables, useOpenRooms } from "./OpenTables";
+import { MODE_LABEL, OpenTables, useOpenRooms } from "./OpenTables";
 import { HowToPlay } from "./HowToPlay";
 
-type Mode = "online" | "physical" | "imposter";
+type Mode = "online" | "physical" | "imposter" | "liarsdice" | "hotpotato" | "spyfall";
 
 const LABEL = "text-[11px] font-bold uppercase tracking-[0.2em] text-muted";
 
 const MODES: { id: Mode; title: string; blurb: string; cta: string; icon: ReactNode }[] = [
   { id: "online", title: "Play online", blurb: "One phone each, with family", cta: "Create table", icon: <PeopleIcon /> },
   { id: "physical", title: "Scorekeeper", blurb: "Real cards, we do the math", cta: "Start scoring", icon: <TallyIcon /> },
-  { id: "imposter", title: "Imposter", blurb: "Party game · 3+ players, find the faker", cta: "Create room", icon: <MaskIcon /> },
+  { id: "imposter", title: "Imposter", blurb: "Find the faker · 3–10 players", cta: "Create room", icon: <MaskIcon /> },
+  { id: "liarsdice", title: "Liar's Dice", blurb: "Bluff with dice · 2–8 players", cta: "Create room", icon: <DiceIcon /> },
+  { id: "hotpotato", title: "Hot Potato", blurb: "Pass the bomb · 3–10 players", cta: "Create room", icon: <BombIcon /> },
+  { id: "spyfall", title: "Where Are We?", blurb: "Find the spy · 3–10 players", cta: "Create room", icon: <PinIcon /> },
 ];
 
-const ROOM_MODE = { online: "virtual", physical: "physical", imposter: "imposter" } as const;
-const MODE_LABEL = { virtual: "Online", physical: "Scorekeeper", imposter: "Imposter" } as const;
+const ROOM_MODE = { online: "virtual", physical: "physical", imposter: "imposter", liarsdice: "liarsdice", hotpotato: "hotpotato", spyfall: "spyfall" } as const;
 
 const noopSubscribe = () => () => {};
 
@@ -148,12 +150,12 @@ export function Home() {
             </button>
           )}
 
-          <fieldset className="flex flex-col gap-2 [@media(max-height:500px)]:grid [@media(max-height:500px)]:grid-cols-4">
-            <legend className={cx(LABEL, "mb-2 [@media(max-height:500px)]:mb-1.5")}>Choose a game</legend>
+          <fieldset className="grid grid-cols-2 gap-2 [@media(max-height:500px)]:grid-cols-3">
+            <legend className={cx(LABEL, "col-span-full mb-2 [@media(max-height:500px)]:mb-1.5")}>Choose a game</legend>
             {MODES.map((m) => (
               <label
                 key={m.id}
-                className="flex min-h-[72px] [@media(max-height:500px)]:min-h-14 [@media(max-height:500px)]:flex-col [@media(max-height:500px)]:justify-center [@media(max-height:500px)]:gap-1 [@media(max-height:500px)]:px-2 [@media(max-height:500px)]:py-2 [@media(max-height:500px)]:text-center items-center gap-4 rounded-2xl border-2 border-line bg-surface px-4 py-3 transition-[transform,border-color,background-color] duration-150 ease-[var(--ease-out)] active:scale-[0.98] has-[:checked]:border-accent has-[:checked]:bg-surface-2 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent"
+                className="flex min-h-[116px] flex-col items-start gap-2 rounded-2xl border-2 border-line bg-surface p-3 transition-[transform,border-color,background-color] duration-150 ease-[var(--ease-out)] active:scale-[0.98] has-[:checked]:border-accent has-[:checked]:bg-surface-2 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent [@media(max-height:500px)]:min-h-12 [@media(max-height:500px)]:flex-row [@media(max-height:500px)]:items-center [@media(max-height:500px)]:px-2 [@media(max-height:500px)]:py-1.5"
               >
                 <input
                   type="radio"
@@ -163,12 +165,12 @@ export function Home() {
                   onChange={() => setMode(m.id)}
                   className="peer sr-only"
                 />
-                <span className="grid size-11 [@media(max-height:500px)]:size-8 flex-none place-items-center rounded-xl bg-bg text-muted transition-colors duration-150 peer-checked:bg-accent peer-checked:text-ink">
+                <span className="grid size-10 [@media(max-height:500px)]:size-8 flex-none place-items-center rounded-xl bg-bg text-muted transition-colors duration-150 peer-checked:bg-accent peer-checked:text-ink">
                   {m.icon}
                 </span>
-                <span className="min-w-0 flex-1 [@media(max-height:500px)]:flex-none">
-                  <span className="block font-display text-lg leading-tight tracking-wide [@media(max-height:500px)]:text-xs">{m.title}</span>
-                  <span className="block text-sm text-muted [@media(max-height:500px)]:hidden">{m.blurb}</span>
+                <span className="min-w-0">
+                  <span className="block font-display text-base leading-tight tracking-wide [@media(max-height:500px)]:text-xs">{m.title}</span>
+                  <span className="mt-0.5 block text-xs leading-snug text-muted [@media(max-height:500px)]:hidden">{m.blurb}</span>
                 </span>
               </label>
             ))}
@@ -214,6 +216,35 @@ function MaskIcon() {
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden className="size-6">
       <path d="M3 7c3-1.5 6-1.5 9 0 3-1.5 6-1.5 9 0v4c0 4.5-3.5 8-9 8s-9-3.5-9-8V7Z" />
       <path d="M7 11.5c.8-.6 1.8-.6 2.6 0M14.4 11.5c.8-.6 1.8-.6 2.6 0M9.5 15.5c1.5.8 3.5.8 5 0" />
+    </svg>
+  );
+}
+
+function DiceIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden className="size-6">
+      <rect x="3.5" y="3.5" width="17" height="17" rx="4" />
+      <circle cx="8.5" cy="8.5" r="1.1" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1.1" fill="currentColor" stroke="none" />
+      <circle cx="15.5" cy="15.5" r="1.1" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+function BombIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden className="size-6">
+      <circle cx="10.5" cy="14" r="6.5" />
+      <path d="M15 9.5 17 7.5M17.5 3.5v1.5M21 7h-1.5M20 4.5l-1 1" />
+    </svg>
+  );
+}
+
+function PinIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden className="size-6">
+      <path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11Z" />
+      <circle cx="12" cy="10" r="2.3" />
     </svg>
   );
 }

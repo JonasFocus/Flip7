@@ -1,4 +1,4 @@
-import type { ClientMessage, RoomMode, RoomSummary, ServerMessage } from "../protocol.ts";
+import { isRoomMode, type ClientMessage, type RoomMode, type RoomSummary, type ServerMessage } from "../protocol.ts";
 import { getClientId } from "./identity.ts";
 
 // A pasted invite link carries digits outside the code (port, domain), so prefer the /room/<code> segment.
@@ -42,7 +42,7 @@ function isServerRoomMessage(msg: Record<string, unknown>): msg is Extract<Serve
     isObject(room) &&
     typeof room.code === "string" &&
     typeof room.hostId === "string" &&
-    (room.mode === "virtual" || room.mode === "physical" || room.mode === "imposter") &&
+    isRoomMode(room.mode) &&
     isObject(room.game) &&
     Array.isArray(room.game.players)
   );
@@ -52,7 +52,7 @@ function isRoomSummary(x: unknown): x is RoomSummary {
   return (
     isObject(x) &&
     typeof x.code === "string" &&
-    (x.mode === "virtual" || x.mode === "physical" || x.mode === "imposter") &&
+    isRoomMode(x.mode) &&
     typeof x.hostName === "string" &&
     typeof x.playerCount === "number" &&
     typeof x.joinable === "boolean" &&

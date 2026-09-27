@@ -399,3 +399,58 @@ test("imposter: each phone sees only its own secret, votes resolve", async () =>
   assert.equal(done.room.game.lastResult?.wasImposter, true);
   phones.forEach((c) => c.ws.close());
 });
+
+async function partyTable(mode: "liarsdice" | "hotpotato" | "spyfall", n: number): Promise<TestClient[]> {
+  const phones = await Promise.all(Array.from({ length: n }, () => connect()));
+  const [host, ...others] = phones;
+  assert.ok(host);
+  host.send({ t: "create", mode, name: "Mom", clientId: `${mode}-0` });
+  const code = (await host.waitRoom(() => true)).room.code;
+  others.forEach((c, i) => c.send({ t: "join", code, name: `Kid${i}`, clientId: `${mode}-${i + 1}` }));
+  await host.waitRoom((m) => m.room.game.players.length === n);
+  return phones;
+}
+
+test("liar's dice: each phone sees only its own dice, late joiners are refused", async () => {
+  const phones = await partyTable("liarsdice", 2);
+  phones[0]?.send({ t: "liarsdice", intent: { type: "start" } });
+  const views = await Promise.all(phones.map((c) => c.waitRoom((m) => m.room.game.phase === "bidding")));
+  for (const v of views) {
+    assert.ok(v.room.mode === "liarsdice");
+    for (const p of v.room.game.players) {
+      assert.equal(p.diceCount, 5);
+      assert.equal(p.dice.length, p.id === v.you ? 5 : 0);
+    }
+  }
+  const late = await connect();
+  late.send({ t: "join", code: views[0]?.room.code ?? "", name: "Late", clientId: "liarsdice-late" });
+  assert.equal(await late.waitError(), "Game already started");
+  [...phones, late].forEach((c) => c.ws.close());
+});
+
+test("hot potato: the fuse never reaches a phone", async () => {
+  const phones = await partyTable("hotpotato", 3);
+  phones[0]?.send({ t: "hotpotato", intent: { type: "start" } });
+  const views = await Promise.all(phones.map((c) => c.waitRoom((m) => m.room.game.phase === "playing")));
+  for (const v of views) {
+    assert.ok(v.room.mode === "hotpotato");
+    assert.equal(v.room.game.fuseAt, null);
+    assert.equal(v.room.deadlineInMs, undefined);
+    assert.ok(v.room.game.holderId);
+  }
+  phones.forEach((c) => c.ws.close());
+});
+
+test("where are we: the spy sees no location, everyone else sees no spy", async () => {
+  const phones = await partyTable("spyfall", 3);
+  phones[0]?.send({ t: "spyfall", intent: { type: "start" } });
+  const views = await Promise.all(phones.map((c) => c.waitRoom((m) => m.room.game.phase === "questions")));
+  const spies = views.filter((v) => v.room.mode === "spyfall" && v.room.game.spyId === v.you);
+  assert.equal(spies.length, 1);
+  for (const v of views) {
+    assert.ok(v.room.mode === "spyfall" && typeof v.room.deadlineInMs === "number");
+    if (v === spies[0]) assert.equal(v.room.game.location, null);
+    else assert.ok(v.room.game.location && v.room.game.spyId === null);
+  }
+  phones.forEach((c) => c.ws.close());
+});

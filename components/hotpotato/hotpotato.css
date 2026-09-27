@@ -1,0 +1,35 @@
+/* Hot Potato motion. Colors come from the globals.css theme tokens. */
+@keyframes hp-pulse {
+  50% { transform: scale(1.06); }
+}
+@keyframes hp-spark {
+  0%, 100% { opacity: 1; transform: scale(1) rotate(0deg); }
+  50% { opacity: 0.6; transform: scale(1.5) rotate(45deg); }
+}
+@keyframes hp-shake {
+  0%, 100% { translate: 0 0; rotate: 0deg; }
+  25% { translate: calc(var(--amp) * -1) 0; rotate: calc(var(--rot) * -1); }
+  75% { translate: var(--amp) 0; rotate: var(--rot); }
+}
+@keyframes hp-flash {
+  0% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@keyframes hp-urgent {
+  50% { background-color: oklch(0.45 0.18 25); }
+}
+
+.hp-shake { animation: hp-shake var(--shake-ms, 600ms) linear infinite; }
+.hp-shake[data-heat="0"] { --amp: 0px; --rot: 0deg; }
+.hp-shake[data-heat="1"] { --amp: 1px; --rot: 1deg; --shake-ms: 420ms; }
+.hp-shake[data-heat="2"] { --amp: 3px; --rot: 2deg; --shake-ms: 260ms; }
+.hp-shake[data-heat="3"] { --amp: 5px; --rot: 4deg; --shake-ms: 140ms; }
+.hp-pulse { animation: hp-pulse 900ms ease-in-out infinite; }
+.hp-spark { animation: hp-spark 180ms linear infinite; }
+.hp-flash { animation: hp-flash 900ms var(--ease-out) both; }
+.hp-urgent { animation: hp-urgent 700ms ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .hp-shake, .hp-pulse, .hp-spark, .hp-urgent { animation: none !important; }
+  .hp-flash { animation-duration: 1ms !important; }
+}

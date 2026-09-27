@@ -2,13 +2,16 @@
 
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
+import { HotPotato } from "@/components/hotpotato/HotPotato";
 import { Imposter } from "@/components/imposter/Imposter";
+import { LiarsDice } from "@/components/liarsdice/LiarsDice";
 import { Lobby } from "@/components/lobby/Lobby";
 import { LoadingScreen, NameGate, NoticeScreen, ReconnectBanner } from "@/components/lobby/Screens";
 import { Scorekeeper } from "@/components/scorekeeper/Scorekeeper";
+import { Spyfall } from "@/components/spyfall/Spyfall";
 import { Table } from "@/components/table/Table";
 import { useRoom } from "@/lib/client/useRoom";
-import { KICKED_MESSAGE, MAX_PLAYERS, REPLACED_MESSAGE } from "@/lib/protocol";
+import { KICKED_MESSAGE, REPLACED_MESSAGE } from "@/lib/protocol";
 
 const CODE_RE = /^\d{6}$/;
 
@@ -28,7 +31,7 @@ function LiveRoom({ code, name }: { code: string; name: string }) {
 function RoomView({ code, name, onPlayHere }: { code: string; name: string; onPlayHere: () => void }) {
   const room = useRoom(code, name);
   const router = useRouter();
-  const { table: rawTable, score: rawScore, imposter: rawImposter, leave: rawLeave } = room;
+  const { table: rawTable, score: rawScore, imposter: rawImposter, dice: rawDice, potato: rawPotato, spy: rawSpy, leave: rawLeave } = room;
 
   // Leaving from any screen goes home.
   const table = useMemo(
@@ -43,11 +46,14 @@ function RoomView({ code, name, onPlayHere }: { code: string; name: string; onPl
     () => rawImposter && { ...rawImposter, leave: () => (rawLeave(), router.replace("/")) },
     [rawImposter, rawLeave, router],
   );
+  const dice = useMemo(() => rawDice && { ...rawDice, leave: () => (rawLeave(), router.replace("/")) }, [rawDice, rawLeave, router]);
+  const potato = useMemo(() => rawPotato && { ...rawPotato, leave: () => (rawLeave(), router.replace("/")) }, [rawPotato, rawLeave, router]);
+  const spy = useMemo(() => rawSpy && { ...rawSpy, leave: () => (rawLeave(), router.replace("/")) }, [rawSpy, rawLeave, router]);
 
   // The in-game header shows its own reconnect state in the same spot.
   const banner = room.status === "reconnecting" && !(table && table.game.phase !== "lobby") && <ReconnectBanner />;
 
-  const seated = table ?? imposter;
+  const seated = table ?? imposter ?? dice ?? potato ?? spy;
   if (room.error === KICKED_MESSAGE || (seated && seated.game.players.length > 0 && !seated.game.players.some((p) => p.id === seated.you))) {
     return <NoticeScreen title="Removed" message="The host removed you from this room." />;
   }
@@ -77,6 +83,16 @@ function RoomView({ code, name, onPlayHere }: { code: string; name: string; onPl
       <>
         {banner}
         <Imposter conn={imposter} />
+      </>
+    );
+  }
+  if (dice || potato || spy) {
+    return (
+      <>
+        {banner}
+        {dice && <LiarsDice conn={dice} />}
+        {potato && <HotPotato conn={potato} />}
+        {spy && <Spyfall conn={spy} />}
       </>
     );
   }
@@ -122,7 +138,7 @@ function JoinFailed({ code, message, hadRoom }: { code: string; message: string;
     return <NoticeScreen title="Already playing" message="This game started without you. Ask them to play again, or start your own." />;
   }
   if (message === "Room is full") {
-    return <NoticeScreen title="Table's full" message={`This table already has ${MAX_PLAYERS} players. Start your own from home.`} />;
+    return <NoticeScreen title="Table's full" message="This table has no seats left. Start your own from home." />;
   }
   if (message === "Game is over") {
     return <NoticeScreen title="Game over" message="That scorekeeper game already finished." />;

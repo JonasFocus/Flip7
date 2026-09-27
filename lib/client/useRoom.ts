@@ -5,10 +5,21 @@ import { createGame, createScoreGame } from "../engine/index.ts";
 import type { GameEvent, GameState, Intent, ScoreIntent, ScoreState } from "../engine/types.ts";
 import { createImposterGame } from "../imposter/index.ts";
 import type { ImposterIntent, ImposterState } from "../imposter/types.ts";
-import { KICKED_MESSAGE, REPLACED_CLOSE_CODE, REPLACED_MESSAGE, type ClientMessage, type Room } from "../protocol.ts";
+import type { DiceIntent } from "../liarsdice/types.ts";
+import type { PotatoIntent } from "../hotpotato/types.ts";
+import type { SpyIntent } from "../spyfall/types.ts";
+import { KICKED_MESSAGE, REPLACED_CLOSE_CODE, REPLACED_MESSAGE, type ClientMessage, type PartyMode, type PartyRoom, type Room } from "../protocol.ts";
 import { clearLastRoom, getClientId, setLastRoom } from "./identity.ts";
 import { parseServerMessage, wsUrl } from "./rooms.ts";
-import type { ConnectionStatus, ImposterConnection, ScoreConnection, TableConnection } from "./types.ts";
+import type {
+  ConnectionStatus,
+  DiceConnection,
+  ImposterConnection,
+  PotatoConnection,
+  ScoreConnection,
+  SpyConnection,
+  TableConnection,
+} from "./types.ts";
 
 const PING_MS = 20_000;
 const PONG_WAIT_MS = 10_000; // measured from the ping, so throttled background timers can't fake staleness
@@ -75,6 +86,9 @@ interface RoomCore {
   send: (intent: Intent) => void;
   sendScore: (intent: ScoreIntent) => void;
   sendImposter: (intent: ImposterIntent) => void;
+  sendDice: (intent: DiceIntent) => void;
+  sendPotato: (intent: PotatoIntent) => void;
+  sendSpy: (intent: SpyIntent) => void;
   addBot: () => void;
   removePlayer: (playerId: string) => void;
   leave: () => void;
@@ -262,6 +276,9 @@ function useRoomSocket(code: string, name: string): RoomCore {
   const send = useCallback((intent: Intent) => sendMessage({ t: "intent", intent }), [sendMessage]);
   const sendScore = useCallback((intent: ScoreIntent) => sendMessage({ t: "score", intent }), [sendMessage]);
   const sendImposter = useCallback((intent: ImposterIntent) => sendMessage({ t: "imposter", intent }), [sendMessage]);
+  const sendDice = useCallback((intent: DiceIntent) => sendMessage({ t: "liarsdice", intent }), [sendMessage]);
+  const sendPotato = useCallback((intent: PotatoIntent) => sendMessage({ t: "hotpotato", intent }), [sendMessage]);
+  const sendSpy = useCallback((intent: SpyIntent) => sendMessage({ t: "spyfall", intent }), [sendMessage]);
   const addBot = useCallback(() => sendMessage({ t: "addBot" }), [sendMessage]);
   const removePlayer = useCallback((playerId: string) => sendMessage({ t: "removePlayer", playerId }), [sendMessage]);
   const leave = useCallback(() => {
@@ -293,11 +310,14 @@ function useRoomSocket(code: string, name: string): RoomCore {
       send,
       sendScore,
       sendImposter,
+      sendDice,
+      sendPotato,
+      sendSpy,
       addBot,
       removePlayer,
       leave,
     }),
-    [code, status, current, fatalMessage, hadRoom, unreachableWhy, flashError, send, sendScore, sendImposter, addBot, removePlayer, leave],
+    [code, status, current, fatalMessage, hadRoom, unreachableWhy, flashError, send, sendScore, sendImposter, sendDice, sendPotato, sendSpy, addBot, removePlayer, leave],
   );
 }
 
@@ -375,12 +395,32 @@ function imposterOf(c: RoomCore, game: ImposterState): ImposterConnection {
   };
 }
 
+// Shared by the party games; only `game` and `send` differ per mode.
+function partyOf<M extends PartyMode, I>(c: RoomCore, room: PartyRoom<M>, send: (intent: I) => void) {
+  return {
+    code: c.code,
+    status: c.status,
+    you: c.you,
+    hostId: c.hostId,
+    isHost: c.isHost,
+    game: room.game,
+    deadlineAt: typeof room.deadlineInMs === "number" ? c.receivedAt + room.deadlineInMs : undefined,
+    error: c.error,
+    send,
+    removePlayer: c.removePlayer,
+    leave: c.leave,
+  };
+}
+
 export interface RoomConnection {
   status: ConnectionStatus;
   error: string | null; // with status "closed" and no table/score: couldn't join (show it, offer home)
   table: TableConnection | null; // set once a virtual room snapshot arrived
   score: ScoreConnection | null; // set once a physical room snapshot arrived
   imposter: ImposterConnection | null; // set once an imposter room snapshot arrived
+  dice: DiceConnection | null;
+  potato: PotatoConnection | null;
+  spy: SpyConnection | null;
   hadRoom: boolean;
   unreachable: Unreachable;
   leave: () => void;
@@ -397,6 +437,9 @@ export function useRoom(code: string, name: string): RoomConnection {
       table: room?.mode === "virtual" ? tableOf(c, room.game) : null,
       score: room?.mode === "physical" ? scoreOf(c, room.game) : null,
       imposter: room?.mode === "imposter" ? imposterOf(c, room.game) : null,
+      dice: room?.mode === "liarsdice" ? partyOf(c, room, c.sendDice) : null,
+      potato: room?.mode === "hotpotato" ? partyOf(c, room, c.sendPotato) : null,
+      spy: room?.mode === "spyfall" ? partyOf(c, room, c.sendSpy) : null,
       hadRoom: c.hadRoom,
       unreachable: c.unreachable,
       leave: c.leave,
