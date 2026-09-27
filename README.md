@@ -3,7 +3,7 @@
 A mobile-first web app for playing the Flip 7 card game with family:
 
 - **Play online**: one phone per player, realtime rooms joined by a 6-digit code (up to 10 players, bots optional).
-- **Play vs bots**: solo on one device, no server needed.
+- **Imposter**: party game for 3-10 players; one secret imposter, timed clues, majority vote.
 - **Scorekeeper**: play with real cards and let the app tally each round.
 
 No accounts. Next.js (App Router) frontend, a plain Node `ws` game server with in-memory rooms, and a pure shared rules engine in `lib/engine`.
