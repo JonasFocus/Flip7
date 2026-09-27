@@ -7,7 +7,6 @@ import { createRoom, roomCodeFrom } from "@/lib/client/rooms";
 import { getLastRoom, getSavedName, saveName } from "@/lib/client/identity";
 import { fail, tap } from "@/lib/client/haptics";
 import { PlayingCard } from "@/components/cards/PlayingCard";
-import { BotIcon } from "@/components/cards/icons";
 import { Button } from "@/components/ui/Button";
 import { Toast } from "@/components/ui/Toast";
 import { cx } from "@/components/ui/cx";
@@ -15,13 +14,12 @@ import { JoinCode } from "./JoinCode";
 import { OpenTables, useOpenRooms } from "./OpenTables";
 import { HowToPlay } from "./HowToPlay";
 
-type Mode = "online" | "bots" | "physical" | "imposter";
+type Mode = "online" | "physical" | "imposter";
 
 const LABEL = "text-[11px] font-bold uppercase tracking-[0.2em] text-muted";
 
 const MODES: { id: Mode; title: string; blurb: string; cta: string; icon: ReactNode }[] = [
   { id: "online", title: "Play online", blurb: "One phone each, with family", cta: "Create table", icon: <PeopleIcon /> },
-  { id: "bots", title: "Play vs bots", blurb: "Solo, right on this phone", cta: "Deal me in", icon: <BotIcon className="size-6" /> },
   { id: "physical", title: "Scorekeeper", blurb: "Real cards, we do the math", cta: "Start scoring", icon: <TallyIcon /> },
   { id: "imposter", title: "Imposter", blurb: "Party game · 3+ players, find the faker", cta: "Create room", icon: <MaskIcon /> },
 ];
@@ -73,10 +71,6 @@ export function Home() {
   async function start() {
     if (busy || !requireName()) return;
     tap();
-    if (mode === "bots") {
-      router.push("/solo");
-      return;
-    }
     setBusy(true);
     try {
       const code = await createRoom(ROOM_MODE[mode], trimmed);

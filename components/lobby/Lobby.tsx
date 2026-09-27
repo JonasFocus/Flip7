@@ -11,8 +11,6 @@ import type { Player } from "@/lib/engine/types";
 import { MAX_PLAYERS } from "@/lib/protocol";
 import { MicroLabel } from "./Screens";
 
-const MIN_BOTS = 1;
-const MAX_BOTS = 5;
 const noopSubscribe = () => () => {};
 
 export function Lobby({ conn }: { conn: TableConnection }) {
@@ -20,17 +18,15 @@ export function Lobby({ conn }: { conn: TableConnection }) {
   const [toast, setToast] = useState<string | null>(null);
   const me = game.players.find((p) => p.id === you);
   const host = game.players.find((p) => p.id === conn.hostId);
-  const local = conn.kind === "local";
-  const bots = game.players.filter((p) => p.isBot);
   const full = game.players.length >= MAX_PLAYERS;
 
   const [armedId, setArmedId] = useState<string | null>(null);
   const wasHost = useRef(isHost);
 
   useEffect(() => {
-    if (isHost && !wasHost.current && !local) setToast("You're the host now");
+    if (isHost && !wasHost.current) setToast("You're the host now");
     wasHost.current = isHost;
-  }, [isHost, local]);
+  }, [isHost]);
 
   useEffect(() => {
     if (!armedId) return;
@@ -68,14 +64,9 @@ export function Lobby({ conn }: { conn: TableConnection }) {
     conn.send({ type: "ready", ready: !me?.ready });
   }
 
-  function removeLastBot() {
-    const last = bots.at(-1);
-    if (last && bots.length > MIN_BOTS) conn.removePlayer(last.id);
-  }
-
   return (
     <main className="mx-auto grid min-h-dvh w-full max-w-md grid-rows-[auto_auto_1fr_auto] gap-x-8 px-4 pt-safe-2 select-none [@media(max-height:500px)]:h-dvh [@media(max-height:500px)]:max-w-3xl [@media(max-height:500px)]:grid-cols-2 [@media(max-height:500px)]:grid-rows-[auto_1fr_auto]">
-      <h1 className="sr-only">{local ? "Solo lobby" : conn.code ? `Table ${conn.code} lobby` : "Lobby"}</h1>
+      <h1 className="sr-only">{conn.code ? `Table ${conn.code} lobby` : "Lobby"}</h1>
       <Toast message={toast ?? conn.error} tone={toast ? "accent" : "danger"} onDismiss={() => setToast(null)} />
 
       <header className="flex items-center justify-between py-2 [@media(max-height:500px)]:col-span-2">
@@ -88,19 +79,15 @@ export function Lobby({ conn }: { conn: TableConnection }) {
       </header>
 
       <section className="flex flex-col items-center gap-4 pt-4 pb-8 [@media(max-height:500px)]:col-start-1 [@media(max-height:500px)]:gap-2 [@media(max-height:500px)]:pt-0 [@media(max-height:500px)]:justify-center [@media(max-height:500px)]:pb-4">
-        {local || !conn.code ? (
-          <SoloHero bots={bots.length} onAdd={conn.addBot} onRemove={removeLastBot} />
-        ) : (
-          <InviteHero code={conn.code} onToast={setToast} />
-        )}
+        {conn.code && <InviteHero code={conn.code} onToast={setToast} />}
       </section>
 
       <section aria-labelledby="seats" className="min-h-0 [@media(max-height:500px)]:col-start-2 [@media(max-height:500px)]:row-span-2 [@media(max-height:500px)]:row-start-2 [@media(max-height:500px)]:overflow-y-auto [@media(max-height:500px)]:pb-safe-4">
         <div className="mb-2 flex items-center justify-between">
           <MicroLabel>
-            <span id="seats">Players</span> <span className="tabular-nums">{game.players.length}/{local ? MAX_BOTS + 1 : MAX_PLAYERS}</span>
+            <span id="seats">Players</span> <span className="tabular-nums">{game.players.length}/{MAX_PLAYERS}</span>
           </MicroLabel>
-          {isHost && !local && (
+          {isHost && (
             <Button variant="ghost" size="sm" className="-mr-3" disabled={full} onClick={() => (tap(), conn.addBot())}>
               {full ? "Full" : "+ Bot"}
             </Button>
@@ -113,9 +100,8 @@ export function Lobby({ conn }: { conn: TableConnection }) {
               player={p}
               seat={i + 1}
               isYou={p.id === you}
-              isHost={!local && i === hostIndex(conn)}
-              local={local}
-              canRemove={isHost && p.id !== you && !(local && bots.length <= MIN_BOTS)}
+              isHost={i === hostIndex(conn)}
+              canRemove={isHost && p.id !== you}
               armed={armedId === p.id}
               onRemove={() => remove(p.id)}
             />
@@ -215,48 +201,11 @@ export function InviteHero({ code, onToast }: { code: string; onToast: (m: strin
   );
 }
 
-function SoloHero({ bots, onAdd, onRemove }: { bots: number; onAdd: () => void; onRemove: () => void }) {
-  return (
-    <>
-      <MicroLabel>Solo vs bots</MicroLabel>
-      <div className="flex items-center gap-5">
-        <StepButton label="Remove a bot" disabled={bots <= MIN_BOTS} onClick={onRemove}>
-          −
-        </StepButton>
-        <p className="w-24 text-center">
-          <span className="block font-display text-6xl leading-none tabular-nums text-accent [text-shadow:0_4px_0_var(--color-accent-deep)]">
-            {bots}
-          </span>
-          <span className="mt-1 block text-xs font-bold uppercase tracking-[0.18em] text-muted">{bots === 1 ? "bot" : "bots"}</span>
-        </p>
-        <StepButton label="Add a bot" disabled={bots >= MAX_BOTS} onClick={onAdd}>
-          +
-        </StepButton>
-      </div>
-    </>
-  );
-}
-
-function StepButton({ label, disabled, onClick, children }: { label: string; disabled: boolean; onClick: () => void; children: string }) {
-  return (
-    <Button
-      variant="secondary"
-      aria-label={label}
-      disabled={disabled}
-      onClick={() => (tap(), onClick())}
-      className="size-14 !px-0 text-3xl"
-    >
-      {children}
-    </Button>
-  );
-}
-
 function Seat({
   player,
   seat,
   isYou,
   isHost,
-  local,
   canRemove,
   armed,
   onRemove,
@@ -265,7 +214,6 @@ function Seat({
   seat: number;
   isYou: boolean;
   isHost: boolean;
-  local: boolean;
   canRemove: boolean;
   armed: boolean;
   onRemove: () => void;
@@ -281,7 +229,7 @@ function Seat({
       <span className="w-6 text-center font-display text-xs text-muted tabular-nums">P{seat}</span>
       <span className="relative">
         <Avatar id={player.id} seat={seat - 1} name={player.name} isBot={player.isBot} />
-        {!player.isBot && !local && (
+        {!player.isBot && (
           <span
             aria-hidden
             className={cx("absolute -top-0.5 -right-0.5 size-3 rounded-full ring-2 ring-surface", offline ? "bg-muted/60" : "bg-active")}
@@ -298,7 +246,7 @@ function Seat({
           {isHost && isYou && " · Host"}
         </span>
       </span>
-      {!local && <ReadyPill player={player} isHost={isHost} />}
+      <ReadyPill player={player} isHost={isHost} />
       {canRemove && (
         <button
           type="button"

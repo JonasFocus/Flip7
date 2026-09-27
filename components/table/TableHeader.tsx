@@ -101,7 +101,7 @@ export function TableHeader({
         ) : confirm === "leave" ? (
           <div className="flex flex-col gap-3">
             <p className="text-muted">
-              {code ? "Your seat is given up and the table plays on without you." : "This solo game will be lost."}
+              Your seat is given up and the table plays on without you.
             </p>
             <Button variant="danger" size="lg" block onClick={onLeave}>
               Leave

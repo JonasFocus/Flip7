@@ -4,10 +4,10 @@ import type { ImposterIntent, ImposterState } from "../imposter/types.ts";
 export type ConnectionStatus = "connecting" | "open" | "reconnecting" | "closed";
 
 // What every virtual-table screen consumes. Implemented by useRoom (online, Railway)
-// and useLocalGame (solo vs bots, fully on-device), so the UI never knows which.
+//.
 export interface TableConnection {
-  kind: "online" | "local";
-  code: string | null; // room code, null for local
+  kind: "online";
+  code: string | null;
   status: ConnectionStatus;
   you: string; // your player id
   hostId: string;
