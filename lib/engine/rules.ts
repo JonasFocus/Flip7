@@ -183,6 +183,24 @@ function handle(c: Ctx, actorId: string, intent: Intent, isHost: boolean): strin
         Object.assign(s, createGame({ goal: s.goal }), { seq: s.seq, players });
       }
       return null;
+    case "restart":
+      if (!isHost) return "Only the host can restart";
+      if (s.phase === "lobby") return "The game has not started";
+      for (const p of s.players) {
+        p.total = 0;
+        p.roundHistory = [];
+      }
+      s.round = 0;
+      s.deck = shuffle(buildDeck(), c.rng);
+      s.discard = [];
+      startRound(c, s.players.length - 1);
+      return null;
+    case "endGame":
+      if (!isHost) return "Only the host can end the game";
+      if (s.phase !== "playing" && s.phase !== "roundOver") return "The game is not in progress";
+      clearPending(s);
+      endGame(c);
+      return null;
     case "hit": {
       if (awaitingPlayerId(s) !== actorId) return "It is not your turn";
       const pend = s.pending;
@@ -389,14 +407,19 @@ function resolveAction(c: Ctx, sourceId: string, card: ActionCard, targetId: str
   }
 }
 
-function endRound(c: Ctx): void {
-  const { s } = c;
+// Unresolved action cards go to the discard so every card stays accounted for.
+function clearPending(s: GameState): void {
   if (s.pending?.type === "chooseTarget") s.discard.push(s.pending.card);
   if (s.pending?.type === "flipThree") s.discard.push(...s.pending.queued);
   s.discard.push(...s.actionQueue.map((q) => q.card));
   s.pending = null;
   s.actionQueue = [];
   s.dealing = false;
+}
+
+function endRound(c: Ctx): void {
+  const { s } = c;
+  clearPending(s);
   const scores: Record<string, number> = {};
   for (const p of s.players) {
     const pts = p.status === "busted" ? 0 : scoreHand(p.hand, { flip7: p.status === "flip7" }).total;
@@ -405,9 +428,13 @@ function endRound(c: Ctx): void {
     scores[p.id] = pts;
   }
   c.events.push({ type: "roundEnd", round: s.round, scores });
+  if (Math.max(...s.players.map((p) => p.total)) >= s.goal) endGame(c);
+  else s.phase = "roundOver";
+}
+
+function endGame(c: Ctx): void {
+  const { s } = c;
   const top = Math.max(...s.players.map((p) => p.total));
-  if (top >= s.goal) {
-    s.phase = "gameOver";
-    c.events.push({ type: "gameOver", winnerIds: s.players.filter((p) => p.total === top).map((p) => p.id) });
-  } else s.phase = "roundOver";
+  s.phase = "gameOver";
+  c.events.push({ type: "gameOver", winnerIds: s.players.filter((p) => p.total === top).map((p) => p.id) });
 }

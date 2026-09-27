@@ -3,10 +3,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createGame, createScoreGame } from "../engine/index.ts";
 import type { GameEvent, GameState, Intent, ScoreIntent, ScoreState } from "../engine/types.ts";
+import { createImposterGame } from "../imposter/index.ts";
+import type { ImposterIntent, ImposterState } from "../imposter/types.ts";
 import { KICKED_MESSAGE, REPLACED_CLOSE_CODE, REPLACED_MESSAGE, type ClientMessage, type Room } from "../protocol.ts";
 import { clearLastRoom, getClientId, setLastRoom } from "./identity.ts";
 import { parseServerMessage, wsUrl } from "./rooms.ts";
-import type { ConnectionStatus, ScoreConnection, TableConnection } from "./types.ts";
+import type { ConnectionStatus, ImposterConnection, ScoreConnection, TableConnection } from "./types.ts";
 
 const PING_MS = 20_000;
 const PONG_WAIT_MS = 10_000; // measured from the ping, so throttled background timers can't fake staleness
@@ -72,6 +74,7 @@ interface RoomCore {
   unreachable: Unreachable;
   send: (intent: Intent) => void;
   sendScore: (intent: ScoreIntent) => void;
+  sendImposter: (intent: ImposterIntent) => void;
   addBot: () => void;
   removePlayer: (playerId: string) => void;
   leave: () => void;
@@ -258,6 +261,7 @@ function useRoomSocket(code: string, name: string): RoomCore {
   );
   const send = useCallback((intent: Intent) => sendMessage({ t: "intent", intent }), [sendMessage]);
   const sendScore = useCallback((intent: ScoreIntent) => sendMessage({ t: "score", intent }), [sendMessage]);
+  const sendImposter = useCallback((intent: ImposterIntent) => sendMessage({ t: "imposter", intent }), [sendMessage]);
   const addBot = useCallback(() => sendMessage({ t: "addBot" }), [sendMessage]);
   const removePlayer = useCallback((playerId: string) => sendMessage({ t: "removePlayer", playerId }), [sendMessage]);
   const leave = useCallback(() => {
@@ -288,11 +292,12 @@ function useRoomSocket(code: string, name: string): RoomCore {
       unreachable: unreachableWhy,
       send,
       sendScore,
+      sendImposter,
       addBot,
       removePlayer,
       leave,
     }),
-    [code, status, current, fatalMessage, hadRoom, unreachableWhy, flashError, send, sendScore, addBot, removePlayer, leave],
+    [code, status, current, fatalMessage, hadRoom, unreachableWhy, flashError, send, sendScore, sendImposter, addBot, removePlayer, leave],
   );
 }
 
@@ -353,11 +358,29 @@ function scoreOf(c: RoomCore, game: ScoreState): ScoreConnection {
   };
 }
 
+function imposterOf(c: RoomCore, game: ImposterState): ImposterConnection {
+  const endsIn = c.room?.mode === "imposter" ? c.room.cluesEndsInMs : undefined;
+  return {
+    code: c.code,
+    status: c.status,
+    you: c.you,
+    hostId: c.hostId,
+    isHost: c.isHost,
+    game,
+    cluesEndsAt: typeof endsIn === "number" ? c.receivedAt + endsIn : undefined,
+    error: c.error,
+    send: c.sendImposter,
+    removePlayer: c.removePlayer,
+    leave: c.leave,
+  };
+}
+
 export interface RoomConnection {
   status: ConnectionStatus;
   error: string | null; // with status "closed" and no table/score: couldn't join (show it, offer home)
   table: TableConnection | null; // set once a virtual room snapshot arrived
   score: ScoreConnection | null; // set once a physical room snapshot arrived
+  imposter: ImposterConnection | null; // set once an imposter room snapshot arrived
   hadRoom: boolean;
   unreachable: Unreachable;
   leave: () => void;
@@ -373,6 +396,7 @@ export function useRoom(code: string, name: string): RoomConnection {
       error: c.error,
       table: room?.mode === "virtual" ? tableOf(c, room.game) : null,
       score: room?.mode === "physical" ? scoreOf(c, room.game) : null,
+      imposter: room?.mode === "imposter" ? imposterOf(c, room.game) : null,
       hadRoom: c.hadRoom,
       unreachable: c.unreachable,
       leave: c.leave,
@@ -393,4 +417,11 @@ export function useScoreRoom(code: string, name: string): ScoreConnection {
   const [empty] = useState(() => createScoreGame());
   const game = c.room?.mode === "physical" ? c.room.game : empty;
   return useMemo(() => scoreOf(c, game), [c, game]);
+}
+
+export function useImposterRoom(code: string, name: string): ImposterConnection {
+  const c = useRoomSocket(code, name);
+  const [empty] = useState(() => createImposterGame());
+  const game = c.room?.mode === "imposter" ? c.room.game : empty;
+  return useMemo(() => imposterOf(c, game), [c, game]);
 }

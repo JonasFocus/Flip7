@@ -42,7 +42,7 @@ function isServerRoomMessage(msg: Record<string, unknown>): msg is Extract<Serve
     isObject(room) &&
     typeof room.code === "string" &&
     typeof room.hostId === "string" &&
-    (room.mode === "virtual" || room.mode === "physical") &&
+    (room.mode === "virtual" || room.mode === "physical" || room.mode === "imposter") &&
     isObject(room.game) &&
     Array.isArray(room.game.players)
   );
@@ -52,7 +52,7 @@ function isRoomSummary(x: unknown): x is RoomSummary {
   return (
     isObject(x) &&
     typeof x.code === "string" &&
-    (x.mode === "virtual" || x.mode === "physical") &&
+    (x.mode === "virtual" || x.mode === "physical" || x.mode === "imposter") &&
     typeof x.hostName === "string" &&
     typeof x.playerCount === "number" &&
     typeof x.joinable === "boolean" &&

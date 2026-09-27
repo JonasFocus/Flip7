@@ -103,8 +103,8 @@ export function OpenTables({ load, exclude, onJoin }: { load: Load; exclude: str
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-semibold">{r.hostName}&rsquo;s table</span>
                   <span className="mt-0.5 flex items-center gap-2 text-xs text-muted">
-                    <Badge tone={r.mode === "virtual" ? "accent" : "neutral"}>
-                      {r.mode === "virtual" ? "Online" : "Scorekeeper"}
+                    <Badge tone={r.mode === "physical" ? "neutral" : r.mode === "imposter" ? "chance" : "accent"}>
+                      {r.mode === "virtual" ? "Online" : r.mode === "imposter" ? "Imposter" : "Scorekeeper"}
                     </Badge>
                     <span className="tabular-nums">
                       {r.playerCount} {r.playerCount === 1 ? "player" : "players"} · {ago(r.lastActive)}

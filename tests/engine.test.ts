@@ -439,3 +439,62 @@ test("scorekeeper: consecutive undos each restore their own round's hands", () =
   assert.equal(s.players[0]?.total, 0);
   assert.equal(s.entryHistory.length, 0);
 });
+
+function playedRounds(): GameState {
+  let s = act(lobby(["h", "g", "bot"], true), "h", { type: "start" }, true);
+  const rng = seeded(7);
+  while (s.round < 3 || s.phase !== "playing") {
+    if (s.phase === "gameOver") throw new Error("game ended early");
+    if (s.phase === "roundOver") {
+      s = act(s, "h", { type: "nextRound" }, true);
+      continue;
+    }
+    const who = awaitingPlayerId(s);
+    const intent = who && chooseBotIntent(s, who, rng);
+    if (!who || !intent) throw new Error("stuck");
+    s = act(s, who, intent);
+  }
+  return s;
+}
+
+test("restart resets totals and deals round 1 from a fresh 94-card deck", () => {
+  const mid = playedRounds();
+  assert.ok(mid.players.some((p) => p.total > 0));
+  const s = act(mid, "h", { type: "restart" }, true);
+  assert.equal(s.phase, "playing");
+  assert.equal(s.round, 1);
+  assert.equal(s.players.length, 3);
+  for (const p of s.players) {
+    assert.equal(p.total, 0);
+    assert.deepEqual(p.roundHistory, []);
+  }
+  assert.ok(s.lastEvents.some((e) => e.type === "deal"));
+  const all = [
+    ...s.players.flatMap((p) => p.hand),
+    ...s.deck,
+    ...s.discard,
+    ...(s.pending?.type === "chooseTarget" ? [s.pending.card] : []),
+    ...(s.pending?.type === "flipThree" ? s.pending.queued : []),
+    ...s.actionQueue.map((q) => q.card),
+  ].map(card);
+  assert.equal(new Set(all).size, 94);
+  assert.equal(all.length, 94);
+});
+
+test("endGame finishes on current totals without scoring the live round, ties shared", () => {
+  const s = rigged({ a: [n(12)], b: [n(5)], c: [] }, [n(1)]);
+  s.players.forEach((p, i) => (p.total = [40, 40, 10][i] ?? 0));
+  const r = act(s, "a", { type: "endGame" }, true);
+  assert.equal(r.phase, "gameOver");
+  assert.deepEqual(r.players.map((p) => p.total), [40, 40, 10]);
+  assert.deepEqual(r.lastEvents, [{ type: "gameOver", winnerIds: ["a", "b"] }]);
+  assert.equal(applyIntent(r, "a", { type: "endGame" }, { isHost: true }).ok, false, "already over");
+});
+
+test("restart and endGame are host only", () => {
+  const s = rigged({ a: [], b: [] }, [n(1)]);
+  for (const type of ["restart", "endGame"] as const) {
+    assert.equal(applyIntent(s, "b", { type }, { isHost: false }).ok, false);
+    assert.equal(applyIntent(lobby(["a", "b"]), "a", { type }, { isHost: true }).ok, false, "not from lobby");
+  }
+});

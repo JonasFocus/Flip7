@@ -1,4 +1,5 @@
 import type { Intent, PhysicalEntry, ScoreIntent } from "../lib/engine/types.ts";
+import type { ImposterIntent } from "../lib/imposter/types.ts";
 import type { ClientMessage } from "../lib/protocol.ts";
 
 type Obj = Record<string, unknown>;
@@ -30,6 +31,8 @@ function parseIntent(v: unknown): Intent | null {
     case "stay":
     case "nextRound":
     case "playAgain":
+    case "restart":
+    case "endGame":
       return { type: v.type };
     case "chooseTarget":
       return isId(v.targetId) ? { type: "chooseTarget", targetId: v.targetId } : null;
@@ -84,6 +87,27 @@ function parseScoreIntent(v: unknown): ScoreIntent | null {
   }
 }
 
+function parseImposterIntent(v: unknown): ImposterIntent | null {
+  if (!isObj(v)) return null;
+  switch (v.type) {
+    case "setCategory":
+      return typeof v.categoryId === "string" && v.categoryId.length >= 1 && v.categoryId.length <= 40
+        ? { type: "setCategory", categoryId: v.categoryId }
+        : null;
+    case "setTimer":
+      return v.sec === 90 || v.sec === 120 || v.sec === 300 ? { type: "setTimer", sec: v.sec } : null;
+    case "vote":
+      return isId(v.targetId) ? { type: "vote", targetId: v.targetId } : null;
+    case "start":
+    case "startVoting":
+    case "nextRound":
+    case "playAgain":
+      return { type: v.type };
+    default:
+      return null;
+  }
+}
+
 export function parseMessage(raw: string): ClientMessage | null {
   let v: unknown;
   try {
@@ -95,7 +119,7 @@ export function parseMessage(raw: string): ClientMessage | null {
   switch (v.t) {
     case "create": {
       const name = cleanName(v.name);
-      if (!name || !isId(v.clientId) || (v.mode !== "virtual" && v.mode !== "physical")) return null;
+      if (!name || !isId(v.clientId) || (v.mode !== "virtual" && v.mode !== "physical" && v.mode !== "imposter")) return null;
       return { t: "create", mode: v.mode, name, clientId: v.clientId };
     }
     case "join": {
@@ -110,6 +134,10 @@ export function parseMessage(raw: string): ClientMessage | null {
     case "score": {
       const intent = parseScoreIntent(v.intent);
       return intent ? { t: "score", intent } : null;
+    }
+    case "imposter": {
+      const intent = parseImposterIntent(v.intent);
+      return intent ? { t: "imposter", intent } : null;
     }
     case "removePlayer":
       return isId(v.playerId) ? { t: "removePlayer", playerId: v.playerId } : null;

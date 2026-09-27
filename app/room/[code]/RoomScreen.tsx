@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
+import { Imposter } from "@/components/imposter/Imposter";
 import { Lobby } from "@/components/lobby/Lobby";
 import { LoadingScreen, NameGate, NoticeScreen, ReconnectBanner } from "@/components/lobby/Screens";
 import { Scorekeeper } from "@/components/scorekeeper/Scorekeeper";
@@ -27,7 +28,7 @@ function LiveRoom({ code, name }: { code: string; name: string }) {
 function RoomView({ code, name, onPlayHere }: { code: string; name: string; onPlayHere: () => void }) {
   const room = useRoom(code, name);
   const router = useRouter();
-  const { table: rawTable, score: rawScore, leave: rawLeave } = room;
+  const { table: rawTable, score: rawScore, imposter: rawImposter, leave: rawLeave } = room;
 
   // Leaving from any screen goes home.
   const table = useMemo(
@@ -38,11 +39,16 @@ function RoomView({ code, name, onPlayHere }: { code: string; name: string; onPl
     () => rawScore && { ...rawScore, leave: () => (rawLeave(), router.replace("/")) },
     [rawScore, rawLeave, router],
   );
+  const imposter = useMemo(
+    () => rawImposter && { ...rawImposter, leave: () => (rawLeave(), router.replace("/")) },
+    [rawImposter, rawLeave, router],
+  );
 
   // The in-game header shows its own reconnect state in the same spot.
   const banner = room.status === "reconnecting" && !(table && table.game.phase !== "lobby") && <ReconnectBanner />;
 
-  if (room.error === KICKED_MESSAGE || (table && table.game.players.length > 0 && !table.game.players.some((p) => p.id === table.you))) {
+  const seated = table ?? imposter;
+  if (room.error === KICKED_MESSAGE || (seated && seated.game.players.length > 0 && !seated.game.players.some((p) => p.id === seated.you))) {
     return <NoticeScreen title="Removed" message="The host removed you from this room." />;
   }
   // Also covers a rejoin that fails later, e.g. the room expired or the server restarted.
@@ -63,6 +69,14 @@ function RoomView({ code, name, onPlayHere }: { code: string; name: string; onPl
       <>
         {banner}
         {table.game.phase === "lobby" ? <Lobby conn={table} /> : <Table conn={table} />}
+      </>
+    );
+  }
+  if (imposter) {
+    return (
+      <>
+        {banner}
+        <Imposter conn={imposter} />
       </>
     );
   }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { GameState } from "@/lib/engine/types";
+import type { GameState, Intent } from "@/lib/engine/types";
 import type { ConnectionStatus } from "@/lib/client/types";
 import { Button } from "@/components/ui/Button";
 import { Sheet } from "@/components/ui/Sheet";
@@ -11,17 +11,21 @@ export function TableHeader({
   game,
   code,
   status,
+  isHost,
+  send,
   onScores,
   onLeave,
 }: {
   game: GameState;
   code: string | null;
   status: ConnectionStatus;
+  isHost: boolean;
+  send: (intent: Intent) => void;
   onScores: () => void;
   onLeave: () => void;
 }) {
   const [menu, setMenu] = useState(false);
-  const [confirm, setConfirm] = useState(false);
+  const [confirm, setConfirm] = useState<"leave" | "restart" | "endGame" | null>(null);
   const leader = Math.max(0, ...game.players.map((p) => p.total));
   const pct = Math.min(100, (leader / game.goal) * 100);
   const offline = status === "reconnecting" || status === "connecting";
@@ -29,8 +33,10 @@ export function TableHeader({
 
   function close() {
     setMenu(false);
-    setConfirm(false);
+    setConfirm(null);
   }
+
+  const hostAction = confirm === "restart" || confirm === "endGame" ? HOST_ACTIONS[confirm] : null;
 
   return (
     <header className="flex h-14 flex-none items-center gap-3 px-4">
@@ -73,8 +79,26 @@ export function TableHeader({
         </svg>
       </button>
 
-      <Sheet open={menu} onClose={close} title={confirm ? "Leave the game?" : "Menu"}>
-        {confirm ? (
+      <Sheet open={menu} onClose={close} title={hostAction ? hostAction.question : confirm === "leave" ? "Leave the game?" : "Menu"}>
+        {hostAction ? (
+          <div className="flex flex-col gap-3">
+            <p className="text-muted">{hostAction.warning}</p>
+            <Button
+              variant="danger"
+              size="lg"
+              block
+              onClick={() => {
+                close();
+                send(hostAction.intent);
+              }}
+            >
+              {hostAction.label}
+            </Button>
+            <Button variant="ghost" block onClick={() => setConfirm(null)}>
+              Keep playing
+            </Button>
+          </div>
+        ) : confirm === "leave" ? (
           <div className="flex flex-col gap-3">
             <p className="text-muted">
               {code ? "Your seat is given up and the table plays on without you." : "This solo game will be lost."}
@@ -82,7 +106,7 @@ export function TableHeader({
             <Button variant="danger" size="lg" block onClick={onLeave}>
               Leave
             </Button>
-            <Button variant="ghost" block onClick={() => setConfirm(false)}>
+            <Button variant="ghost" block onClick={() => setConfirm(null)}>
               Stay at the table
             </Button>
           </div>
@@ -105,7 +129,16 @@ export function TableHeader({
             >
               Scores
             </Button>
-            <Button variant="ghost" block className="text-busted" onClick={() => setConfirm(true)}>
+            {isHost &&
+              (["restart", "endGame"] as const).map((key) => (
+                <Button key={key} variant="secondary" size="lg" block onClick={() => setConfirm(key)}>
+                  <span className="flex flex-col items-center gap-1 leading-none">
+                    <span>{HOST_ACTIONS[key].label}</span>
+                    <span className="font-sans text-xs font-bold tracking-normal text-muted normal-case">{HOST_ACTIONS[key].subtitle}</span>
+                  </span>
+                </Button>
+              ))}
+            <Button variant="ghost" block className="text-busted" onClick={() => setConfirm("leave")}>
               Leave game
             </Button>
           </div>
@@ -114,3 +147,20 @@ export function TableHeader({
     </header>
   );
 }
+
+const HOST_ACTIONS = {
+  restart: {
+    label: "Restart game",
+    subtitle: "Everyone back to 0, round 1",
+    question: "Restart the game?",
+    warning: "All scores reset to 0 and a fresh round 1 is dealt right away.",
+    intent: { type: "restart" },
+  },
+  endGame: {
+    label: "End game",
+    subtitle: "Show final standings",
+    question: "End the game?",
+    warning: "The game ends on the current totals. This round is not scored.",
+    intent: { type: "endGame" },
+  },
+} satisfies Record<string, { label: string; subtitle: string; question: string; warning: string; intent: Intent }>;

@@ -1,4 +1,5 @@
 import type { GameEvent, GameState, Intent, ScoreIntent, ScoreState } from "../engine/types.ts";
+import type { ImposterIntent, ImposterState } from "../imposter/types.ts";
 
 export type ConnectionStatus = "connecting" | "open" | "reconnecting" | "closed";
 
@@ -31,5 +32,19 @@ export interface ScoreConnection {
   game: ScoreState;
   error: string | null;
   send: (intent: ScoreIntent) => void;
+  leave: () => void;
+}
+
+export interface ImposterConnection {
+  code: string;
+  status: ConnectionStatus;
+  you: string; // your player id (client id)
+  hostId: string;
+  isHost: boolean;
+  game: ImposterState; // already redacted for you
+  cluesEndsAt?: number; // clues phase: local ms time voting auto-starts
+  error: string | null;
+  send: (intent: ImposterIntent) => void;
+  removePlayer: (playerId: string) => void;
   leave: () => void;
 }

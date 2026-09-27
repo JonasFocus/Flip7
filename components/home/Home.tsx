@@ -15,7 +15,7 @@ import { JoinCode } from "./JoinCode";
 import { OpenTables, useOpenRooms } from "./OpenTables";
 import { HowToPlay } from "./HowToPlay";
 
-type Mode = "online" | "bots" | "physical";
+type Mode = "online" | "bots" | "physical" | "imposter";
 
 const LABEL = "text-[11px] font-bold uppercase tracking-[0.2em] text-muted";
 
@@ -23,7 +23,11 @@ const MODES: { id: Mode; title: string; blurb: string; cta: string; icon: ReactN
   { id: "online", title: "Play online", blurb: "One phone each, with family", cta: "Create table", icon: <PeopleIcon /> },
   { id: "bots", title: "Play vs bots", blurb: "Solo, right on this phone", cta: "Deal me in", icon: <BotIcon className="size-6" /> },
   { id: "physical", title: "Scorekeeper", blurb: "Real cards, we do the math", cta: "Start scoring", icon: <TallyIcon /> },
+  { id: "imposter", title: "Imposter", blurb: "Party game · 3+ players, find the faker", cta: "Create room", icon: <MaskIcon /> },
 ];
+
+const ROOM_MODE = { online: "virtual", physical: "physical", imposter: "imposter" } as const;
+const MODE_LABEL = { virtual: "Online", physical: "Scorekeeper", imposter: "Imposter" } as const;
 
 const noopSubscribe = () => () => {};
 
@@ -75,7 +79,7 @@ export function Home() {
     }
     setBusy(true);
     try {
-      const code = await createRoom(mode === "online" ? "virtual" : "physical", trimmed);
+      const code = await createRoom(ROOM_MODE[mode], trimmed);
       router.push(`/room/${code}`);
     } catch (e) {
       fail();
@@ -143,14 +147,14 @@ export function Home() {
               <span className="min-w-0 flex-1">
                 <span className="block font-display text-lg leading-tight tracking-wide text-accent">Back to your table</span>
                 <span className="block truncate text-sm font-semibold text-muted">
-                  {myTable.hostName}&rsquo;s table · {myTable.mode === "virtual" ? "Online" : "Scorekeeper"}
+                  {myTable.hostName}&rsquo;s table · {MODE_LABEL[myTable.mode]}
                 </span>
               </span>
               <span className="font-display text-xl tabular-nums tracking-wider text-fg">{myTable.code}</span>
             </button>
           )}
 
-          <fieldset className="flex flex-col gap-2 [@media(max-height:500px)]:grid [@media(max-height:500px)]:grid-cols-3">
+          <fieldset className="flex flex-col gap-2 [@media(max-height:500px)]:grid [@media(max-height:500px)]:grid-cols-4">
             <legend className={cx(LABEL, "mb-2 [@media(max-height:500px)]:mb-1.5")}>Choose a game</legend>
             {MODES.map((m) => (
               <label
@@ -207,6 +211,15 @@ function TallyIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" aria-hidden className="size-6">
       <path d="M5 5v14M9.5 5v14M14 5v14M18.5 5v14M3 16 21 8" />
+    </svg>
+  );
+}
+
+function MaskIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden className="size-6">
+      <path d="M3 7c3-1.5 6-1.5 9 0 3-1.5 6-1.5 9 0v4c0 4.5-3.5 8-9 8s-9-3.5-9-8V7Z" />
+      <path d="M7 11.5c.8-.6 1.8-.6 2.6 0M14.4 11.5c.8-.6 1.8-.6 2.6 0M9.5 15.5c1.5.8 3.5.8 5 0" />
     </svg>
   );
 }

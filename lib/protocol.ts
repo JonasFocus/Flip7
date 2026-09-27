@@ -1,13 +1,16 @@
 // WebSocket wire protocol between the Next.js client and the Railway game server.
 import type { GameEvent, GameState, Intent, ScoreIntent, ScoreState } from "./engine/types.ts";
+import type { ImposterIntent, ImposterState } from "./imposter/types.ts";
 
-export type RoomMode = "virtual" | "physical";
+export type RoomMode = "virtual" | "physical" | "imposter";
 
 export type Room =
   // autoPlay: the awaited player is disconnected; the server acts for them in `inMs`.
   // nextRoundInMs: roundOver only; the server deals the next round itself after this long (relative, so phone clock skew can't desync it).
   | { code: string; mode: "virtual"; hostId: string; game: GameState; autoPlay?: { playerId: string; inMs: number }; nextRoundInMs?: number }
-  | { code: string; mode: "physical"; hostId: string; game: ScoreState };
+  | { code: string; mode: "physical"; hostId: string; game: ScoreState }
+  // game is redacted per viewer (lib/imposter redactImposter). cluesEndsInMs: clues phase only, relative ms until voting auto-starts.
+  | { code: string; mode: "imposter"; hostId: string; game: ImposterState; cluesEndsInMs?: number };
 
 export interface RoomSummary {
   code: string;
@@ -24,6 +27,7 @@ export type ClientMessage =
   | { t: "leave" }
   | { t: "intent"; intent: Intent }
   | { t: "score"; intent: ScoreIntent }
+  | { t: "imposter"; intent: ImposterIntent }
   | { t: "addBot" } // host, virtual lobby
   | { t: "removePlayer"; playerId: string } // host, lobby
   | { t: "ping" };

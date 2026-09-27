@@ -78,7 +78,9 @@ export type Intent =
   | { type: "stay" }
   | { type: "chooseTarget"; targetId: string }
   | { type: "nextRound" } // host only, roundOver → next round
-  | { type: "playAgain" }; // host only, gameOver → lobby with totals reset
+  | { type: "playAgain" } // host only, gameOver → lobby with totals reset
+  | { type: "restart" } // host only, mid-game or gameOver → totals reset, round 1 dealt at once
+  | { type: "endGame" }; // host only, mid-game → gameOver on current totals (the live round is not scored)
 
 export type ApplyResult = { ok: true; state: GameState; events: GameEvent[] } | { ok: false; error: string };
 

@@ -365,3 +365,37 @@ test("server deals the next round itself after the round-over wait, and the host
     await fast.close();
   }
 });
+
+test("imposter: each phone sees only its own secret, votes resolve", async () => {
+  const phones = [await connect(), await connect(), await connect()];
+  const [host, ...others] = phones;
+  assert.ok(host);
+  host.send({ t: "create", mode: "imposter", name: "Mom", clientId: "imp-0" });
+  const code = (await host.waitRoom(() => true)).room.code;
+  others.forEach((c, i) => c.send({ t: "join", code, name: `Kid${i}`, clientId: `imp-${i + 1}` }));
+  await host.waitRoom((m) => m.room.game.players.length === 3);
+
+  host.send({ t: "imposter", intent: { type: "start" } });
+  const views = await Promise.all(phones.map((c) => c.waitRoom((m) => m.room.mode === "imposter" && m.room.game.phase === "clues")));
+  const imposters = views.filter((v) => v.room.mode === "imposter" && v.room.game.imposterId === v.you);
+  assert.equal(imposters.length, 1);
+  const imposterId = imposters[0]?.you;
+  for (const v of views) {
+    assert.ok(v.room.mode === "imposter" && typeof v.room.cluesEndsInMs === "number");
+    if (v.you === imposterId) assert.equal(v.room.game.word, null);
+    else assert.ok(v.room.game.word && v.room.game.imposterId === null);
+  }
+
+  host.send({ t: "imposter", intent: { type: "startVoting" } });
+  await Promise.all(phones.map((c) => c.waitRoom((m) => m.room.game.phase === "voting")));
+  views.forEach((v, i) => {
+    const targetId = v.you === imposterId ? views.find((o) => o.you !== imposterId)?.you : imposterId;
+    assert.ok(targetId);
+    phones[i]?.send({ t: "imposter", intent: { type: "vote", targetId } });
+  });
+  const done = await host.waitRoom((m) => m.room.mode === "imposter" && m.room.game.lastResult !== null);
+  assert.ok(done.room.mode === "imposter");
+  assert.equal(done.room.game.lastResult?.votedOutId, imposterId);
+  assert.equal(done.room.game.lastResult?.wasImposter, true);
+  phones.forEach((c) => c.ws.close());
+});

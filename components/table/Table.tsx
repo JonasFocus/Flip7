@@ -60,6 +60,8 @@ export function Table({ conn }: { conn: TableConnection }) {
           game={game}
           code={conn.code}
           status={conn.status}
+          isHost={conn.isHost}
+          send={conn.send}
           onScores={() => setScores(true)}
           onLeave={conn.leave}
         />
