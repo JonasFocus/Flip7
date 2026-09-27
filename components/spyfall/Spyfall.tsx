@@ -78,6 +78,12 @@ export function PlayerRow({
   );
 }
 
+const EXAMPLE = [
+  ["“Mom, what are you wearing right now?”", "“Something light, and sunglasses.”"],
+  ["“Dad, would you bring your dog here?”", "“Maybe, if it likes to swim.”"],
+  ["“Grandma, is it loud here?”", "“Only the seagulls.”"],
+] as const;
+
 function SpyLobby({ conn, onToast }: { conn: SpyConnection; onToast: (m: string) => void }) {
   const { game, isHost } = conn;
   const [armedId, setArmedId] = useState<string | null>(null);
@@ -103,10 +109,37 @@ function SpyLobby({ conn, onToast }: { conn: SpyConnection; onToast: (m: string)
         <InviteHero code={conn.code} onToast={onToast} />
       </section>
 
-      <p className="rounded-2xl border border-line bg-surface p-4 text-sm leading-relaxed text-muted">
-        Everyone learns the secret place and a role, except one <span className="font-semibold text-fg">spy</span>. Take turns asking each other
-        questions. Find the spy before time runs out, or the spy wins by guessing where you are.
-      </p>
+      <section aria-labelledby="spy-howto" className="rounded-2xl border border-line bg-surface p-4 text-sm leading-relaxed text-muted">
+        <MicroLabel className="mb-2">
+          <span id="spy-howto">How to play</span>
+        </MicroLabel>
+        <ol className="flex list-decimal flex-col gap-1.5 pl-5 marker:font-display marker:text-accent">
+          <li>
+            Everyone is secretly in the <span className="font-semibold text-fg">same place</span>, except one{" "}
+            <span className="font-semibold text-fg">spy</span> who has no idea where.
+          </li>
+          <li>Take turns asking each other questions out loud. Never say the place.</li>
+          <li>Prove you know it, but stay vague so the spy can&apos;t work it out.</li>
+          <li>Vote out the spy before time runs out. The spy wins by guessing the place.</li>
+        </ol>
+
+        <div className="mt-4 rounded-xl bg-surface-2 p-3">
+          <p className="text-xs font-bold uppercase tracking-[0.16em] text-muted">
+            Example · <span className="text-fg">Beach, you&apos;re the Lifeguard</span>
+          </p>
+          <dl className="mt-2 flex flex-col gap-2">
+            {EXAMPLE.map(([q, a]) => (
+              <div key={q}>
+                <dt className="font-semibold text-fg">{q}</dt>
+                <dd className="text-muted">→ {a}</dd>
+              </div>
+            ))}
+          </dl>
+          <p className="mt-3 text-xs">
+            Too obvious: <span className="text-fg">&ldquo;I&apos;m guarding the pool&rdquo;</span> gives it away to the spy.
+          </p>
+        </div>
+      </section>
 
       <section aria-label="Settings" className="mt-6">
         <MicroLabel className="mb-2">Round timer</MicroLabel>
