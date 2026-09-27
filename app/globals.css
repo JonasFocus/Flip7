@@ -59,6 +59,7 @@
   --animate-flip: flip 320ms var(--ease-out) both;
   --animate-shake: shake 420ms cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
   --animate-pop: pop 280ms var(--ease-spring) both;
+  --animate-hero: hero 1100ms var(--ease-out) 150ms both;
 
   @keyframes deal {
     from {
@@ -82,6 +83,15 @@
     0% { opacity: 0; transform: scale(0.9); }
     60% { opacity: 1; transform: scale(1.12); }
     100% { transform: scale(1); }
+  }
+  /* Home logo card: drops in spinning, slams down, wobbles into its tilt. */
+  @keyframes hero {
+    0% { opacity: 0; transform: perspective(500px) translateY(-140%) rotate(-40deg) rotateY(-540deg) scale(0.6); }
+    45% { opacity: 1; transform: perspective(500px) translateY(8%) rotate(6deg) rotateY(0deg) scale(1.12, 0.9); }
+    62% { transform: perspective(500px) translateY(-10%) rotate(-6deg) scale(0.96, 1.05); }
+    78% { transform: perspective(500px) translateY(2%) rotate(3deg) scale(1.03, 0.98); }
+    90% { transform: perspective(500px) rotate(-1deg) scale(1); }
+    100% { transform: none; }
   }
 }
 
@@ -275,7 +285,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .turn-glow::before { animation: none; }
-  .animate-deal, .animate-flip, .animate-shake, .animate-pop { animation: none !important; }
+  .animate-deal, .animate-flip, .animate-shake, .animate-pop, .animate-hero { animation: none !important; }
   .sheet, .sheet::backdrop, .toast, .press { transition-duration: 1ms !important; }
   .press:active:not(:disabled) { transform: none !important; }
 }

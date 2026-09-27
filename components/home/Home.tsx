@@ -99,7 +99,7 @@ export function Home() {
               <span className="font-display text-[56px] leading-none tracking-tight text-fg [@media(max-height:500px)]:text-[36px] [text-shadow:0_4px_0_var(--color-ink)]">
                 FLIP
               </span>
-              <PlayingCard card={HERO_CARD} size="md" className="animate-deal rotate-[-8deg] [@media(max-height:500px)]:text-[40px]" />
+              <PlayingCard card={HERO_CARD} size="md" className="animate-hero origin-bottom rotate-[-8deg] [@media(max-height:500px)]:text-[40px]" />
             </h1>
             <p className={cx(LABEL, "text-right leading-relaxed [@media(max-height:500px)]:hidden")}>
               Family
