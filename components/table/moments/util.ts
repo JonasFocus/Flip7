@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import { scoreHand } from "@/lib/engine/index";
 import type { GameEvent, GameState, Player } from "@/lib/engine/types";
 
@@ -51,15 +51,27 @@ export function useCountUp(to: number, from: number, delay = 0, ms = 700): numbe
   return instant ? to : value;
 }
 
-// Round/game end arrives with the final draws; wait for the table to reveal them first.
+// Round/game end: `active` should include the table's reveal queue having caught up (useReveal),
+// so the last card (e.g. a Flip 7) plays on stage first; then hold briefly for its burst.
+const END_HOLD_MS = 1200;
 export function useAfterReveals(active: boolean, events: GameEvent[], seq: number): boolean {
-  const reveals = events.filter((e) => e.type === "draw" || e.type === "deal").length;
-  const delay = events.some((e) => e.type === "roundEnd") ? Math.min(4000, reveals * 350 + 1500) : 0;
-  const [shownSeq, setShownSeq] = useState<number | null>(null);
+  return useHeld(active, seq, events.some((e) => e.type === "roundEnd") ? END_HOLD_MS : 0);
+}
+
+// True once `active` has held for `ms` under the same `key` (a new key restarts the wait).
+export function useHeld(active: boolean, key: number, ms: number): boolean {
+  const [shown, setShown] = useState<number | null>(null);
   useEffect(() => {
-    if (!active || delay === 0) return;
-    const t = setTimeout(() => setShownSeq(seq), delay);
+    if (!active || ms === 0) return;
+    const t = setTimeout(() => setShown(key), ms);
     return () => clearTimeout(t);
-  }, [active, delay, seq]);
-  return active && (delay === 0 || shownSeq === seq);
+  }, [active, key, ms]);
+  return active && (ms === 0 || shown === key);
+}
+
+// Moves focus to an overlay's heading when it appears, so screen readers announce it.
+export function useFocusOnShow<T extends HTMLElement>(): RefObject<T | null> {
+  const ref = useRef<T>(null);
+  useEffect(() => ref.current?.focus(), []);
+  return ref;
 }

@@ -3,7 +3,7 @@ import type { Player } from "@/lib/engine/types";
 import { PlayingCard } from "@/components/cards/PlayingCard";
 import { StatusBadge } from "@/components/ui/Badge";
 import { cx } from "@/components/ui/cx";
-import { roundScore, splitHand } from "./hand";
+import { isDuplicate, roundScore, shownPlayer, splitHand } from "./hand";
 
 function oddsColor(p: number): string {
   if (p < 0.2) return "var(--color-active)";
@@ -11,10 +11,21 @@ function oddsColor(p: number): string {
   return "var(--color-busted)";
 }
 
-export function MyHand({ me, bust, hidden }: { me: Player; bust: number; hidden: Set<string> }) {
-  const visible = me.hand.filter((c) => !hidden.has(c.id));
+export function MyHand({
+  me: live,
+  bust,
+  hidden,
+  pendingStatus,
+}: {
+  me: Player;
+  bust: number;
+  hidden: Set<string>;
+  pendingStatus: Set<string>;
+}) {
+  const me = shownPlayer(live, hidden, pendingStatus);
+  const visible = me.hand;
   const { numbers, specials } = splitHand(visible);
-  const score = roundScore({ ...me, hand: visible });
+  const score = roundScore(me);
   const unique = uniqueNumbers(visible);
   const busted = me.status === "busted";
   const hasChance = visible.some((c) => c.kind === "secondChance");
@@ -34,12 +45,12 @@ export function MyHand({ me, bust, hidden }: { me: Player; bust: number; hidden:
           <div className="flex items-center gap-2">
             <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted">This round</span>
             {me.status !== "active" && me.status !== "waiting" && <StatusBadge status={me.status} />}
-            <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted tabular-nums">· Total {me.total}</span>
+            <span aria-hidden className="size-1 flex-none rounded-full bg-line" />
+            <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted tabular-nums">Total {me.total}</span>
           </div>
           <div className="flex items-baseline gap-2">
             <span
               key={score.total}
-              aria-live="polite"
               className={cx("animate-pop font-display text-4xl leading-none tabular-nums", busted ? "text-busted" : "text-fg")}
             >
               {score.total}
@@ -58,17 +69,30 @@ export function MyHand({ me, bust, hidden }: { me: Player; bust: number; hidden:
         )}
       </div>
 
+      {/* Font size = card width (em). Cards sit 6px apart and overlap only as much as the row needs. */}
       <div
         className={cx(
-          "flex min-h-[78px] items-end justify-center text-[56px]",
-          numbers.length >= 6 ? "-space-x-3" : "gap-1.5",
+          "flex min-h-[78px] items-end justify-center text-[56px] [container-type:inline-size] [@media(min-height:880px)]:min-h-[101px] [@media(min-height:880px)]:text-[72px]",
           busted && "animate-shake",
         )}
       >
         {numbers.length === 0 ? (
           <span className="card border-dashed !bg-transparent !shadow-none [--c:var(--color-line)]" aria-hidden />
         ) : (
-          numbers.map((c) => <PlayingCard key={c.id} card={c} size="md" dim={busted} className="animate-deal" />)
+          numbers.map((c, i) => {
+            const dup = busted && isDuplicate(visible, c);
+            const n = numbers.length;
+            return (
+              <span key={c.id} className="flex-none" style={i === 0 ? undefined : { marginLeft: `min(6px, calc((100cqw - ${n}em) / ${n - 1}))` }}>
+                <PlayingCard
+                  card={c}
+                  size="md"
+                  dim={busted && !dup}
+                  className={cx("animate-deal [@media(min-height:880px)]:text-[72px]!", dup && "ring-2 ring-busted ring-offset-2 ring-offset-surface")}
+                />
+              </span>
+            );
+          })
         )}
       </div>
 
@@ -98,17 +122,16 @@ export function MyHand({ me, bust, hidden }: { me: Player; bust: number; hidden:
             >
               <div
                 className="h-full rounded-full transition-[width,background-color] duration-300 ease-[var(--ease-out)]"
-                style={{ width: `${Math.max(pct, hasChance ? 0 : 3)}%`, backgroundColor: color }}
+                style={{ width: `${pct}%`, backgroundColor: color }}
               />
             </div>
             <span className="flex-none font-display text-xs tabular-nums" style={{ color: hasChance ? "var(--color-card-chance)" : color }}>
               {hasChance ? "Safe" : `Bust ${pct}%`}
             </span>
           </div>
-        ) : (
-          <span className="flex-1 text-right text-xs font-semibold text-muted">
-            {busted ? "Busted — 0 this round" : me.status === "waiting" ? "" : `${score.total} banked`}
-          </span>
+        ) : busted || me.status === "waiting" ? null : (
+          // The header badge and the red 0 already say "bust".
+          <span className="flex-1 text-right text-xs font-semibold text-muted">{`${score.total} banked`}</span>
         )}
       </div>
     </section>

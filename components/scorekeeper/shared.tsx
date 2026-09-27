@@ -1,17 +1,79 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import type { ScorePlayer, ScoreState } from "@/lib/engine/types";
 import type { ScoreConnection } from "@/lib/client/types";
 import { Avatar } from "@/components/ui/Avatar";
+import { Button } from "@/components/ui/Button";
 import { cx } from "@/components/ui/cx";
+import { MAX_PLAYERS } from "@/lib/protocol";
 
 export function canControl(conn: ScoreConnection, seat: ScorePlayer): boolean {
   return conn.isHost || seat.ownerId === conn.you;
 }
 
+export function hostName(conn: ScoreConnection): string {
+  return conn.game.players.find((p) => p.ownerId === conn.hostId)?.name ?? "the host";
+}
+
 export function standings(players: ScorePlayer[]): ScorePlayer[] {
   return [...players].sort((a, b) => b.total - a.total);
+}
+
+// Competition ranking: tied totals share a place (1, 1, 3).
+export function rankOf(sorted: ScorePlayer[], p: ScorePlayer): number {
+  return sorted.findIndex((q) => q.total === p.total);
+}
+
+// Blocks taps briefly after mount and after hold(), so the second tap of a double tap on a button that
+// swaps the screen can't land on whatever ends up under the finger.
+export function useTapGuard(ms = 400): [held: boolean, hold: () => void] {
+  const [held, setHeld] = useState(true);
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => {
+    timer.current = setTimeout(() => setHeld(false), ms);
+    return () => clearTimeout(timer.current);
+  }, [ms]);
+  function hold() {
+    setHeld(true);
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => setHeld(false), ms);
+  }
+  return [held, hold];
+}
+
+export function AddSeatForm({ conn, className }: { conn: ScoreConnection; className?: string }) {
+  const [name, setName] = useState("");
+  if (conn.game.players.length >= MAX_PLAYERS) {
+    return <p className={cx("text-center text-sm text-muted", className)}>Table is full ({MAX_PLAYERS} players)</p>;
+  }
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    const n = name.trim();
+    if (!n) return;
+    conn.send({ type: "addSeat", name: n });
+    setName("");
+  }
+  return (
+    <form onSubmit={submit} className={cx("flex gap-2", className)}>
+      <label className="sr-only" htmlFor="seat-name">
+        Add someone sharing this phone
+      </label>
+      <input
+        id="seat-name"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        maxLength={20}
+        autoComplete="off"
+        enterKeyHint="done"
+        placeholder="Add someone on this phone"
+        className="min-h-12 min-w-0 flex-1 rounded-2xl border border-line bg-surface px-4 text-fg placeholder:text-muted focus:border-accent focus:outline-none"
+      />
+      <Button type="submit" variant="secondary" disabled={!name.trim()} className="flex-none">
+        Add
+      </Button>
+    </form>
+  );
 }
 
 export function MicroLabel({ children, className }: { children: ReactNode; className?: string }) {
@@ -67,10 +129,10 @@ export function HistoryTable({ game }: { game: ScoreState }) {
             <th scope="col" className="sticky left-0 bg-surface pr-3 pb-2 text-left text-[11px] font-bold uppercase tracking-[0.18em] text-muted">
               Rd
             </th>
-            {game.players.map((p) => (
+            {game.players.map((p, i) => (
               <th key={p.id} scope="col" className="min-w-14 px-1 pb-2">
                 <span className="flex flex-col items-center gap-1">
-                  <Avatar id={p.id} name={p.name} size="sm" />
+                  <Avatar id={p.id} seat={i} name={p.name} size="sm" />
                   <span className="max-w-16 truncate text-xs font-semibold">{p.name}</span>
                 </span>
               </th>
@@ -85,8 +147,19 @@ export function HistoryTable({ game }: { game: ScoreState }) {
               </th>
               {game.players.map((p) => {
                 const v = p.rounds[r];
+                // Colour from the stored hand, not the number: a 0 can be a bust, a skipped hand, or a late seat.
+                // entryHistory can be shorter than rounds (hands not kept), so align it to the latest rounds.
+                const hands = game.entryHistory[r - (rounds - game.entryHistory.length)];
+                const hand = hands?.[p.id];
                 return (
-                  <td key={p.id} className={cx("border-t border-line py-2 font-semibold", v === 0 && "text-busted", v == null && "text-muted/50")}>
+                  <td
+                    key={p.id}
+                    className={cx(
+                      "border-t border-line py-2 font-semibold",
+                      hand?.busted && "text-busted",
+                      v == null ? "text-muted/50" : hands && !hand && "text-muted",
+                    )}
+                  >
                     {v ?? "–"}
                   </td>
                 );

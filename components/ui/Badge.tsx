@@ -2,11 +2,12 @@ import type { ReactNode } from "react";
 import type { PlayerStatus } from "@/lib/engine/types";
 import { cx } from "./cx";
 
-export type BadgeTone = "neutral" | "accent" | Exclude<PlayerStatus, "waiting">;
+export type BadgeTone = "neutral" | "accent" | "chance" | Exclude<PlayerStatus, "waiting">;
 
 const TONE: Record<BadgeTone, string> = {
   neutral: "bg-surface-2 text-muted",
   accent: "bg-accent text-ink",
+  chance: "bg-card-chance/15 text-card-chance",
   active: "bg-active/15 text-active",
   stayed: "bg-stayed/15 text-stayed",
   frozen: "bg-frozen/15 text-frozen",

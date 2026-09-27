@@ -40,6 +40,7 @@ export function PlayingCard({
   faceDown,
   highlight,
   dim,
+  bare,
   className,
 }: {
   card: Card;
@@ -47,6 +48,8 @@ export function PlayingCard({
   faceDown?: boolean;
   highlight?: boolean;
   dim?: boolean;
+  /** Hide the name label on big action cards when a heading beside the card already names it. */
+  bare?: boolean;
   className?: string;
 }) {
   if (faceDown) return <CardBack size={size} className={className} />;
@@ -61,7 +64,6 @@ export function PlayingCard({
         <span className="card-num" data-wide={v >= 10 || undefined} data-underline={((v === 6 || v === 9) && size !== "xs") || undefined}>
           {v}
         </span>
-        {big && <span className="card-corner">{v}</span>}
       </>
     );
   } else if (card.kind === "plus" || card.kind === "x2") {
@@ -71,7 +73,7 @@ export function PlayingCard({
     face = (
       <>
         <Icon className="card-icon" strokeWidth={size === "xs" ? 3 : 2.4} />
-        {big && <span className="card-label font-sans font-bold">{ACTION_NAME[card.kind]}</span>}
+        {big && !bare && <span className="card-label font-sans font-bold">{ACTION_NAME[card.kind]}</span>}
       </>
     );
   }

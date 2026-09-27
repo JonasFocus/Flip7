@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { applyIntent, awaitingPlayerId, chooseBotIntent } from "../lib/engine/index.ts";
 import { botDelay, LOCAL_ME, newLocalGame, withBot } from "../lib/client/local.ts";
+import { roomCodeFrom } from "../lib/client/rooms.ts";
 
 test("newLocalGame seats you plus uniquely named bots", () => {
   const s = newLocalGame("  Jonas ", 3);
@@ -35,4 +36,13 @@ test("bots can drive a local game to completion", () => {
     s = r.state;
   }
   assert.equal(s.phase, "gameOver");
+});
+
+test("roomCodeFrom takes the code from a pasted invite link, not the port or domain digits", () => {
+  assert.equal(roomCodeFrom("https://flip7.vercel.app/room/349578"), "349578");
+  assert.equal(roomCodeFrom("http://localhost:3000/room/349578"), "349578");
+  assert.equal(roomCodeFrom("12http://localhost:3000/room/349578?x=1"), "349578");
+  assert.equal(roomCodeFrom("349 578"), "349578");
+  assert.equal(roomCodeFrom("3495781"), "349578");
+  assert.equal(roomCodeFrom("34"), "34");
 });

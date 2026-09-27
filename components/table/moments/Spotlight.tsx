@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { PlayingCard, cardLabel } from "@/components/cards/PlayingCard";
 import { FlipThreeIcon, SecondChanceIcon, SnowflakeIcon } from "@/components/cards/icons";
 import { cx } from "@/components/ui/cx";
@@ -11,12 +11,23 @@ import "./moments.css";
 
 type Tone = "neutral" | "accent" | "danger" | "frost" | "flip3" | "chance";
 
-interface Line {
+// A screen-wide burst (see Celebration) that fires when its line reaches the Spotlight.
+export interface Moment {
+  kind: "flip7" | "bust" | "freeze" | "bank";
+  mine: boolean;
+  points: number;
+  who: string;
+}
+
+export interface Line {
   id: string;
   text: string;
   tone: Tone;
   icon: ReactNode;
+  moment?: Moment;
 }
+
+const BIG_BANK = 40;
 
 const TONE: Record<Tone, string> = {
   neutral: "text-fg",
@@ -27,19 +38,20 @@ const TONE: Record<Tone, string> = {
   chance: "text-card-chance",
 };
 
-const DWELL_MS = 800;
-const FAST_DWELL_MS = 400;
+const a = (label: string) => (/^(8|11)$/.test(label) ? "an" : "a");
 
-const CHOOSING = { freeze: "Freeze", flipThree: "hit with Flip Three", secondChance: "give a Second Chance" } as const;
+const CHOOSING = { freeze: "Freeze", flipThree: "Flip Three", secondChance: "Second Chance" } as const;
 
-export function describe(events: GameEvent[], game: GameState, you: string, seq: number): Line[] {
+// One line per event at most, tagged with the index of the event it narrates (`at`).
+export function describe(events: GameEvent[], game: GameState, you: string, seq: number): (Line & { at: number })[] {
   const n = (id: string) => nameOf(game, you, id);
-  const lines: Omit<Line, "id">[] = [];
-  const quietDeals = events.filter((e) => e.type === "deal" && (e.card.kind === "number" || e.card.kind === "plus" || e.card.kind === "x2"));
-  if (quietDeals.length > 0) lines.push({ text: `Round ${game.round} · cards dealt`, tone: "neutral", icon: null });
+  const lines: (Omit<Line, "id"> & { at: number })[] = [];
+  const firstQuietDeal = events.findIndex((e) => e.type === "deal" && (e.card.kind === "number" || e.card.kind === "plus" || e.card.kind === "x2"));
 
   events.forEach((e, i) => {
     const next = events[i + 1];
+    const push = (l: Omit<Line, "id">) => lines.push({ ...l, at: i });
+    if (i === firstQuietDeal) push({ text: `Round ${game.round} · cards dealt`, tone: "neutral", icon: null });
     switch (e.type) {
       case "deal":
       case "draw": {
@@ -48,45 +60,75 @@ export function describe(events: GameEvent[], game: GameState, you: string, seq:
         // The bust / save line already names the card.
         if (next && (next.type === "bust" || next.type === "secondChanceUsed") && next.card.id === e.card.id) return;
         const verb = e.type === "deal" ? (e.playerId === you ? "were dealt" : "was dealt") : "drew";
-        lines.push({
-          text: `${n(e.playerId)} ${verb} ${cardLabel(e.card)}${isAction ? "!" : ""}`,
+        const queued =
+          (game.pending?.type === "flipThree" && game.pending.queued.some((c) => c.id === e.card.id)) ||
+          game.actionQueue.some((q) => q.card.id === e.card.id);
+        push({
+          text: `${n(e.playerId)} ${verb} ${cardLabel(e.card)}${queued ? "! Plays after the flips" : isAction ? "!" : ""}`,
           tone: "neutral",
-          icon: <PlayingCard card={e.card} size="xs" />,
+          icon: null, // the stage already shows this card large
         });
         return;
       }
       case "bust":
-        lines.push({ text: `${n(e.playerId)} busted on ${/^(8|11)$/.test(cardLabel(e.card)) ? "an" : "a"} ${cardLabel(e.card)}`, tone: "danger", icon: <PlayingCard card={e.card} size="xs" /> });
+        push({
+          text: `${n(e.playerId)} busted on ${a(cardLabel(e.card))} ${cardLabel(e.card)}`,
+          tone: "danger",
+          icon: null,
+          moment: { kind: "bust", mine: e.playerId === you, points: 0, who: n(e.playerId) },
+        });
         return;
       case "secondChanceUsed":
-        lines.push({
-          text: `Second Chance saved ${e.playerId === you ? "you" : n(e.playerId)} from a ${cardLabel(e.card)}`,
+        push({
+          text: `Second Chance saved ${e.playerId === you ? "you" : n(e.playerId)} from ${a(cardLabel(e.card))} ${cardLabel(e.card)}`,
           tone: "chance",
           icon: <SecondChanceIcon className="size-5" />,
         });
         return;
       case "secondChancePassed":
-        lines.push({
+        push({
           text: `${n(e.fromId)} gave a Second Chance to ${e.toId === you ? "you" : n(e.toId)}`,
           tone: "chance",
           icon: <SecondChanceIcon className="size-5" />,
         });
         return;
+      case "discarded": {
+        // Follows the "drew" line: a spare Second Chance with no receiver, or a queued action whose holder is out.
+        push({
+          text:
+            e.card.kind === "secondChance" && game.players.some((p) => p.id === e.playerId && p.status === "active")
+              ? "Nobody can take it · Second Chance discarded"
+              : `${e.playerId === you ? "Your" : `${n(e.playerId)}'s`} ${cardLabel(e.card)} is discarded · ${e.playerId === you ? "you're" : `${n(e.playerId)} is`} out`,
+          tone: e.card.kind === "secondChance" ? "chance" : "neutral",
+          icon: <PlayingCard card={e.card} size="xs" />,
+        });
+        return;
+      }
       case "stay":
-        lines.push({ text: `${n(e.playerId)} stayed with ${e.points}`, tone: "neutral", icon: null });
+        push({
+          text: !e.auto
+            ? `${n(e.playerId)} stayed with ${e.points}`
+            : e.playerId === you
+              ? `You were away, so we banked your ${e.points}`
+              : `${n(e.playerId)} is away · banked ${e.points}`,
+          tone: "neutral",
+          icon: null,
+          moment: e.playerId === you && e.points >= BIG_BANK ? { kind: "bank", mine: true, points: e.points, who: "You" } : undefined,
+        });
         return;
       case "freeze":
-        lines.push({
+        push({
           text:
             e.sourceId === e.targetId
               ? `${n(e.sourceId)} froze and banked ${e.points}`
-              : `${n(e.sourceId)} froze ${e.targetId === you ? "you" : n(e.targetId)} · ${e.points} pts`,
+              : `${n(e.sourceId)} froze ${e.targetId === you ? "you" : n(e.targetId)} · ${e.points} ${e.points === 1 ? "pt" : "pts"}`,
           tone: "frost",
           icon: <SnowflakeIcon className="size-5" />,
+          moment: { kind: "freeze", mine: e.targetId === you, points: e.points, who: n(e.targetId) },
         });
         return;
       case "flipThree":
-        lines.push({
+        push({
           text:
             e.sourceId === e.targetId
               ? `${n(e.sourceId)} took the Flip Three`
@@ -96,17 +138,22 @@ export function describe(events: GameEvent[], game: GameState, you: string, seq:
         });
         return;
       case "flip7":
-        lines.push({ text: `${n(e.playerId)} hit FLIP 7! +15`, tone: "accent", icon: null });
+        push({
+          text: `${n(e.playerId)} hit FLIP 7! +15`,
+          tone: "accent",
+          icon: null,
+          moment: { kind: "flip7", mine: e.playerId === you, points: 15, who: n(e.playerId) },
+        });
         return;
       case "reshuffle":
-        lines.push({ text: "Deck reshuffled", tone: "neutral", icon: null });
+        push({ text: "Deck reshuffled", tone: "neutral", icon: null });
         return;
       case "roundEnd":
-        lines.push({ text: `Round ${e.round} over`, tone: "neutral", icon: null });
+        push({ text: `Round ${e.round} over`, tone: "neutral", icon: null });
         return;
       case "gameOver": {
         const who = e.winnerIds.map(n).join(" & ");
-        lines.push({ text: e.winnerIds.length === 1 && e.winnerIds[0] === you ? "You win!" : `${who} ${e.winnerIds.length > 1 ? "win" : "wins"}!`, tone: "accent", icon: null });
+        push({ text: e.winnerIds.length === 1 && e.winnerIds[0] === you ? "You win!" : `${who} ${e.winnerIds.length > 1 ? "win" : "wins"}!`, tone: "accent", icon: null });
         return;
       }
     }
@@ -114,46 +161,23 @@ export function describe(events: GameEvent[], game: GameState, you: string, seq:
   return lines.map((l, i) => ({ ...l, id: `${seq}-${i}` }));
 }
 
-// Plays each event line in turn so a burst (deal, Flip Three) stays readable.
-export function Spotlight({ conn, className }: { conn: TableConnection; className?: string }) {
-  const { game, you, events } = conn;
-  const [log, setLog] = useState<Line[]>([]);
-  const [pos, setPos] = useState(-1);
-  const [seenSeq, setSeenSeq] = useState<number | null>(null);
-  const shownAt = useRef(0);
-
-  // ponytail: log is unbounded; a whole game is a few hundred short lines.
-  if (events.length > 0 && seenSeq !== game.seq) {
-    setSeenSeq(game.seq);
-    setLog([...log, ...describe(events, game, you, game.seq)]);
-  }
-
-  const shown = Math.min(pos, log.length - 1);
-  useEffect(() => {
-    if (shown >= log.length - 1) return;
-    const backlog = log.length - 1 - shown;
-    const dwell = backlog > 3 ? FAST_DWELL_MS : DWELL_MS;
-    const wait = Math.max(0, shownAt.current + dwell - Date.now());
-    const t = setTimeout(() => {
-      shownAt.current = Date.now();
-      setPos(shown + 1);
-    }, wait);
-    return () => clearTimeout(t);
-  }, [shown, log.length]);
-
+// Renders the narration line the table's reveal queue is on (see useReveal), so words and stage never drift apart.
+export function Spotlight({ conn, line: queued, caughtUp, className }: { conn: TableConnection; line: Line | null; caughtUp: boolean; className?: string }) {
+  const { game, you } = conn;
   const pending = game.pending;
-  const caughtUp = shown >= log.length - 1;
-  const line: Line | undefined =
+  const choosing: Line | null =
     caughtUp && pending?.type === "chooseTarget" && pending.playerId !== you
       ? {
           id: `choose-${pending.card.id}`,
-          text: `${nameOf(game, you, pending.playerId)} is choosing who to ${CHOOSING[pending.card.kind]}…`,
+          text: `${nameOf(game, you, pending.playerId)} picks a ${CHOOSING[pending.card.kind]} target…`,
           tone: "neutral",
-          icon: <PlayingCard card={pending.card} size="xs" />,
+          icon: null, // the stage already shows this card large
         }
-      : shown >= 0
-        ? log[shown]
-        : undefined;
+      : null;
+  // Once the choice lands, the queue still holds the stale "drew" line for a beat; keep "is choosing" until it moves on.
+  const [held, setHeld] = useState<{ over: string | undefined; line: Line } | null>(null);
+  if (choosing && held?.line.id !== choosing.id) setHeld({ over: queued?.id, line: choosing });
+  const line = choosing ?? (held && !caughtUp && queued?.id === held.over ? held.line : queued);
 
   return (
     <div className={cx("flex min-h-10 items-center justify-center", className)}>
@@ -165,13 +189,13 @@ export function Spotlight({ conn, className }: { conn: TableConnection; classNam
           key={line.id}
           aria-hidden
           className={cx(
-            "m-rise flex max-w-full items-center gap-2 rounded-full bg-surface/80 py-1.5 pr-4 pl-2 text-sm font-semibold ring-1 ring-line",
+            "m-rise flex max-w-full items-center gap-2 rounded-2xl bg-surface/80 py-1.5 pr-4 pl-2 text-sm font-semibold ring-1 ring-line",
             !line.icon && "pl-4",
             TONE[line.tone],
           )}
         >
           {line.icon && <span className="grid flex-none place-items-center">{line.icon}</span>}
-          <span className="truncate">{line.text}</span>
+          <span className="line-clamp-2 text-center text-balance">{line.text}</span>
         </div>
       )}
     </div>

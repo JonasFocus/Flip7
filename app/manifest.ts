@@ -5,14 +5,17 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "Flip 7 · Family Game Night",
     short_name: "Flip 7",
     description: "Play Flip 7 with the family.",
+    id: "/",
     start_url: "/",
     display: "standalone",
     orientation: "any",
-    background_color: "#0c0d1d",
-    theme_color: "#0c0d1d",
+    background_color: "#080a18",
+    theme_color: "#080a18",
     icons: [
       { src: "/icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any" },
-      { src: "/apple-icon", sizes: "180x180", type: "image/png" },
+      { src: "/icons/192.png", sizes: "192x192", type: "image/png", purpose: "any" },
+      { src: "/icons/512.png", sizes: "512x512", type: "image/png", purpose: "any" },
+      { src: "/icons/maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
     ],
   };
 }

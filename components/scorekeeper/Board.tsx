@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { PhysicalEntry, ScorePlayer } from "@/lib/engine/types";
 import type { ScoreConnection } from "@/lib/client/types";
 import { scorePhysical } from "@/lib/engine/score";
@@ -9,33 +9,45 @@ import { Button } from "@/components/ui/Button";
 import { Sheet } from "@/components/ui/Sheet";
 import { cx } from "@/components/ui/cx";
 import { HandPicker } from "./HandPicker";
-import { CountUp, GoalBar, MicroLabel, canControl, standings } from "./shared";
-
-const ZERO: PhysicalEntry = { numbers: [], x2: false, plus: [], busted: false };
+import { CountUp, GoalBar, MicroLabel, canControl, hostName, rankOf, standings, useTapGuard } from "./shared";
 
 export function Board({ conn, onMenu }: { conn: ScoreConnection; onMenu: () => void }) {
   const { game } = conn;
   const [editing, setEditing] = useState<string | null>(null);
   const [confirmFinish, setConfirmFinish] = useState(false);
+  const advance = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // Board is keyed by round, so the mount-time hold also swallows the second tap of a double-tapped Finish.
+  const [held, hold] = useTapGuard();
+  useEffect(() => () => clearTimeout(advance.current), []);
 
   const sorted = standings(game.players);
   const leader = sorted[0]?.total ?? 0;
   const missing = game.players.filter((p) => !game.entries[p.id]);
-  const mine = game.players.filter((p) => canControl(conn, p));
-  const myMissing = mine.filter((p) => !game.entries[p.id]);
+  // The CTA and auto-advance only walk seats held on this phone; the host can still tap any row.
+  const myMissing = missing.filter((p) => p.ownerId === conn.you);
   const entered = game.players.length - missing.length;
   const seat = game.players.find((p) => p.id === editing) ?? null;
 
+  function edit(id: string) {
+    clearTimeout(advance.current);
+    setEditing(id);
+  }
+
   function save(entry: PhysicalEntry) {
     if (!seat) return;
-    conn.send({ type: "submitEntry", seatId: seat.id, entry });
+    conn.send({ type: "submitEntry", seatId: seat.id, entry, round: game.round });
+    const wasMissing = !game.entries[seat.id];
     const next = myMissing.find((p) => p.id !== seat.id);
-    setEditing(next ? next.id : null);
+    // Close first and reopen for the next seat after the sheet has visibly left, so a double-tapped
+    // Save can't land on the next player's fresh "Save 0".
+    setEditing(null);
+    hold();
+    clearTimeout(advance.current);
+    if (wasMissing && next) advance.current = setTimeout(() => setEditing(next.id), 350);
   }
 
   function finish() {
-    for (const p of missing) conn.send({ type: "submitEntry", seatId: p.id, entry: ZERO });
-    conn.send({ type: "finishRound" });
+    conn.send({ type: "finishRound", round: game.round });
     setConfirmFinish(false);
   }
 
@@ -60,52 +72,72 @@ export function Board({ conn, onMenu }: { conn: ScoreConnection; onMenu: () => v
         </MicroLabel>
       </div>
 
-      <ol className="flex flex-col gap-2 pb-4">
-        {sorted.map((p, i) => (
+      <ol className={cx("flex flex-col gap-2 pb-4", held && "pointer-events-none")}>
+        {sorted.map((p) => (
           <li key={p.id}>
             <SeatRow
               seat={p}
-              rank={i + 1}
+              index={game.players.indexOf(p)}
+              rank={rankOf(sorted, p) + 1}
               lead={p.total === leader && leader > 0}
               goal={game.goal}
               entry={game.entries[p.id] ?? null}
               you={p.id === conn.you}
-              onEdit={canControl(conn, p) ? () => setEditing(p.id) : undefined}
+              onEdit={canControl(conn, p) ? () => edit(p.id) : undefined}
             />
           </li>
         ))}
       </ol>
 
-      <div className="sticky bottom-0 -mx-4 mt-auto bg-gradient-to-t from-bg from-70% to-transparent px-4 pt-6 pb-safe-4">
+      <div
+        className={cx(
+          "sticky bottom-0 -mx-4 mt-auto bg-gradient-to-t from-bg from-70% to-transparent px-4 pt-6 pb-safe-4",
+          held && "pointer-events-none",
+        )}
+      >
         <BottomAction
           isHost={conn.isHost}
+          host={hostName(conn)}
           nextMine={myMissing[0] ?? null}
           missing={missing.length}
           round={game.round}
-          onEnter={(id) => setEditing(id)}
+          onEnter={edit}
           onFinish={() => (missing.length ? setConfirmFinish(true) : finish())}
         />
       </div>
 
       <HandPicker
         seat={seat}
+        index={seat ? game.players.indexOf(seat) : -1}
         initial={seat ? (game.entries[seat.id] ?? null) : null}
         onSave={save}
         onClear={() => {
           if (seat) conn.send({ type: "clearEntry", seatId: seat.id });
           setEditing(null);
+          hold();
         }}
+        onRemove={
+          seat && game.players.length > 1
+            ? () => {
+                conn.send({ type: "removeSeat", seatId: seat.id });
+                setEditing(null);
+                hold();
+              }
+            : undefined
+        }
         onClose={() => setEditing(null)}
       />
 
       <Sheet open={confirmFinish} onClose={() => setConfirmFinish(false)} title="Finish round?">
+        {/* The last missing hand can arrive from another phone while this is open. */}
         <p className="text-muted">
-          {missing.map((p) => p.name).join(", ")} {missing.length === 1 ? "has" : "have"} no hand entered. They&apos;ll score 0
-          this round.
+          {missing.length === 0
+            ? "Everyone's in."
+            : `${missing.map((p) => p.name).join(", ")} ${missing.length === 1 ? "has" : "have"} no hand entered. They'll score 0 this round.`}
         </p>
         <div className="mt-5 flex flex-col gap-2">
-          <Button size="lg" block onClick={finish}>
-            Finish anyway
+          <Button size="lg" block onClick={() => confirmFinish && finish()}>
+            {missing.length === 0 ? `Finish round ${game.round}` : "Finish anyway"}
           </Button>
           <Button variant="ghost" block onClick={() => setConfirmFinish(false)}>
             Keep entering
@@ -118,6 +150,7 @@ export function Board({ conn, onMenu }: { conn: ScoreConnection; onMenu: () => v
 
 function BottomAction({
   isHost,
+  host,
   nextMine,
   missing,
   round,
@@ -125,6 +158,7 @@ function BottomAction({
   onFinish,
 }: {
   isHost: boolean;
+  host: string;
   nextMine: ScorePlayer | null;
   missing: number;
   round: number;
@@ -154,13 +188,14 @@ function BottomAction({
   }
   return (
     <p className="flex min-h-16 items-center justify-center rounded-2xl border border-line text-center text-muted">
-      {missing ? `Waiting for ${missing} more…` : "Waiting for the host to finish the round…"}
+      {missing ? `Waiting for ${missing} more…` : `Waiting for ${host} to finish the round…`}
     </p>
   );
 }
 
 function SeatRow({
   seat,
+  index,
   rank,
   lead,
   goal,
@@ -169,6 +204,7 @@ function SeatRow({
   onEdit,
 }: {
   seat: ScorePlayer;
+  index: number;
   rank: number;
   lead: boolean;
   goal: number;
@@ -176,10 +212,11 @@ function SeatRow({
   you: boolean;
   onEdit?: () => void;
 }) {
+  const last = seat.rounds.at(-1);
   const body = (
     <>
       <span className={cx("w-5 flex-none text-center font-display text-sm", lead ? "text-accent" : "text-muted")}>{rank}</span>
-      <Avatar id={seat.id} name={seat.name} size="md" />
+      <Avatar id={seat.id} seat={index} name={seat.name} size="md" />
       <span className="flex min-w-0 flex-1 flex-col gap-1.5">
         <span className="flex items-center gap-2">
           <span className="truncate font-semibold">{seat.name}</span>
@@ -187,8 +224,16 @@ function SeatRow({
         </span>
         <GoalBar total={seat.total} goal={goal} lead={lead} />
       </span>
-      <EntryChip entry={entry} editable={!!onEdit} />
-      <CountUp value={seat.total} className={cx("w-12 flex-none text-right font-display text-2xl", lead && "text-accent")} />
+      {/* fixed slot so every row's goal bar has the same track length */}
+      <span className="flex w-16 flex-none justify-end">
+        <EntryChip entry={entry} editable={!!onEdit} />
+      </span>
+      <span className="flex min-w-12 flex-none flex-col items-end">
+        <CountUp value={seat.total} className={cx("font-display text-2xl leading-none", lead && "text-accent")} />
+        {!entry && typeof last === "number" && (
+          <span className="mt-1 text-[10px] font-bold uppercase leading-none tracking-[0.1em] text-muted/80 tabular-nums">+{last} last</span>
+        )}
+      </span>
     </>
   );
   const cls = cx(
@@ -212,9 +257,9 @@ function SeatRow({
 function EntryChip({ entry, editable }: { entry: PhysicalEntry | null; editable: boolean }) {
   if (!entry) {
     return editable ? (
-      <span className="flex-none rounded-full border-2 border-dashed border-accent/60 px-2.5 py-1 font-display text-xs text-accent">+ Hand</span>
+      <span className="flex-none rounded-full border border-accent/60 px-2.5 py-1 font-display text-xs text-accent">+ Hand</span>
     ) : (
-      <span className="flex-none text-xs text-muted">…</span>
+      <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-muted">Waiting</span>
     );
   }
   const pts = scorePhysical(entry);

@@ -30,7 +30,10 @@ export function Toast({
   }, [message, duration, onDismiss]);
 
   return (
-    <div role="status" aria-live="polite" className="pointer-events-none fixed inset-x-0 top-0 z-50 flex justify-center px-4 pt-safe-3">
+    <div
+      role={tone === "danger" ? "alert" : "status"}
+      aria-live={tone === "danger" ? "assertive" : "polite"}
+      className="pointer-events-none fixed inset-x-0 top-0 z-50 flex justify-center px-4 pt-safe-3">
       {message && (
         <div
           key={message}

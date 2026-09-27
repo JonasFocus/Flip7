@@ -1,17 +1,22 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createGame, createScoreGame } from "../engine/index.ts";
 import type { GameEvent, GameState, Intent, ScoreIntent, ScoreState } from "../engine/types.ts";
-import type { ClientMessage, Room } from "../protocol.ts";
-import { getClientId } from "./identity.ts";
+import { KICKED_MESSAGE, REPLACED_CLOSE_CODE, REPLACED_MESSAGE, type ClientMessage, type Room } from "../protocol.ts";
+import { clearLastRoom, getClientId, setLastRoom } from "./identity.ts";
 import { parseServerMessage, wsUrl } from "./rooms.ts";
 import type { ConnectionStatus, ScoreConnection, TableConnection } from "./types.ts";
 
 const PING_MS = 20_000;
-const STALE_MS = 45_000;
+const PONG_WAIT_MS = 10_000; // measured from the ping, so throttled background timers can't fake staleness
+const WAKE_CHECK_MS = 5_000;
 const MAX_BACKOFF_MS = 15_000;
 const ERROR_MS = 4_000;
+const OPEN_TIMEOUT_MS = 8_000; // a mobile SYN can hang for a minute; give up and retry sooner
+const STALE_CONNECT_MS = 5_000;
+const LEAVE_TIMEOUT_MS = 5_000;
+const UNREACHABLE_AFTER = 4; // failed attempts (~8s of backoff) before the first join
 
 export function useFlashError(ms = ERROR_MS) {
   const [error, setError] = useState<string | null>(null);
@@ -28,12 +33,30 @@ export function useFlashError(ms = ERROR_MS) {
   return [error, flash] as const;
 }
 
+function subscribeOnline(onChange: () => void) {
+  window.addEventListener("online", onChange);
+  window.addEventListener("offline", onChange);
+  return () => {
+    window.removeEventListener("online", onChange);
+    window.removeEventListener("offline", onChange);
+  };
+}
+
+// Lets reconnect indicators say "Offline" when the device itself has no network.
+export function useOnline(): boolean {
+  return useSyncExternalStore(subscribeOnline, () => navigator.onLine, () => true);
+}
+
 interface Snapshot {
   code: string;
   room: Room;
   you: string;
   events: GameEvent[];
+  receivedAt: number;
 }
+
+// Set while we keep failing to reach the server before ever joining; retries continue.
+export type Unreachable = "offline" | "server" | null;
 
 interface RoomCore {
   code: string;
@@ -43,7 +66,10 @@ interface RoomCore {
   hostId: string;
   isHost: boolean;
   events: GameEvent[];
+  receivedAt: number;
   error: string | null;
+  hadRoom: boolean; // with a fatal error: we had a live snapshot of this room before it failed
+  unreachable: Unreachable;
   send: (intent: Intent) => void;
   sendScore: (intent: ScoreIntent) => void;
   addBot: () => void;
@@ -55,10 +81,12 @@ function useRoomSocket(code: string, name: string): RoomCore {
   const [status, setStatus] = useState<ConnectionStatus>("connecting");
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   // An error before the server accepted our join (room gone, full, started) is fatal: stop retrying.
-  const [fatal, setFatal] = useState<{ code: string; message: string } | null>(null);
+  const [fatal, setFatal] = useState<{ code: string; message: string; hadRoom: boolean } | null>(null);
+  const [unreachable, setUnreachable] = useState<{ code: string; why: Exclude<Unreachable, null> } | null>(null);
   const [flashError, flash] = useFlashError();
   const wsRef = useRef<WebSocket | null>(null);
   const stopRef = useRef<() => void>(() => {});
+  const seatedRef = useRef(false); // the server holds a seat for us (joined, not failed)
   const nameRef = useRef(name);
   useEffect(() => {
     nameRef.current = name;
@@ -68,20 +96,35 @@ function useRoomSocket(code: string, name: string): RoomCore {
     let stopped = false;
     let attempt = 0;
     let lastSeen = 0;
+    let pingSentAt = 0;
+    let wakeTimer: ReturnType<typeof setTimeout> | undefined;
+    let hadRoom = false;
+    let failures = 0;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let openTimer: ReturnType<typeof setTimeout> | undefined;
+    let connectStartedAt = 0;
 
     const stop = () => {
       stopped = true;
+      seatedRef.current = false;
       clearTimeout(retryTimer);
+      clearTimeout(openTimer);
       const ws = wsRef.current;
       wsRef.current = null;
       ws?.close();
     };
     stopRef.current = stop;
 
+    const fail = (message: string) => {
+      stop();
+      setFatal({ code, message, hadRoom });
+      setStatus("closed");
+    };
+
     const scheduleReconnect = () => {
       if (stopped) return;
-      setStatus("reconnecting");
+      setStatus(hadRoom ? "reconnecting" : "connecting");
+      if (!hadRoom && ++failures >= UNREACHABLE_AFTER) setUnreachable({ code, why: navigator.onLine ? "server" : "offline" });
       const delay = Math.min(MAX_BACKOFF_MS, 500 * 2 ** attempt) * (0.5 + Math.random() / 2);
       attempt++;
       clearTimeout(retryTimer);
@@ -89,6 +132,7 @@ function useRoomSocket(code: string, name: string): RoomCore {
     };
 
     const drop = () => {
+      clearTimeout(openTimer);
       const ws = wsRef.current;
       wsRef.current = null;
       ws?.close();
@@ -102,13 +146,16 @@ function useRoomSocket(code: string, name: string): RoomCore {
       try {
         ws = new WebSocket(wsUrl());
       } catch {
-        stop();
-        setFatal({ code, message: "Could not reach the game server" });
-        setStatus("closed");
+        fail("Could not reach the game server");
         return;
       }
       wsRef.current = ws;
+      connectStartedAt = Date.now();
       let joined = false;
+      clearTimeout(openTimer);
+      openTimer = setTimeout(() => {
+        if (wsRef.current === ws && !joined) drop();
+      }, OPEN_TIMEOUT_MS);
 
       ws.onopen = () => {
         if (wsRef.current !== ws) return;
@@ -120,44 +167,63 @@ function useRoomSocket(code: string, name: string): RoomCore {
         if (wsRef.current !== ws) return;
         lastSeen = Date.now();
         const msg = parseServerMessage(e.data);
+        if (msg?.t === "room" || msg?.t === "error") clearTimeout(openTimer);
         if (msg?.t === "room") {
           if (!joined) {
             joined = true;
+            hadRoom = true;
+            seatedRef.current = true;
             attempt = 0;
             setStatus("open");
+            setUnreachable(null);
+            setLastRoom(code);
           }
-          setSnapshot({ code, room: msg.room, you: msg.you, events: msg.events });
+          setSnapshot({ code, room: msg.room, you: msg.you, events: msg.events, receivedAt: Date.now() });
         } else if (msg?.t === "error") {
-          if (joined) {
-            flash(msg.message);
-          } else {
-            stop();
-            setFatal({ code, message: msg.message });
-            setStatus("closed");
-          }
+          // The server keeps the socket open after a kick but no longer counts us in the room.
+          if (!joined || msg.message === KICKED_MESSAGE) {
+            clearLastRoom(code);
+            fail(msg.message);
+          } else flash(msg.message);
         }
       };
-      ws.onclose = () => {
+      ws.onclose = (e) => {
         if (wsRef.current !== ws) return;
         wsRef.current = null;
-        scheduleReconnect();
+        // Rejoining would kick the other tab, which would kick us back, forever.
+        if (e.code === REPLACED_CLOSE_CODE) fail(REPLACED_MESSAGE);
+        else scheduleReconnect();
       };
+    };
+
+    const ping = (ws: WebSocket) => {
+      pingSentAt = Date.now();
+      ws.send(JSON.stringify({ t: "ping" } satisfies ClientMessage));
     };
 
     const pingTimer = setInterval(() => {
       const ws = wsRef.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
-      if (Date.now() - lastSeen > STALE_MS) drop();
-      else ws.send(JSON.stringify({ t: "ping" } satisfies ClientMessage));
+      if (pingSentAt > lastSeen && Date.now() - pingSentAt > PONG_WAIT_MS) drop();
+      else ping(ws);
     }, PING_MS);
 
     // Phones suspend sockets in the background; come back fast instead of waiting out the backoff.
     const wake = () => {
       if (stopped || document.visibilityState === "hidden") return;
       const ws = wsRef.current;
-      if (ws?.readyState === WebSocket.CONNECTING) return;
+      if (ws?.readyState === WebSocket.CONNECTING) {
+        if (Date.now() - connectStartedAt < STALE_CONNECT_MS) return;
+        wsRef.current = null;
+        ws.close();
+      }
       if (ws?.readyState === WebSocket.OPEN) {
-        if (Date.now() - lastSeen > PING_MS + 10_000) drop();
+        // Probe instead of trusting lastSeen: a quiet room plus throttled timers makes a healthy socket look old.
+        ping(ws);
+        clearTimeout(wakeTimer);
+        wakeTimer = setTimeout(() => {
+          if (wsRef.current === ws && lastSeen < pingSentAt) drop();
+        }, WAKE_CHECK_MS);
         return;
       }
       attempt = 0;
@@ -165,13 +231,20 @@ function useRoomSocket(code: string, name: string): RoomCore {
     };
     document.addEventListener("visibilitychange", wake);
     window.addEventListener("online", wake);
+    // A dead network often leaves the socket OPEN until the stale check; drop now so taps say "Reconnecting…".
+    const offline = () => {
+      if (!stopped) drop();
+    };
+    window.addEventListener("offline", offline);
 
     connect();
     return () => {
       stop();
       clearInterval(pingTimer);
+      clearTimeout(wakeTimer);
       document.removeEventListener("visibilitychange", wake);
       window.removeEventListener("online", wake);
+      window.removeEventListener("offline", offline);
     };
   }, [code, flash]);
 
@@ -190,12 +263,16 @@ function useRoomSocket(code: string, name: string): RoomCore {
   const leave = useCallback(() => {
     const ws = wsRef.current;
     if (ws?.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ t: "leave" } satisfies ClientMessage));
+    else if (seatedRef.current) leaveOnFreshSocket(code, nameRef.current.trim());
     stopRef.current();
+    clearLastRoom();
     setStatus("closed");
-  }, []);
+  }, [code]);
 
   const current = snapshot?.code === code ? snapshot : null;
   const fatalMessage = fatal?.code === code ? fatal.message : null;
+  const hadRoom = fatal?.code === code && fatal.hadRoom;
+  const unreachableWhy = unreachable?.code === code && !fatalMessage ? unreachable.why : null;
   return useMemo(
     () => ({
       code,
@@ -205,19 +282,45 @@ function useRoomSocket(code: string, name: string): RoomCore {
       hostId: current?.room.hostId ?? "",
       isHost: current !== null && current.room.hostId === current.you,
       events: current?.events ?? [],
+      receivedAt: current?.receivedAt ?? 0,
       error: fatalMessage ?? flashError,
+      hadRoom,
+      unreachable: unreachableWhy,
       send,
       sendScore,
       addBot,
       removePlayer,
       leave,
     }),
-    [code, status, current, fatalMessage, flashError, send, sendScore, addBot, removePlayer, leave],
+    [code, status, current, fatalMessage, hadRoom, unreachableWhy, flashError, send, sendScore, addBot, removePlayer, leave],
   );
 }
 
+// Without this the server keeps our seat as "disconnected" and auto-plays it for the rest of the game.
+function leaveOnFreshSocket(code: string, name: string) {
+  let ws: WebSocket;
+  try {
+    ws = new WebSocket(wsUrl());
+  } catch {
+    return;
+  }
+  const timer = setTimeout(() => ws.close(), LEAVE_TIMEOUT_MS);
+  ws.onopen = () => {
+    const join: ClientMessage = { t: "join", code, name, clientId: getClientId() };
+    ws.send(JSON.stringify(join));
+    ws.send(JSON.stringify({ t: "leave" } satisfies ClientMessage));
+  };
+  // Messages are handled in order, so the leave is already queued behind the join's reply.
+  ws.onmessage = () => {
+    clearTimeout(timer);
+    ws.close();
+  };
+}
+
 function tableOf(c: RoomCore, game: GameState): TableConnection {
+  const auto = c.room?.mode === "virtual" ? c.room.autoPlay : undefined;
   return {
+    autoPlay: auto ? { playerId: auto.playerId, deadline: c.receivedAt + auto.inMs } : undefined,
     kind: "online",
     code: c.code,
     status: c.status,
@@ -239,6 +342,7 @@ function scoreOf(c: RoomCore, game: ScoreState): ScoreConnection {
     code: c.code,
     status: c.status,
     you: c.you,
+    hostId: c.hostId,
     isHost: c.isHost,
     game,
     error: c.error,
@@ -252,6 +356,8 @@ export interface RoomConnection {
   error: string | null; // with status "closed" and no table/score: couldn't join (show it, offer home)
   table: TableConnection | null; // set once a virtual room snapshot arrived
   score: ScoreConnection | null; // set once a physical room snapshot arrived
+  hadRoom: boolean;
+  unreachable: Unreachable;
   leave: () => void;
 }
 
@@ -265,6 +371,8 @@ export function useRoom(code: string, name: string): RoomConnection {
       error: c.error,
       table: room?.mode === "virtual" ? tableOf(c, room.game) : null,
       score: room?.mode === "physical" ? scoreOf(c, room.game) : null,
+      hadRoom: c.hadRoom,
+      unreachable: c.unreachable,
       leave: c.leave,
     };
   }, [c]);

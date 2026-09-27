@@ -13,6 +13,7 @@ export interface TableConnection {
   isHost: boolean;
   game: GameState;
   events: GameEvent[]; // events from the latest change, for animation
+  autoPlay?: { playerId: string; deadline: number }; // awaited player is offline; server plays for them at `deadline` (local ms)
   error: string | null;
   send: (intent: Intent) => void;
   addBot: () => void;
@@ -24,6 +25,7 @@ export interface ScoreConnection {
   code: string;
   status: ConnectionStatus;
   you: string; // client id; ScorePlayer.ownerId === you means you control that seat
+  hostId: string;
   isHost: boolean;
   game: ScoreState;
   error: string | null;

@@ -5,6 +5,7 @@ import type { GameState } from "@/lib/engine/types";
 import type { ConnectionStatus } from "@/lib/client/types";
 import { Button } from "@/components/ui/Button";
 import { Sheet } from "@/components/ui/Sheet";
+import { useOnline } from "@/lib/client/useRoom";
 
 export function TableHeader({
   game,
@@ -24,6 +25,7 @@ export function TableHeader({
   const leader = Math.max(0, ...game.players.map((p) => p.total));
   const pct = Math.min(100, (leader / game.goal) * 100);
   const offline = status === "reconnecting" || status === "connecting";
+  const online = useOnline();
 
   function close() {
     setMenu(false);
@@ -32,6 +34,7 @@ export function TableHeader({
 
   return (
     <header className="flex h-14 flex-none items-center gap-3 px-4">
+      <h1 className="sr-only">Flip 7 · Round {game.round}</h1>
       <div className="flex flex-col leading-none">
         <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted">Round</span>
         <span className="font-display text-xl tabular-nums">{game.round}</span>
@@ -39,10 +42,9 @@ export function TableHeader({
 
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
         <div className="flex items-baseline justify-between text-[10px] font-bold uppercase tracking-[0.18em] text-muted">
-          <span>{offline ? <span className="text-busted">Reconnecting…</span> : "Race to"}</span>
-          <span className="font-display text-xs tracking-normal tabular-nums text-fg">
-            {leader}
-            <span className="text-muted"> / {game.goal}</span>
+          <span>{offline ? <span className="text-busted">{online ? "Reconnecting…" : "Offline"}</span> : <>First to <span className="font-display tracking-normal text-fg">{game.goal}</span></>}</span>
+          <span>
+            Leader <span className="font-display text-xs tracking-normal tabular-nums text-fg">{leader}</span>
           </span>
         </div>
         <div

@@ -8,12 +8,14 @@ import {
   awaitingPlayerId,
   buildDeck,
   bustChance,
+  bustInThree,
   chooseBotIntent,
   createGame,
   createScoreGame,
   redactGame,
   scoreHand,
   scorePhysical,
+  setConnected,
   type Card,
   type GameState,
   type Intent,
@@ -239,12 +241,13 @@ test("reshuffles discard when deck is empty", () => {
   assert.equal(r.discard.length, 0);
 });
 
-test("start requires 2+ players, host, and all humans ready; bots always ready", () => {
+test("start requires 2+ players, host, and all humans connected; ready is not required", () => {
   const solo = lobby(["h"]);
   assert.equal(applyIntent(solo, "h", { type: "start" }, { isHost: true }).ok, false);
+  const pair = lobby(["h", "g"]);
+  assert.equal(applyIntent(pair, "h", { type: "start" }, { isHost: true }).ok, true, "host can start over unready guests");
+  assert.equal(applyIntent(setConnected(pair, "g", false), "h", { type: "start" }, { isHost: true }).ok, false, "offline guest blocks start");
   let s = addPlayer(lobby(["h"]), { id: "bot", name: "Pip", isBot: true });
-  assert.equal(applyIntent(s, "h", { type: "start" }, { isHost: true }).ok, false);
-  s = act(s, "h", { type: "ready", ready: true });
   assert.equal(applyIntent(s, "h", { type: "start" }, { isHost: false }).ok, false);
   s = act(s, "h", { type: "start" }, true);
   assert.equal(s.phase, "playing");
@@ -262,6 +265,14 @@ test("bustChance matches server and redacted client view", () => {
   const real = act(act(lobby(["a", "b"]), "a", { type: "ready", ready: true }), "b", { type: "ready", ready: true });
   const started = act(real, "a", { type: "start" }, true);
   for (const p of started.players) assert.equal(bustChance(redactGame(started), p.id), bustChance(started, p.id));
+});
+
+test("bustInThree counts a Second Chance as one absorbed duplicate, not immunity", () => {
+  const deck = [n(12), n(1), n(2), n(4)];
+  assert.equal(bustInThree(rigged({ a: [n(12)], b: [] }, deck), "a"), 1 - 0.75 ** 3);
+  const shielded = bustInThree(rigged({ a: [n(12), sc()], b: [] }, deck), "a");
+  assert.ok(Math.abs(shielded - (1 - 0.75 ** 3 - 3 * 0.25 * 0.75 ** 2)) < 1e-12);
+  assert.ok(shielded > 0);
 });
 
 function card(c: Card): string {
@@ -322,25 +333,88 @@ test("physical scoring and scorekeeper flow", () => {
   assert.equal(applyScoreIntent(s, "b", { type: "start" }, { isHost: false }).ok, false);
   run("a", { type: "start" }, true);
   const entry = { numbers: [12, 11], x2: false, plus: [], busted: false };
-  assert.equal(applyScoreIntent(s, "a", { type: "submitEntry", seatId: "b", entry }, { isHost: false }).ok, false);
-  assert.equal(
-    applyScoreIntent(s, "a", { type: "submitEntry", seatId: "a", entry: { ...entry, numbers: [5, 5] } }, { isHost: false }).ok,
-    false,
-  );
-  run("a", { type: "submitEntry", seatId: "a", entry });
-  assert.equal(applyScoreIntent(s, "a", { type: "finishRound" }, { isHost: true }).ok, false);
-  run("b", { type: "submitEntry", seatId: "b", entry: { ...entry, busted: true } });
-  run("a", { type: "finishRound" }, true);
+  const sub = (seatId: string, e: typeof entry) => ({ type: "submitEntry" as const, seatId, entry: e, round: s.round });
+  assert.equal(applyScoreIntent(s, "a", sub("b", entry), { isHost: false }).ok, false);
+  assert.equal(applyScoreIntent(s, "a", sub("a", { ...entry, numbers: [5, 5] }), { isHost: false }).ok, false);
+  run("a", sub("a", entry));
+  run("b", sub("b", { ...entry, busted: true }));
+  run("a", { type: "finishRound", round: 1 }, true);
   assert.equal(s.round, 2);
+  // Double-tapped finish and stale submits from round 1 are rejected.
+  assert.equal(applyScoreIntent(s, "a", { type: "finishRound", round: 1 }, { isHost: true }).ok, false);
+  assert.equal(applyScoreIntent(s, "a", { type: "submitEntry", seatId: "a", entry, round: 1 }, { isHost: false }).ok, false);
   s = addScoreSeat(s, { id: "c", name: "Kid", ownerId: "c" });
   assert.deepEqual(s.players[2]?.rounds, [null]);
-  run("a", { type: "submitEntry", seatId: "a", entry: { ...entry, numbers: [7] } });
-  run("a", { type: "submitEntry", seatId: "b", entry }, true);
-  run("c", { type: "submitEntry", seatId: "c", entry });
-  run("a", { type: "finishRound" }, true);
+  run("a", sub("a", { ...entry, numbers: [7] }));
+  run("a", sub("b", entry), true);
+  run("c", sub("c", entry));
+  run("a", { type: "finishRound", round: 2 }, true);
   assert.equal(s.phase, "gameOver");
   assert.deepEqual(s.winnerIds, ["a"]);
-  run("a", { type: "undoRound" }, true);
+  assert.equal(applyScoreIntent(s, "a", { type: "undoRound", round: 1 }, { isHost: true }).ok, false);
+  run("a", { type: "undoRound", round: 2 }, true);
   assert.equal(s.phase, "playing");
   assert.equal(s.players[0]?.total, 23);
+  // Undo keeps the round's hands so one typo can be fixed and re-finished.
+  assert.deepEqual(s.entries.a?.numbers, [7]);
+  assert.deepEqual(s.entries.c?.numbers, [11, 12]);
+  // Double-tapped undo only removes one round.
+  assert.equal(applyScoreIntent(s, "a", { type: "undoRound", round: 2 }, { isHost: true }).ok, false);
+  assert.equal(s.players[0]?.rounds.length, 1);
+});
+
+test("scorekeeper: missing hands score 0 and goal can rise mid-game", () => {
+  let s = createScoreGame({ goal: 100 });
+  s = addScoreSeat(s, { id: "a", name: "Mom", ownerId: "a" });
+  s = addScoreSeat(s, { id: "b", name: "Dad", ownerId: "b" });
+  const run = (intent: Parameters<typeof applyScoreIntent>[2]) => {
+    const r = applyScoreIntent(s, "a", intent, { isHost: true });
+    if (!r.ok) throw new Error(r.error);
+    s = r.state;
+  };
+  run({ type: "start" });
+  run({ type: "submitEntry", seatId: "a", entry: { numbers: [12, 11, 10], x2: true, plus: [], busted: false }, round: 1 });
+  run({ type: "finishRound", round: 1 });
+  assert.deepEqual(s.players.map((p) => p.rounds), [[66], [0]]);
+  assert.equal(applyScoreIntent(s, "a", { type: "setGoal", goal: 50 }, { isHost: true }).ok, false);
+  assert.equal(applyScoreIntent(s, "a", { type: "setGoal", goal: 300 }, { isHost: false }).ok, false);
+  run({ type: "setGoal", goal: 300 });
+  assert.equal(s.goal, 300);
+});
+
+test("freeze target: bank yourself to win, else lock in the leader with the fewest round points", () => {
+  const pickFor = (a: Card[], aTotal: number) => {
+    const base = rigged({ a, b: [n(9), n(10)], c: [n(3)] }, [freeze()]);
+    player(base, "a").total = aTotal;
+    player(base, "b").total = 50;
+    player(base, "c").total = 50;
+    const s = act(base, "a", { type: "hit" });
+    assert.ok(s.pending?.type === "chooseTarget" && s.pending.options.includes("a"));
+    const intent = chooseBotIntent(s, "a", () => 0.5);
+    return intent?.type === "chooseTarget" ? intent.targetId : null;
+  };
+  assert.equal(pickFor([n(5)], 0), "c"); // tied leaders: freeze the one holding 3, not 19
+  assert.equal(pickFor([n(12), n(11), n(10), plus(10)], 160), "a"); // 160 + 43 wins the game
+});
+
+test("scorekeeper: consecutive undos each restore their own round's hands", () => {
+  let s = createScoreGame({ goal: 500 });
+  s = addScoreSeat(s, { id: "a", name: "Mom", ownerId: "a" });
+  const run = (intent: Parameters<typeof applyScoreIntent>[2]) => {
+    const r = applyScoreIntent(s, "a", intent, { isHost: true });
+    if (!r.ok) throw new Error(r.error);
+    s = r.state;
+  };
+  run({ type: "start" });
+  for (const n of [3, 5]) {
+    run({ type: "submitEntry", seatId: "a", entry: { numbers: [n], x2: false, plus: [], busted: false }, round: s.round });
+    run({ type: "finishRound", round: s.round });
+  }
+  assert.equal(s.round, 3);
+  run({ type: "undoRound", round: 2 });
+  assert.deepEqual(s.entries.a?.numbers, [5]);
+  run({ type: "undoRound", round: 1 });
+  assert.deepEqual(s.entries.a?.numbers, [3]);
+  assert.equal(s.players[0]?.total, 0);
+  assert.equal(s.entryHistory.length, 0);
 });

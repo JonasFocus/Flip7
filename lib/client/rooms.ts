@@ -1,6 +1,11 @@
 import type { ClientMessage, RoomMode, RoomSummary, ServerMessage } from "../protocol.ts";
 import { getClientId } from "./identity.ts";
 
+// A pasted invite link carries digits outside the code (port, domain), so prefer the /room/<code> segment.
+export function roomCodeFrom(raw: string): string {
+  return (raw.match(/room\/(\d{6})/)?.[1] ?? raw.replace(/\D/g, "")).slice(0, 6);
+}
+
 export function wsUrl(): string {
   return (process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8787").replace(/\/+$/, "");
 }

@@ -4,10 +4,12 @@ import { useEffect, useState } from "react";
 import type { RoomSummary } from "@/lib/protocol";
 import { fetchOpenRooms } from "@/lib/client/rooms";
 import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
 
 const POLL_MS = 5000;
+const PREVIEW = 5;
 
-type Load = { rooms: RoomSummary[] | null; error: string | null };
+export type Load = { rooms: RoomSummary[] | null; error: string | null };
 
 function ago(ts: number): string {
   const min = Math.floor((Date.now() - ts) / 60_000);
@@ -16,7 +18,8 @@ function ago(ts: number): string {
   return `${Math.floor(min / 60)}h ago`;
 }
 
-export function OpenTables({ onJoin }: { onJoin: (code: string) => void }) {
+// Polls every room (including in-progress ones) so home can also offer a way back to your own table.
+export function useOpenRooms(): Load {
   const [load, setLoad] = useState<Load>({ rooms: null, error: null });
 
   useEffect(() => {
@@ -26,7 +29,7 @@ export function OpenTables({ onJoin }: { onJoin: (code: string) => void }) {
       ctrl = new AbortController();
       try {
         const rooms = await fetchOpenRooms(ctrl.signal);
-        setLoad({ rooms: rooms.filter((r) => r.joinable), error: null });
+        setLoad({ rooms, error: null });
       } catch (e) {
         if (e instanceof DOMException && e.name === "AbortError") return;
         const error = navigator.onLine ? "Can't reach the game server" : "You're offline";
@@ -46,7 +49,13 @@ export function OpenTables({ onJoin }: { onJoin: (code: string) => void }) {
     };
   }, []);
 
-  const { rooms, error } = load;
+  return load;
+}
+
+export function OpenTables({ load, exclude, onJoin }: { load: Load; exclude: string; onJoin: (code: string) => void }) {
+  const [expanded, setExpanded] = useState(false);
+  const error = load.error;
+  const rooms = load.rooms?.filter((r) => r.joinable && r.code !== exclude) ?? null;
 
   return (
     <section aria-labelledby="tables-title" className="flex flex-col gap-3">
@@ -77,14 +86,14 @@ export function OpenTables({ onJoin }: { onJoin: (code: string) => void }) {
       )}
 
       {rooms?.length === 0 && !error && (
-        <p className="rounded-2xl border border-dashed border-line px-4 py-5 text-center text-sm text-muted">
+        <p className="rounded-2xl bg-surface/60 px-4 py-5 text-center text-sm text-muted">
           No open tables right now. Start one and share the code.
         </p>
       )}
 
       {rooms && rooms.length > 0 && (
         <ul className="flex flex-col gap-2">
-          {rooms.map((r) => (
+          {(expanded ? rooms : rooms.slice(0, PREVIEW)).map((r) => (
             <li key={r.code}>
               <button
                 type="button"
@@ -107,6 +116,12 @@ export function OpenTables({ onJoin }: { onJoin: (code: string) => void }) {
             </li>
           ))}
         </ul>
+      )}
+
+      {rooms && rooms.length > PREVIEW && (
+        <Button variant="ghost" onClick={() => setExpanded((v) => !v)} aria-expanded={expanded}>
+          {expanded ? "Show fewer" : `Show all ${rooms.length}`}
+        </Button>
       )}
     </section>
   );

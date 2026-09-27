@@ -25,6 +25,20 @@ export function splitHand(cards: Card[]): { numbers: Card[]; specials: Card[] } 
   return { numbers: sorted.filter((c) => c.kind === "number"), specials: sorted.filter((c) => c.kind !== "number") };
 }
 
+// Part of the pair that caused a bust.
+export function isDuplicate(hand: Card[], c: Card): boolean {
+  return c.kind === "number" && hand.filter((x) => x.kind === "number" && x.value === c.value).length > 1;
+}
+
 export function firstName(name: string): string {
   return name.trim().split(/\s+/)[0] ?? name;
+}
+
+// A player as the table has revealed them so far: queued cards left out, and the status they had
+// before those cards (a bust or Flip 7 lands with its card, not before it). `pendingStatus` holds
+// players whose stay / freeze / Flip 7 line is still queued, so their badge waits for it too.
+export function shownPlayer(p: Player, hidden: Set<string>, pendingStatus?: Set<string>): Player {
+  const hand = p.hand.filter((c) => !hidden.has(c.id));
+  if (hand.length === p.hand.length && !pendingStatus?.has(p.id)) return p;
+  return { ...p, hand, status: "active" };
 }

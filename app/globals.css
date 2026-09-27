@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant short-land (@media (orientation: landscape) and (max-height: 560px));
+
 @theme {
   --font-display: var(--font-bungee), ui-rounded, system-ui, sans-serif;
   --font-sans: var(--font-outfit), ui-sans-serif, system-ui, sans-serif;
@@ -43,7 +45,7 @@
   --color-card-mod: oklch(0.94 0.012 275);
   --color-card-freeze: oklch(0.86 0.12 215);
   --color-card-flip3: oklch(0.71 0.24 345);
-  --color-card-chance: oklch(0.89 0.2 130);
+  --color-card-chance: oklch(0.74 0.17 10);
 
   --radius-card: 0.16em;
   --shadow-hard: 0 4px 0 0 oklch(0.08 0.02 275);
@@ -57,7 +59,6 @@
   --animate-flip: flip 320ms var(--ease-out) both;
   --animate-shake: shake 420ms cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
   --animate-pop: pop 280ms var(--ease-spring) both;
-  --animate-glow: glow 1.6s ease-in-out infinite;
 
   @keyframes deal {
     from {
@@ -81,10 +82,6 @@
     0% { opacity: 0; transform: scale(0.9); }
     60% { opacity: 1; transform: scale(1.12); }
     100% { transform: scale(1); }
-  }
-  @keyframes glow {
-    0%, 100% { box-shadow: 0 0 0 2px var(--color-accent), 0 0 12px -2px oklch(0.89 0.18 98 / 0.35); }
-    50% { box-shadow: 0 0 0 2px var(--color-accent), 0 0 28px 0 oklch(0.89 0.18 98 / 0.7); }
   }
 }
 
@@ -120,7 +117,6 @@
     background-color: var(--color-bg);
     background-image: radial-gradient(oklch(1 0 0 / 0.045) 1px, transparent 1.2px);
     background-size: 22px 22px;
-    background-attachment: fixed;
     color: var(--color-fg);
     font-family: var(--font-sans);
     touch-action: manipulation;
@@ -187,23 +183,17 @@
     background: var(--color-surface);
     color: var(--c);
   }
-  .card[data-dark]::after { box-shadow: inset 0 0 0 max(1px, 0.02em) color-mix(in oklch, var(--c) 30%, transparent); }
+  .card[data-dark]::after { inset: 0.07em; box-shadow: inset 0 0 0 max(1px, 0.02em) color-mix(in oklch, var(--c) 30%, transparent); }
 
   .card-num { font-size: 0.6em; letter-spacing: -0.04em; margin-top: 0.06em; }
   .card-num[data-wide] { font-size: 0.46em; letter-spacing: -0.08em; }
   .card-num[data-underline] { text-decoration: underline; text-decoration-thickness: 0.06em; text-underline-offset: 0.08em; }
   .card-mod { font-size: 0.4em; letter-spacing: -0.06em; }
   .card-icon { width: 0.58em; height: 0.58em; }
-  .card-corner {
-    position: absolute;
-    top: 0.55em;
-    left: 0.6em;
-    font-size: 0.15em;
-    letter-spacing: -0.02em;
-  }
   .card-label {
     position: absolute;
-    bottom: 0.1em;
+    /* In the label's own em (0.085 of the card): ~0.12 card-em, clear of the dark-card frame at ~0.09. */
+    bottom: 1.45em;
     inset-inline: 0;
     text-align: center;
     font-size: 0.085em;
@@ -248,6 +238,7 @@
     border-radius: 1.5rem 1.5rem 0 0;
     box-shadow: 0 -1px 0 0 var(--color-line), 0 -12px 40px oklch(0 0 0 / 0.4);
     transform: translateY(100%);
+    transition: transform 300ms var(--ease-drawer); /* older Safari drops the next line; Sheet.tsx animates open/close there */
     transition:
       transform 300ms var(--ease-drawer),
       display 300ms allow-discrete,
@@ -269,9 +260,22 @@
   }
 }
 
+/* Current-turn / winner glow: a fixed shadow on a pseudo-element, animating only opacity so it composites instead of repainting. */
+.turn-glow { position: relative; }
+.turn-glow::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  box-shadow: var(--shadow-glow);
+  animation: glow-o 1.6s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes glow-o { 50% { opacity: 0.45; } }
+
 @media (prefers-reduced-motion: reduce) {
+  .turn-glow::before { animation: none; }
   .animate-deal, .animate-flip, .animate-shake, .animate-pop { animation: none !important; }
-  .animate-glow { animation: none !important; box-shadow: var(--shadow-glow); }
   .sheet, .sheet::backdrop, .toast, .press { transition-duration: 1ms !important; }
   .press:active:not(:disabled) { transform: none !important; }
 }

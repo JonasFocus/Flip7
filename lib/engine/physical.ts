@@ -7,7 +7,7 @@ const PLUS_VALUES = [2, 4, 6, 8, 10];
 type ScoreResult = { ok: true; state: ScoreState } | { ok: false; error: string };
 
 export function createScoreGame(opts: { goal?: number } = {}): ScoreState {
-  return { phase: "lobby", goal: opts.goal ?? 200, round: 0, players: [], entries: {}, winnerIds: [] };
+  return { phase: "lobby", goal: opts.goal ?? 200, round: 0, players: [], entries: {}, entryHistory: [], winnerIds: [] };
 }
 
 export function addScoreSeat(s: ScoreState, seat: { id: string; name: string; ownerId: string }): ScoreState {
@@ -74,6 +74,7 @@ export function applyScoreIntent(
       if (s.phase !== "playing") return fail("Not playing");
       if (!seat) return fail("No such seat");
       if (!canControl(seat)) return fail("Not your seat");
+      if (intent.round !== s.round) return fail("Round already changed");
       const entry = normalizeEntry(intent.entry);
       if (!entry) return fail("Invalid cards");
       return ok({ ...s, entries: { ...s.entries, [seat.id]: entry } });
@@ -87,7 +88,8 @@ export function applyScoreIntent(
     }
     case "finishRound": {
       if (s.phase !== "playing") return fail("Not playing");
-      if (s.players.some((p) => !s.entries[p.id])) return fail("Everyone needs an entry first");
+      if (intent.round !== s.round) return fail("Round already changed");
+      // Missing hands score 0, so the host never has to submit placeholders that could race a real entry.
       const players = s.players.map((p) => {
         const entry = s.entries[p.id];
         const pts = entry ? scorePhysical(entry) : 0;
@@ -101,26 +103,33 @@ export function applyScoreIntent(
         phase: winnerIds.length > 0 ? "gameOver" : "playing",
         round: winnerIds.length > 0 ? s.round : s.round + 1,
         entries: Object.fromEntries(players.map((p) => [p.id, null])),
+        entryHistory: [...s.entryHistory, s.entries],
       });
     }
     case "undoRound": {
-      if (s.phase === "lobby" || (s.players[0]?.rounds.length ?? 0) === 0) return fail("Nothing to undo");
+      const recorded = s.players[0]?.rounds.length ?? 0;
+      if (s.phase === "lobby" || recorded === 0) return fail("Nothing to undo");
+      if (intent.round !== recorded) return fail("Round already changed");
       const players = s.players.map((p) => {
         const last = p.rounds[p.rounds.length - 1] ?? 0;
         return { ...p, total: p.total - last, rounds: p.rounds.slice(0, -1) };
       });
+      const restored = s.entryHistory.at(-1) ?? {};
       return ok({
         ...s,
         players,
         phase: "playing",
         round: s.phase === "gameOver" ? s.round : s.round - 1,
         winnerIds: [],
-        entries: Object.fromEntries(players.map((p) => [p.id, null])),
+        entries: Object.fromEntries(players.map((p) => [p.id, restored[p.id] ?? null])),
+        entryHistory: s.entryHistory.slice(0, -1),
       });
     }
     case "setGoal":
-      if (s.phase !== "lobby") return fail("Goal can only change before starting");
+      if (s.phase === "gameOver") return fail("The game is over");
       if (!Number.isInteger(intent.goal) || intent.goal < 50 || intent.goal > 1000) return fail("Goal must be 50-1000");
+      if (s.phase === "playing" && intent.goal <= Math.max(0, ...s.players.map((p) => p.total)))
+        return fail("Goal must be above the current top score");
       return ok({ ...s, goal: intent.goal });
     case "playAgain":
       if (s.phase !== "gameOver") return fail("The game is not over");

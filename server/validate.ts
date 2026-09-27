@@ -12,8 +12,12 @@ export const CODE_RE = /^\d{6}$/;
 
 export function cleanName(v: unknown): string | null {
   if (typeof v !== "string") return null;
-  const name = v.replace(/\s+/g, " ").trim();
-  return name.length >= 1 && name.length <= 20 ? name : null;
+  const spaced = v.normalize("NFC").replace(/\s+/g, " ");
+  // Controls and bidi overrides (which flip the surrounding rail/narration text) and tall combining stacks are rejected outright.
+  if (/[\p{Cc}؜‎‏‪-‮⁦-⁩]|\p{M}{3,}/u.test(spaced)) return null;
+  // Other invisible format chars and blank lookalikes are dropped; ZWJ stays so family/profession emoji survive.
+  const name = spaced.replace(/(?!‍)[\p{Cf}⠀ㅤﾠᅟᅠ]/gu, "").replace(/ +/g, " ").trim();
+  return name.length >= 1 && name.length <= 20 && /[\p{L}\p{N}\p{S}]/u.test(name) ? name : null;
 }
 
 function parseIntent(v: unknown): Intent | null {
@@ -63,13 +67,16 @@ function parseScoreIntent(v: unknown): ScoreIntent | null {
       return isId(v.seatId) ? { type: "clearEntry", seatId: v.seatId } : null;
     case "submitEntry": {
       const entry = parseEntry(v.entry);
-      return isId(v.seatId) && entry ? { type: "submitEntry", seatId: v.seatId, entry } : null;
+      return isId(v.seatId) && entry && isInt(v.round, 0, 10000)
+        ? { type: "submitEntry", seatId: v.seatId, entry, round: v.round }
+        : null;
     }
     case "setGoal":
       return isInt(v.goal, 1, 10000) ? { type: "setGoal", goal: v.goal } : null;
-    case "start":
     case "finishRound":
     case "undoRound":
+      return isInt(v.round, 0, 10000) ? { type: v.type, round: v.round } : null;
+    case "start":
     case "playAgain":
       return { type: v.type };
     default:

@@ -14,6 +14,6 @@ export default function SoloPage() {
 function SoloGame({ name }: { name: string }) {
   const raw = useLocalGame(name, 2);
   const router = useRouter();
-  const conn = useMemo(() => ({ ...raw, leave: () => (raw.leave(), router.push("/")) }), [raw, router]);
+  const conn = useMemo(() => ({ ...raw, leave: () => (raw.leave(), router.replace("/")) }), [raw, router]);
   return conn.game.phase === "lobby" ? <Lobby conn={conn} /> : <Table conn={conn} />;
 }

@@ -27,6 +27,8 @@ function PickCard({
   disabled,
   onClick,
   label,
+  className,
+  cardClassName,
 }: {
   card: Card;
   size: "sm" | "md";
@@ -34,21 +36,27 @@ function PickCard({
   disabled?: boolean;
   onClick: () => void;
   label: string;
+  className?: string;
+  cardClassName?: string;
 }) {
   return (
     <button
       type="button"
       aria-pressed={on}
       aria-label={label}
-      disabled={disabled}
-      onClick={onClick}
-      className="grid place-items-center rounded-xl py-1 transition-transform duration-150 ease-[var(--ease-out)] active:scale-[0.94] disabled:cursor-not-allowed"
+      // aria-disabled, not disabled: a blocked tap still buzzes so the user learns why nothing happened.
+      aria-disabled={disabled || undefined}
+      onClick={disabled ? fail : onClick}
+      className={cx(
+        "grid place-items-center rounded-xl py-1 transition-transform duration-150 ease-[var(--ease-out)] active:scale-[0.94] aria-disabled:cursor-not-allowed aria-disabled:active:scale-100",
+        className,
+      )}
     >
       <PlayingCard
         card={card}
         size={size}
-        dim={!on}
-        className={cx("transition-[transform,opacity,filter] duration-150 ease-[var(--ease-out)]", on && "-translate-y-1")}
+        highlight={on}
+        className={cx("transition-[transform,opacity] duration-150 ease-[var(--ease-out)]", on ? "-translate-y-1" : disabled ? "opacity-25 saturate-0" : "opacity-70", cardClassName)}
       />
     </button>
   );
@@ -56,49 +64,92 @@ function PickCard({
 
 export function HandPicker({
   seat,
+  index,
   initial,
   onSave,
   onClear,
+  onRemove,
   onClose,
 }: {
   seat: ScorePlayer | null;
+  index: number;
   initial: PhysicalEntry | null;
   onSave: (entry: PhysicalEntry) => void;
   onClear: () => void;
+  onRemove?: () => void; // undefined when this seat can't be removed (the last one at the table)
   onClose: () => void;
 }) {
   return (
-    <Sheet open={seat !== null} onClose={onClose} title={seat ? <SheetTitle seat={seat} /> : undefined}>
-      {/* key remounts the form per seat so state starts from that seat's entry */}
-      {seat && <PickerBody key={seat.id} initial={initial} onSave={onSave} onClear={onClear} />}
+    // Landscape phones get a wider sheet so 13 number cards in one row stay at a 44px+ tap target.
+    <Sheet
+      open={seat !== null}
+      onClose={onClose}
+      title={seat ? <SheetTitle seat={seat} index={index} /> : undefined}
+      className="[@media(max-height:500px)]:max-w-[46rem]"
+    >
+      {/* key remounts the form when the seat or its server entry changes, so an open sheet never saves a stale hand */}
+      {seat && (
+        <PickerBody
+          key={`${seat.id}:${JSON.stringify(initial)}`}
+          name={seat.name}
+          initial={initial}
+          onSave={onSave}
+          onClear={onClear}
+          onRemove={onRemove}
+        />
+      )}
     </Sheet>
   );
 }
 
-function SheetTitle({ seat }: { seat: ScorePlayer }) {
+function SheetTitle({ seat, index }: { seat: ScorePlayer; index: number }) {
   return (
     <span className="flex items-center gap-3">
-      <Avatar id={seat.id} name={seat.name} size="md" />
+      <Avatar id={seat.id} seat={index} name={seat.name} size="md" />
       <span className="truncate">{seat.name}</span>
     </span>
   );
 }
 
 function PickerBody({
+  name,
   initial,
   onSave,
   onClear,
+  onRemove,
 }: {
+  name: string;
   initial: PhysicalEntry | null;
   onSave: (entry: PhysicalEntry) => void;
   onClear: () => void;
+  onRemove?: () => void;
 }) {
   const [entry, setEntry] = useState<PhysicalEntry>(initial ?? EMPTY);
+  const [confirmRemove, setConfirmRemove] = useState(false);
+
+  if (confirmRemove && onRemove) {
+    return (
+      <div className="flex flex-col gap-2">
+        <p className="text-muted text-pretty">
+          {name} leaves the table for the rest of this game, and their scores come off the board.
+        </p>
+        <Button variant="danger" size="lg" block className="mt-3" onClick={onRemove}>
+          Remove {name}
+        </Button>
+        <Button variant="ghost" block onClick={() => setConfirmRemove(false)}>
+          Keep {name}
+        </Button>
+      </div>
+    );
+  }
   const count = entry.numbers.length;
   const flip7 = count >= 7 && !entry.busted;
   const score = scorePhysical(entry);
   const sum = entry.numbers.reduce((a, b) => a + b, 0);
   const plus = entry.plus.reduce((a, b) => a + b, 0);
+  const breakdown = entry.busted
+    ? "No points this round"
+    : [count ? `${sum}${entry.x2 ? " × 2" : ""}` : null, plus ? `+${plus}` : null, flip7 ? "+15" : null].filter(Boolean).join(" ");
 
   function set(next: PhysicalEntry) {
     tap();
@@ -106,16 +157,16 @@ function PickerBody({
   }
 
   return (
-    <div className="flex flex-col gap-3 select-none">
+    <div className="flex flex-col gap-3 select-none [@media(max-height:500px)]:gap-1.5">
       <div className="flex items-end justify-between gap-3" aria-live="polite">
-        <div className="min-w-0">
+        <div className="min-w-0 [@media(max-height:500px)]:flex [@media(max-height:500px)]:items-baseline [@media(max-height:500px)]:gap-3">
           <MicroLabel>{entry.busted ? "Busted" : flip7 ? "Flip 7 bonus +15" : "Round score"}</MicroLabel>
-          <p className={cx("font-display text-5xl leading-none tabular-nums", entry.busted ? "text-busted" : flip7 ? "text-flip7" : "text-fg")}>
+          <p className={cx("font-display text-5xl leading-none tabular-nums [@media(max-height:500px)]:text-3xl", entry.busted ? "text-busted" : flip7 ? "text-flip7" : "text-fg")}>
             {score}
           </p>
-          <p className="mt-1 truncate text-sm text-muted tabular-nums">
-            {entry.busted ? "No points this round" : `${sum}${entry.x2 ? " × 2" : ""}${plus ? ` + ${plus}` : ""}${flip7 ? " + 15" : ""}`}
-          </p>
+          {breakdown && breakdown !== String(score) && (
+            <p className="mt-1 truncate text-sm text-muted tabular-nums">{breakdown}</p>
+          )}
         </div>
         <div className="flex flex-col items-end gap-1.5">
           {flip7 ? (
@@ -123,7 +174,7 @@ function PickerBody({
           ) : (
             <span className="font-display text-lg tabular-nums text-muted">{count}/7</span>
           )}
-          <span className="flex gap-1" aria-hidden>
+          <span className="flex gap-1 [@media(max-height:500px)]:hidden" aria-hidden>
             {Array.from({ length: 7 }, (_, i) => (
               <span
                 key={i}
@@ -135,8 +186,10 @@ function PickerBody({
       </div>
 
       <div className={cx("transition-opacity duration-150", entry.busted && "opacity-40")}>
-        <MicroLabel className="mb-1">Numbers</MicroLabel>
-        <div className="grid grid-cols-5 gap-x-1 landscape:grid-cols-7">
+        <MicroLabel className="mb-1 [@media(max-height:500px)]:hidden">Numbers</MicroLabel>
+        {/* flex-wrap centers the short last row; short phones go 7-wide with small cards and landscape phones
+            go 13-wide so Save stays on screen */}
+        <div className="flex flex-wrap justify-center">
           {NUMBERS.map((v) => {
             const on = entry.numbers.includes(v);
             return (
@@ -144,6 +197,8 @@ function PickerBody({
                 key={v}
                 card={{ id: `pick-${v}`, kind: "number", value: v }}
                 size="md"
+                className="basis-1/5 [@media(orientation:landscape)_and_(min-height:701px)]:basis-1/7 [@media(min-height:501px)_and_(max-height:700px)]:basis-1/7 [@media(max-height:500px)]:basis-1/13"
+                cardClassName="[@media(min-height:501px)_and_(max-height:700px)]:text-[40px] [@media(max-height:500px)]:text-[28px]"
                 on={on}
                 disabled={!on && count >= 7}
                 label={String(v)}
@@ -155,13 +210,14 @@ function PickerBody({
       </div>
 
       <div className={cx("transition-opacity duration-150", entry.busted && "opacity-40")}>
-        <MicroLabel className="mb-1">Modifiers</MicroLabel>
+        <MicroLabel className="mb-1 [@media(max-height:500px)]:hidden">Modifiers</MicroLabel>
         <div className="grid grid-cols-6">
           {PLUS.map((v) => (
             <PickCard
               key={v}
               card={{ id: `pick-p${v}`, kind: "plus", value: v }}
               size="sm"
+              cardClassName="[@media(max-height:500px)]:text-[28px]"
               on={entry.plus.includes(v)}
               label={`Plus ${v}`}
               onClick={() => set({ ...entry, plus: toggle(entry.plus, v) })}
@@ -170,6 +226,7 @@ function PickerBody({
           <PickCard
             card={{ id: "pick-x2", kind: "x2" }}
             size="sm"
+            cardClassName="[@media(max-height:500px)]:text-[28px]"
             on={entry.x2}
             label="Times 2"
             onClick={() => set({ ...entry, x2: !entry.x2 })}
@@ -177,7 +234,7 @@ function PickerBody({
         </div>
       </div>
 
-      <div className="flex gap-2">
+      <div className="sticky bottom-0 -mx-5 flex gap-2 bg-surface px-5 pt-2 pb-2">
         <button
           type="button"
           aria-pressed={entry.busted}
@@ -207,6 +264,15 @@ function PickerBody({
       {initial && (
         <button type="button" onClick={onClear} className="-mt-1 min-h-11 text-sm font-semibold text-muted underline-offset-4 active:underline">
           Clear this hand
+        </button>
+      )}
+      {onRemove && (
+        <button
+          type="button"
+          onClick={() => setConfirmRemove(true)}
+          className={cx("min-h-11 text-sm font-semibold text-muted underline-offset-4 active:underline", !initial && "-mt-1")}
+        >
+          Remove from game
         </button>
       )}
     </div>

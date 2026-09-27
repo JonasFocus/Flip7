@@ -67,12 +67,17 @@ export function removePlayer(state: GameState, id: string, rng: Rng = Math.rando
     s.turnIndex = nextActiveIndex(s, s.dealerIndex);
   }
 
+  const c: Ctx = { s, events: [], rng };
   const pend = s.pending;
   if (pend?.type === "chooseTarget") {
     const options = pend.options.filter((o) => o !== id);
-    if (pend.playerId === id || options.length === 0) {
+    const [only] = options;
+    if (pend.playerId === id || only === undefined) {
       s.discard.push(pend.card);
       s.pending = null;
+    } else if (options.length === 1) {
+      s.pending = null;
+      resolveAction(c, pend.playerId, pend.card, only);
     } else s.pending = { ...pend, options };
   } else if (pend?.type === "flipThree" && pend.targetId === id) {
     s.discard.push(...pend.queued);
@@ -81,7 +86,6 @@ export function removePlayer(state: GameState, id: string, rng: Rng = Math.rando
   s.discard.push(...s.actionQueue.filter((q) => q.playerId === id).map((q) => q.card));
   s.actionQueue = s.actionQueue.filter((q) => q.playerId !== id);
 
-  const c: Ctx = { s, events: [], rng };
   advance(c);
   s.deckCount = s.deck.length;
   s.lastEvents = c.events;
@@ -121,7 +125,13 @@ export function redactGame(s: GameState): GameState {
 // Probability the next card busts `playerId` (0 while holding Second Chance).
 export function bustChance(s: GameState, playerId: string): number {
   const p = s.players.find((x) => x.id === playerId);
-  if (!p || p.status !== "active" || hasSecondChance(p)) return 0;
+  return p && hasSecondChance(p) ? 0 : duplicateChance(s, playerId);
+}
+
+// Odds the next card duplicates a held number, ignoring any Second Chance shield.
+export function duplicateChance(s: GameState, playerId: string): number {
+  const p = s.players.find((x) => x.id === playerId);
+  if (!p || p.status !== "active") return 0;
   const pool = unseenCards(s);
   if (pool.length === 0) return 0;
   const held = new Set(p.hand.flatMap((c) => (c.kind === "number" ? [c.value] : [])));
@@ -153,7 +163,8 @@ function handle(c: Ctx, actorId: string, intent: Intent, isHost: boolean): strin
       if (!isHost) return "Only the host can start";
       if (s.phase !== "lobby") return "The game has already started";
       if (s.players.length < 2) return "Need at least 2 players";
-      if (s.players.some((p) => !p.isBot && !p.ready)) return "Waiting for everyone to be ready";
+      // Ready is informational; the host can start over it. Only offline humans block (they'd stall every turn).
+      if (s.players.some((p) => !p.isBot && !p.connected)) return "Someone is offline";
       s.deck = shuffle(buildDeck(), c.rng);
       s.discard = [];
       startRound(c, s.players.length - 1);
@@ -254,15 +265,18 @@ function advance(c: Ctx): void {
       const t = getPlayer(s, pend.targetId);
       if (t.status === "active" && pend.remaining > 0) return;
       s.pending = null;
-      if (t.status === "active") s.actionQueue.unshift(...pend.queued.map((card) => ({ playerId: t.id, card })));
-      else s.discard.push(...pend.queued);
+      // A queued Second Chance is a spare the target must pass on, so it survives the target busting.
+      const keep = pend.queued.filter((card) => t.status === "active" || card.kind === "secondChance");
+      for (const card of pend.queued) if (!keep.includes(card)) discardAction(c, t.id, card);
+      s.actionQueue.unshift(...keep.map((card) => ({ playerId: t.id, card })));
       continue;
     }
     const queued = s.actionQueue.shift();
     if (queued) {
       const p = getPlayer(s, queued.playerId);
-      if (p.status === "active") startAction(c, p, queued.card);
-      else s.discard.push(queued.card);
+      if (queued.card.kind === "secondChance") startAction(c, p, queued.card, true);
+      else if (p.status === "active") startAction(c, p, queued.card);
+      else discardAction(c, p.id, queued.card);
       continue;
     }
     if (activeIds(s).length === 0) return endRound(c);
@@ -336,20 +350,26 @@ function receive(c: Ctx, p: Player, card: Card): void {
   }
 }
 
-function startAction(c: Ctx, p: Player, card: ActionCard): void {
+// `mustPass`: a Second Chance that arrived while `p` already held one (decided at draw time).
+function startAction(c: Ctx, p: Player, card: ActionCard, mustPass = false): void {
   const { s } = c;
   let options: string[];
   if (card.kind === "secondChance") {
-    if (!hasSecondChance(p)) {
+    if (!mustPass && !hasSecondChance(p)) {
       p.hand.push(card);
       return;
     }
     options = s.players.filter((o) => o.id !== p.id && o.status === "active" && !hasSecondChance(o)).map((o) => o.id);
   } else options = activeIds(s);
   const [only] = options;
-  if (only === undefined) s.discard.push(card);
+  if (only === undefined) discardAction(c, p.id, card);
   else if (options.length === 1) resolveAction(c, p.id, card, only);
   else s.pending = { type: "chooseTarget", playerId: p.id, card, options };
+}
+
+function discardAction(c: Ctx, playerId: string, card: ActionCard): void {
+  c.s.discard.push(card);
+  c.events.push({ type: "discarded", playerId, card });
 }
 
 function resolveAction(c: Ctx, sourceId: string, card: ActionCard, targetId: string): void {

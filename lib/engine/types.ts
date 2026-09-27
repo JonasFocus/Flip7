@@ -38,10 +38,11 @@ export type GameEvent =
   | { type: "bust"; playerId: string; card: Card }
   | { type: "secondChanceUsed"; playerId: string; card: Card } // `card` is the discarded duplicate
   | { type: "secondChancePassed"; fromId: string; toId: string }
-  | { type: "stay"; playerId: string; points: number }
+  | { type: "stay"; playerId: string; points: number; auto?: true } // auto: the server stayed for an absent human
   | { type: "freeze"; sourceId: string; targetId: string; points: number }
   | { type: "flipThree"; sourceId: string; targetId: string }
   | { type: "flip7"; playerId: string }
+  | { type: "discarded"; playerId: string; card: Card } // action card with no legal use (no receiver, or its holder busted/froze before it resolved)
   | { type: "reshuffle" }
   | { type: "roundEnd"; round: number; scores: Record<string, number> }
   | { type: "gameOver"; winnerIds: string[] };
@@ -63,7 +64,8 @@ export interface GameState {
   discard: Card[];
   pending: Pending | null;
   // Action cards waiting to be resolved by `playerId` once the current pending clears
-  // (e.g. Freeze/Flip Three queued during a Flip Three, possibly nested).
+  // (e.g. Freeze/Flip Three queued during a Flip Three, possibly nested). A Second Chance here is always a
+  // spare to pass on: it was drawn during Flip Three while `playerId` already held one.
   actionQueue: { playerId: string; card: ActionCard }[];
   seq: number; // increments on every applied intent
   lastEvents: GameEvent[]; // events produced by the most recent applied intent
@@ -111,6 +113,7 @@ export interface ScoreState {
   round: number;
   players: ScorePlayer[];
   entries: Record<string, PhysicalEntry | null>; // current round, keyed by ScorePlayer.id
+  entryHistory: Record<string, PhysicalEntry | null>[]; // hands of each finished round, oldest first; undoRound pops one
   winnerIds: string[];
 }
 
@@ -118,9 +121,9 @@ export type ScoreIntent =
   | { type: "addSeat"; name: string } // someone sharing this phone
   | { type: "removeSeat"; seatId: string }
   | { type: "start" }
-  | { type: "submitEntry"; seatId: string; entry: PhysicalEntry }
+  | { type: "submitEntry"; seatId: string; entry: PhysicalEntry; round: number } // round guards stale submits
   | { type: "clearEntry"; seatId: string }
-  | { type: "finishRound" } // host only
-  | { type: "undoRound" } // host only
-  | { type: "setGoal"; goal: number } // host only, lobby
+  | { type: "finishRound"; round: number } // host only; round = the round being finished
+  | { type: "undoRound"; round: number } // host only; round = the round being undone (rounds recorded so far)
+  | { type: "setGoal"; goal: number } // host only; mid-game only above the current top total
   | { type: "playAgain" };

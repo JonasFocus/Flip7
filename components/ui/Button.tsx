@@ -40,7 +40,9 @@ export function Button({
       aria-busy={loading || undefined}
       className={cx(
         "relative inline-flex select-none items-center justify-center gap-2 font-display uppercase tracking-wide",
-        disabled && !loading ? "cursor-not-allowed bg-surface text-muted/60 border border-line" : VARIANT[variant],
+        disabled && !loading
+          ? cx("cursor-not-allowed text-muted/60", variant !== "ghost" && "bg-surface border border-line")
+          : VARIANT[variant],
         SIZE[size],
         block && "w-full",
         className,

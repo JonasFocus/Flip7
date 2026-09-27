@@ -8,7 +8,7 @@ import { cx } from "@/components/ui/cx";
 import type { TableConnection } from "@/lib/client/types";
 import type { Player } from "@/lib/engine/types";
 import { ScoreSheet } from "./ScoreSheet";
-import { rankOf, useAfterReveals, useCountUp } from "./util";
+import { rankOf, useCountUp, useFocusOnShow } from "./util";
 import "./moments.css";
 
 const BIT_COLORS = [1, 3, 5, 7, 8, 9, 10, 12].map((v) => `var(--color-card-${v})`);
@@ -19,8 +19,8 @@ export function GameOver({ conn }: { conn: TableConnection }) {
   const router = useRouter();
   const [sheet, setSheet] = useState(false);
   const [sentSeq, setSentSeq] = useState<number | null>(null);
-  const visible = useAfterReveals(game.phase === "gameOver", conn.events, game.seq);
-  if (!visible) return null;
+  const title = useFocusOnShow<HTMLHeadingElement>();
+  const host = game.players.find((p) => p.id === conn.hostId)?.name ?? "the host";
 
   const sorted = [...game.players].sort((a, b) => b.total - a.total);
   const ranks = rankOf(sorted, (p) => p.total);
@@ -57,9 +57,9 @@ export function GameOver({ conn }: { conn: TableConnection }) {
       <div className="relative mx-auto flex min-h-0 w-full max-w-lg flex-1 flex-col">
         <header className="m-rise flex-none px-4 pt-6 text-center">
           <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted">
-            Game over · {game.round} rounds
+            Game over · {game.round} {game.round === 1 ? "round" : "rounds"}
           </p>
-          <h2 id="game-over-title" className="mt-1 font-display text-4xl uppercase leading-none text-accent text-balance">
+          <h2 ref={title} tabIndex={-1} id="game-over-title" className="mt-1 font-display text-4xl uppercase leading-none text-accent text-balance outline-none">
             {headline}
           </h2>
         </header>
@@ -68,7 +68,7 @@ export function GameOver({ conn }: { conn: TableConnection }) {
           <div className="my-auto">
           <ol className="mt-6 grid grid-cols-3 items-end gap-2" aria-label="Podium">
             {staged.map(({ p, rank }, i) => (
-              <Step key={p.id} p={p} rank={rank} you={you} delay={[250, 0, 450][i] ?? 0} />
+              <Step key={p.id} p={p} seat={game.players.indexOf(p)} rank={rank} you={you} delay={[250, 0, 450][i] ?? 0} />
             ))}
           </ol>
 
@@ -81,11 +81,14 @@ export function GameOver({ conn }: { conn: TableConnection }) {
                   style={{ animationDelay: `${600 + i * 50}ms` }}
                 >
                   <span className="w-5 text-center font-display text-sm text-muted tabular-nums">{rank}</span>
-                  <Avatar id={p.id} name={p.name} isBot={p.isBot} size="sm" />
+                  <Avatar id={p.id} seat={game.players.indexOf(p)} name={p.name} isBot={p.isBot} size="sm" />
                   <span className={cx("min-w-0 flex-1 truncate font-semibold", p.id === you && "text-accent")}>
                     {p.id === you ? "You" : p.name}
                   </span>
-                  <span className="font-display tabular-nums">{p.total}</span>
+                  <span className="text-right">
+                    <span className="block font-display tabular-nums">{p.total}</span>
+                    <LastRound p={p} />
+                  </span>
                 </li>
               ))}
             </ol>
@@ -109,7 +112,7 @@ export function GameOver({ conn }: { conn: TableConnection }) {
             </Button>
           ) : (
             <p role="status" className="py-2 text-center text-sm text-muted landscape:flex-1">
-              Waiting for the host to start a new game…
+              Waiting for {host} to start a new game…
             </p>
           )}
           <div className="flex gap-2 landscape:flex-none">
@@ -134,16 +137,17 @@ export function GameOver({ conn }: { conn: TableConnection }) {
   );
 }
 
-function Step({ p, rank, you, delay }: { p: Player; rank: number; you: string; delay: number }) {
+function Step({ p, seat, rank, you, delay }: { p: Player; seat: number; rank: number; you: string; delay: number }) {
   const total = useCountUp(p.total, 0, delay + 200, 900);
   const first = rank === 1;
   return (
     <li className="m-rise flex min-w-0 flex-col items-center" style={{ animationDelay: `${delay}ms` }}>
-      <Avatar id={p.id} name={p.name} isBot={p.isBot} size="lg" className={cx(first && "animate-glow")} />
+      <Avatar id={p.id} seat={seat} name={p.name} isBot={p.isBot} size="lg" className={cx(first && "turn-glow")} />
       <span className={cx("mt-2 max-w-full truncate text-sm font-semibold", p.id === you && "text-accent")}>
         {p.id === you ? "You" : p.name}
       </span>
       <span className={cx("font-display text-lg tabular-nums", first ? "text-accent" : "text-fg")}>{total}</span>
+      <LastRound p={p} />
       <div
         className={cx(
           "mt-2 grid w-full place-items-start justify-center rounded-t-xl pt-2 font-display text-2xl",
@@ -154,5 +158,16 @@ function Step({ p, rank, you, delay }: { p: Player; rank: number; you: string; d
         {rank}
       </div>
     </li>
+  );
+}
+
+// The deciding round: game over replaces the round summary, so show what it was worth here.
+function LastRound({ p }: { p: Player }) {
+  const last = p.roundHistory.at(-1);
+  if (last === undefined) return null;
+  return (
+    <span className={cx("block text-xs tabular-nums", p.status === "busted" ? "text-busted" : "text-muted")}>
+      {p.status === "busted" ? "Bust" : `+${last}`} last round
+    </span>
   );
 }

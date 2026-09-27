@@ -12,5 +12,5 @@ export {
   removePlayer,
   setConnected,
 } from "./rules.ts";
-export { BOT_NAMES, chooseBotIntent } from "./bots.ts";
+export { BOT_NAMES, bustInThree, chooseBotIntent, pickTarget } from "./bots.ts";
 export { addScoreSeat, applyScoreIntent, createScoreGame } from "./physical.ts";

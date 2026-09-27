@@ -3,8 +3,8 @@
 import { useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import type { Card } from "@/lib/engine/types";
-import { createRoom } from "@/lib/client/rooms";
-import { getSavedName, saveName } from "@/lib/client/identity";
+import { createRoom, roomCodeFrom } from "@/lib/client/rooms";
+import { getLastRoom, getSavedName, saveName } from "@/lib/client/identity";
 import { fail, tap } from "@/lib/client/haptics";
 import { PlayingCard } from "@/components/cards/PlayingCard";
 import { BotIcon } from "@/components/cards/icons";
@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/Button";
 import { Toast } from "@/components/ui/Toast";
 import { cx } from "@/components/ui/cx";
 import { JoinCode } from "./JoinCode";
-import { OpenTables } from "./OpenTables";
+import { OpenTables, useOpenRooms } from "./OpenTables";
 import { HowToPlay } from "./HowToPlay";
 
 type Mode = "online" | "bots" | "physical";
@@ -29,9 +29,18 @@ const noopSubscribe = () => () => {};
 
 const HERO_CARD: Card = { id: "hero-7", kind: "number", value: 7 };
 
-export function Home({ initialCode }: { initialCode: string }) {
+const urlCode = () => roomCodeFrom(new URLSearchParams(location.search).get("code") ?? "");
+const serverEmpty = () => "";
+
+export function Home() {
   const router = useRouter();
-  const savedName = useSyncExternalStore(noopSubscribe, getSavedName, () => "");
+  const savedName = useSyncExternalStore(noopSubscribe, getSavedName, serverEmpty);
+  const initialCode = useSyncExternalStore(noopSubscribe, urlCode, serverEmpty);
+  const lastRoom = useSyncExternalStore(noopSubscribe, getLastRoom, serverEmpty);
+  const openRooms = useOpenRooms();
+  const myTable = lastRoom ? openRooms.rooms?.find((r) => r.code === lastRoom) : undefined;
+  // A prefilled code that isn't a live room came back from "Try another code": put the cursor on it to fix a digit.
+  const deadCode = initialCode.length === 6 && !!openRooms.rooms && !openRooms.rooms.some((r) => r.code === initialCode);
   const [typedName, setName] = useState<string | null>(null);
   const name = typedName ?? savedName;
   const [mode, setMode] = useState<Mode>("online");
@@ -86,22 +95,22 @@ export function Home({ initialCode }: { initialCode: string }) {
       <Toast message={toast} tone="danger" onDismiss={() => setToast(null)} />
 
       <div className="grid flex-1 gap-x-10 px-4 landscape:grid-cols-2">
-        <div className="flex flex-col gap-6 pt-safe-6 [@media(max-height:500px)]:gap-4 [@media(max-height:500px)]:pt-safe-4">
+        <div className="flex flex-col gap-6 pt-safe-6 [@media(max-height:500px)]:gap-3 [@media(max-height:500px)]:pt-safe-4">
           <header className="flex items-center justify-between">
             <h1 className="flex items-center gap-2" aria-label="Flip 7">
-              <span className="font-display text-[56px] leading-none tracking-tight text-fg [text-shadow:0_4px_0_var(--color-ink)]">
+              <span className="font-display text-[56px] leading-none tracking-tight text-fg [@media(max-height:500px)]:text-[36px] [text-shadow:0_4px_0_var(--color-ink)]">
                 FLIP
               </span>
-              <PlayingCard card={HERO_CARD} size="md" className="animate-deal rotate-[-8deg]" />
+              <PlayingCard card={HERO_CARD} size="md" className="animate-deal rotate-[-8deg] [@media(max-height:500px)]:text-[40px]" />
             </h1>
-            <p className={cx(LABEL, "text-right leading-relaxed")}>
+            <p className={cx(LABEL, "text-right leading-relaxed [@media(max-height:500px)]:hidden")}>
               Family
               <br />
               game night
             </p>
           </header>
 
-          <label className="flex flex-col gap-2">
+          <label className="flex flex-col gap-2 [@media(max-height:500px)]:gap-1.5">
             <span className={cx(LABEL, nameMissing && "text-danger")}>
               {nameMissing ? "Enter your name to play" : "Your name"}
             </span>
@@ -119,18 +128,34 @@ export function Home({ initialCode }: { initialCode: string }) {
               enterKeyHint="done"
               placeholder="e.g. Mom"
               className={cx(
-                "h-14 rounded-2xl border-2 border-line bg-surface px-4 text-lg font-semibold text-fg placeholder:text-muted/50 focus:border-accent focus:outline-none transition-colors duration-150",
+                "h-14 [@media(max-height:500px)]:h-12 rounded-2xl border-2 border-line bg-surface px-4 text-lg font-semibold text-fg placeholder:text-muted/80 focus:border-accent focus:outline-none transition-colors duration-150",
                 shaking && "animate-shake", nameMissing && "border-danger",
               )}
             />
           </label>
 
-          <fieldset className="flex flex-col gap-2">
-            <legend className={cx(LABEL, "mb-2")}>Choose a game</legend>
+          {myTable && (
+            <button
+              type="button"
+              onClick={() => join(myTable.code)}
+              className="press flex min-h-[72px] w-full items-center gap-4 rounded-2xl border border-accent/60 bg-surface px-4 py-3 text-left [--press-shadow:var(--color-accent-deep)]"
+            >
+              <span className="min-w-0 flex-1">
+                <span className="block font-display text-lg leading-tight tracking-wide text-accent">Back to your table</span>
+                <span className="block truncate text-sm font-semibold text-muted">
+                  {myTable.hostName}&rsquo;s table · {myTable.mode === "virtual" ? "Online" : "Scorekeeper"}
+                </span>
+              </span>
+              <span className="font-display text-xl tabular-nums tracking-wider text-fg">{myTable.code}</span>
+            </button>
+          )}
+
+          <fieldset className="flex flex-col gap-2 [@media(max-height:500px)]:grid [@media(max-height:500px)]:grid-cols-3">
+            <legend className={cx(LABEL, "mb-2 [@media(max-height:500px)]:mb-1.5")}>Choose a game</legend>
             {MODES.map((m) => (
               <label
                 key={m.id}
-                className="flex min-h-[72px] [@media(max-height:500px)]:min-h-14 [@media(max-height:500px)]:py-2 items-center gap-4 rounded-2xl border-2 border-line bg-surface px-4 py-3 transition-[transform,border-color,background-color] duration-150 ease-[var(--ease-out)] active:scale-[0.98] has-[:checked]:border-accent has-[:checked]:bg-surface-2 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent"
+                className="flex min-h-[72px] [@media(max-height:500px)]:min-h-14 [@media(max-height:500px)]:flex-col [@media(max-height:500px)]:justify-center [@media(max-height:500px)]:gap-1 [@media(max-height:500px)]:px-2 [@media(max-height:500px)]:py-2 [@media(max-height:500px)]:text-center items-center gap-4 rounded-2xl border-2 border-line bg-surface px-4 py-3 transition-[transform,border-color,background-color] duration-150 ease-[var(--ease-out)] active:scale-[0.98] has-[:checked]:border-accent has-[:checked]:bg-surface-2 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent"
               >
                 <input
                   type="radio"
@@ -140,18 +165,18 @@ export function Home({ initialCode }: { initialCode: string }) {
                   onChange={() => setMode(m.id)}
                   className="peer sr-only"
                 />
-                <span className="grid size-11 flex-none place-items-center rounded-xl bg-bg text-muted transition-colors duration-150 peer-checked:bg-accent peer-checked:text-ink">
+                <span className="grid size-11 [@media(max-height:500px)]:size-8 flex-none place-items-center rounded-xl bg-bg text-muted transition-colors duration-150 peer-checked:bg-accent peer-checked:text-ink">
                   {m.icon}
                 </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block font-display text-lg leading-tight tracking-wide">{m.title}</span>
+                <span className="min-w-0 flex-1 [@media(max-height:500px)]:flex-none">
+                  <span className="block font-display text-lg leading-tight tracking-wide [@media(max-height:500px)]:text-xs">{m.title}</span>
                   <span className="block text-sm text-muted [@media(max-height:500px)]:hidden">{m.blurb}</span>
                 </span>
               </label>
             ))}
           </fieldset>
 
-          <div className="sticky bottom-0 z-10 -mx-4 bg-gradient-to-t from-bg from-70% to-transparent px-4 pt-4 pb-safe-4">
+          <div className="sticky bottom-0 z-10 -mx-4 bg-gradient-to-t from-bg from-70% to-transparent px-4 pt-4 pb-safe-4 [@media(max-height:500px)]:pt-2">
             <Button size="lg" block loading={busy} onClick={start}>
               {cta}
             </Button>
@@ -159,8 +184,8 @@ export function Home({ initialCode }: { initialCode: string }) {
         </div>
 
         <div className="flex flex-col gap-8 pt-4 pb-safe-8 landscape:pt-safe-6">
-          <JoinCode initialCode={initialCode} onJoin={join} />
-          <OpenTables onJoin={join} />
+          <JoinCode key={initialCode} initialCode={initialCode} focusOnMount={deadCode} onJoin={join} />
+          <OpenTables load={openRooms} exclude={myTable?.code ?? ""} onJoin={join} />
           <HowToPlay />
         </div>
       </div>

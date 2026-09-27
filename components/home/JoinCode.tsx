@@ -1,17 +1,33 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { cx } from "@/components/ui/cx";
+import { roomCodeFrom } from "@/lib/client/rooms";
 
 const LENGTH = 6;
 
-export function JoinCode({ initialCode, onJoin }: { initialCode: string; onJoin: (code: string) => void }) {
+export function JoinCode({
+  initialCode,
+  focusOnMount,
+  onJoin,
+}: {
+  initialCode: string;
+  focusOnMount: boolean;
+  onJoin: (code: string) => void;
+}) {
   const [code, setCode] = useState(initialCode);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!focusOnMount) return;
+    inputRef.current?.focus({ preventScroll: true });
+    inputRef.current?.closest("section")?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [focusOnMount]);
   const [focused, setFocused] = useState(false);
 
   function change(raw: string) {
-    const next = raw.replace(/\D/g, "").slice(0, LENGTH);
+    const next = roomCodeFrom(raw);
     setCode(next);
     if (next.length === LENGTH && next !== code) onJoin(next);
   }
@@ -23,6 +39,7 @@ export function JoinCode({ initialCode, onJoin }: { initialCode: string; onJoin:
       </h2>
       <label className="relative block">
         <input
+          ref={inputRef}
           value={code}
           onChange={(e) => change(e.target.value)}
           onFocus={() => setFocused(true)}

@@ -3,13 +3,14 @@ import { after, before, test } from "node:test";
 import { WebSocket } from "ws";
 import { awaitingPlayerId } from "../lib/engine/index.ts";
 import type { Intent } from "../lib/engine/types.ts";
+import { KICKED_MESSAGE } from "../lib/protocol.ts";
 import type { ClientMessage, Room, ServerMessage } from "../lib/protocol.ts";
-import { startServer } from "../server/index.ts";
+import { publicId as P, startServer } from "../server/index.ts";
 import type { RunningServer } from "../server/index.ts";
 
 let server: RunningServer;
 before(async () => {
-  server = await startServer(0);
+  server = await startServer(0, { createsPerIpPerMin: Infinity, joinsPerIpPerMin: Infinity });
 });
 after(() => server.close());
 
@@ -27,8 +28,8 @@ function isServerMessage(v: unknown): v is ServerMessage {
   return typeof v === "object" && v !== null && "t" in v;
 }
 
-async function connect(): Promise<TestClient> {
-  const ws = new WebSocket(`ws://localhost:${server.port}`);
+async function connect(port = server.port): Promise<TestClient> {
+  const ws = new WebSocket(`ws://localhost:${port}`);
   const inbox: ServerMessage[] = [];
   ws.on("message", (d) => {
     const v: unknown = JSON.parse(d.toString());
@@ -98,12 +99,12 @@ test("two players create, join, play, reconnect", async () => {
   const created = await a.waitRoom(() => true);
   const code = created.room.code;
   assert.match(code, /^\d{6}$/);
-  assert.equal(created.you, "client-a");
-  assert.equal(created.room.hostId, "client-a");
+  assert.equal(created.you, P("client-a"));
+  assert.equal(created.room.hostId, P("client-a"));
   assert.equal(virtualGame(created.room).players[0]?.name, "Mom");
 
   b.send({ t: "join", code, name: "Dad", clientId: "client-b" });
-  await b.waitRoom((m) => m.you === "client-b");
+  await b.waitRoom((m) => m.you === P("client-b"));
   await a.waitRoom((m) => virtualGame(m.room).players.length === 2);
 
   a.send({ t: "intent", intent: { type: "ready", ready: true } });
@@ -112,14 +113,14 @@ test("two players create, join, play, reconnect", async () => {
   a.send({ t: "intent", intent: { type: "start" } });
   await b.waitRoom((m) => virtualGame(m.room).phase === "playing");
 
-  const byId = { "client-a": a, "client-b": b };
+  const byId = { [P("client-a")]: a, [P("client-b")]: b };
   for (let moves = 0; moves < 8; moves++) {
     const game = virtualGame(latestRoom(a));
     if (game.phase !== "playing") break;
     assert.equal(game.deck.length, 0, "deck must be redacted");
     assert.ok(game.deckCount > 0);
     const actor = awaitingPlayerId(game);
-    assert.ok(actor === "client-a" || actor === "client-b");
+    assert.ok(actor === P("client-a") || actor === P("client-b"));
     const pending = game.pending;
     const intent: Intent =
       pending?.type === "chooseTarget" && pending.playerId === actor
@@ -127,22 +128,22 @@ test("two players create, join, play, reconnect", async () => {
         : moves % 3 === 2 && !pending
           ? { type: "stay" }
           : { type: "hit" };
-    byId[actor].send({ t: "intent", intent });
+    byId[actor]?.send({ t: "intent", intent });
     const seq = game.seq;
     await a.waitRoom((m) => virtualGame(m.room).seq > seq);
     await b.waitRoom((m) => virtualGame(m.room).seq > seq);
   }
 
   b.ws.close();
-  await a.waitRoom((m) => virtualGame(m.room).players.find((p) => p.id === "client-b")?.connected === false);
+  await a.waitRoom((m) => virtualGame(m.room).players.find((p) => p.id === P("client-b"))?.connected === false);
 
   const b2 = await connect();
   b2.send({ t: "join", code, name: "Dad", clientId: "client-b" });
   const resumed = await b2.waitRoom(() => true);
-  assert.equal(resumed.you, "client-b");
+  assert.equal(resumed.you, P("client-b"));
   const players = virtualGame(resumed.room).players;
   assert.equal(players.length, 2);
-  assert.equal(players.find((p) => p.id === "client-b")?.connected, true);
+  assert.equal(players.find((p) => p.id === P("client-b"))?.connected, true);
   assert.equal(virtualGame(resumed.room).deck.length, 0);
 
   a.ws.close();
@@ -164,7 +165,7 @@ test("host adds a bot and the server plays it", async () => {
   for (let i = 0; i < 10 && !botActed && game.phase === "playing"; i++) {
     const actor = awaitingPlayerId(game);
     const pending = game.pending;
-    if (actor === "client-solo") {
+    if (actor === P("client-solo")) {
       const intent: Intent =
         pending?.type === "chooseTarget"
           ? { type: "chooseTarget", targetId: pending.options[0] ?? actor }
@@ -187,12 +188,124 @@ test("creator gets host back after reconnecting", async () => {
   const code = (await a.waitRoom(() => true)).room.code;
   const b = await connect();
   b.send({ t: "join", code, name: "Ben", clientId: "joiner-b" });
-  await b.waitRoom((m) => m.room.hostId === "creator-a");
+  await b.waitRoom((m) => m.room.hostId === P("creator-a"));
   a.ws.close();
-  await b.waitRoom((m) => m.room.hostId === "joiner-b");
+  await b.waitRoom((m) => m.room.hostId === P("joiner-b"));
   const a2 = await connect();
   a2.send({ t: "join", code, name: "Ann", clientId: "creator-a" });
-  await a2.waitRoom((m) => m.room.hostId === "creator-a");
+  await a2.waitRoom((m) => m.room.hostId === P("creator-a"));
   a2.ws.close();
   b.ws.close();
+});
+
+test("auto-plays a disconnected human after the grace period, unless they come back", async () => {
+  const fast = await startServer(0, { autoPlayMs: 500, createsPerIpPerMin: Infinity, joinsPerIpPerMin: Infinity });
+  try {
+    const a = await connect(fast.port);
+    a.send({ t: "create", mode: "virtual", name: "Mom", clientId: "auto-a" });
+    const code = (await a.waitRoom(() => true)).room.code;
+    const b = await connect(fast.port);
+    b.send({ t: "join", code, name: "Dad", clientId: "auto-b" });
+    await b.waitRoom(() => true);
+    a.send({ t: "intent", intent: { type: "ready", ready: true } });
+    b.send({ t: "intent", intent: { type: "ready", ready: true } });
+    await a.waitRoom((m) => virtualGame(m.room).players.every((p) => p.ready));
+    a.send({ t: "intent", intent: { type: "start" } });
+    let game = virtualGame((await a.waitRoom((m) => virtualGame(m.room).phase === "playing")).room);
+
+    // Play Mom's moves until the game waits on Dad.
+    for (let i = 0; i < 20 && awaitingPlayerId(game) !== P("auto-b"); i++) {
+      const pending = game.pending;
+      const intent: Intent =
+        game.phase !== "playing"
+          ? { type: "nextRound" }
+          : pending?.type === "chooseTarget"
+            ? { type: "chooseTarget", targetId: pending.options.includes(P("auto-b")) ? P("auto-b") : (pending.options[0] ?? P("auto-a")) }
+            : pending
+              ? { type: "hit" }
+              : { type: "stay" };
+      a.send({ t: "intent", intent });
+      const seq = game.seq;
+      game = virtualGame((await a.waitRoom((m) => virtualGame(m.room).seq > seq)).room);
+    }
+    assert.equal(awaitingPlayerId(game), P("auto-b"));
+    const seq = game.seq;
+
+    b.ws.close();
+    const dropped = await a.waitRoom((m) => m.room.mode === "virtual" && m.room.autoPlay?.playerId === P("auto-b"));
+    assert.ok(dropped.room.mode === "virtual" && (dropped.room.autoPlay?.inMs ?? 0) > 0);
+
+    // Coming back in time cancels the takeover.
+    const b2 = await connect(fast.port);
+    b2.send({ t: "join", code, name: "Dad", clientId: "auto-b" });
+    const back = await a.waitRoom((m) => virtualGame(m.room).players.find((p) => p.id === P("auto-b"))?.connected === true);
+    assert.ok(back.room.mode === "virtual" && back.room.autoPlay === undefined);
+    await new Promise((r) => setTimeout(r, 700));
+    assert.equal(virtualGame(latestRoom(a)).seq, seq, "must not act for a reconnected player");
+
+    // Gone for good: the server acts for Dad.
+    const goneAt = Date.now();
+    b2.ws.close();
+    await a.waitRoom((m) => virtualGame(m.room).seq > seq);
+    assert.ok(Date.now() - goneAt >= 400, "waits out the grace period first");
+
+    // A plain hit/stay turn is banked, flagged as auto, and replayed to Dad when he returns.
+    if (!game.pending) {
+      const isAutoStay = (m: RoomMsg) => m.events.some((e) => e.type === "stay" && e.playerId === P("auto-b") && e.auto === true);
+      await a.waitRoom(isAutoStay);
+      const b3 = await connect(fast.port);
+      b3.send({ t: "join", code, name: "Dad", clientId: "auto-b" });
+      await b3.waitRoom(isAutoStay);
+      b3.ws.close();
+    }
+    a.ws.close();
+  } finally {
+    await fast.close();
+  }
+});
+
+test("kicked player gets the shared kick message and is out of the room", async () => {
+  const a = await connect();
+  const b = await connect();
+  a.send({ t: "create", mode: "virtual", name: "Host", clientId: "kick-a" });
+  const code = (await a.waitRoom(() => true)).room.code;
+  b.send({ t: "join", code, name: "Kid", clientId: "kick-b" });
+  await a.waitRoom((m) => virtualGame(m.room).players.length === 2);
+  a.send({ t: "removePlayer", playerId: P("kick-b") });
+  assert.equal(await b.waitError(), KICKED_MESSAGE);
+  await a.waitRoom((m) => virtualGame(m.room).players.length === 1);
+  b.send({ t: "intent", intent: { type: "ready", ready: true } });
+  await new Promise((r) => setTimeout(r, 100));
+  assert.ok(b.inbox.some((m) => m.t === "error" && m.message === "Not in a room"));
+  a.ws.close();
+  b.ws.close();
+});
+
+test("leaving a scorekeeper lobby removes that phone's seats; leaving mid-game keeps them", async () => {
+  const a = await connect();
+  const b = await connect();
+  const seats = (m: RoomMsg) => (m.room.mode === "physical" ? m.room.game.players.map((p) => p.name) : []);
+  a.send({ t: "create", mode: "physical", name: "Host", clientId: "sk-leave-a" });
+  const code = (await a.waitRoom(() => true)).room.code;
+  b.send({ t: "join", code, name: "Bob", clientId: "sk-leave-b" });
+  await b.waitRoom((m) => seats(m).length === 2);
+  b.send({ t: "score", intent: { type: "addSeat", name: "Kid" } });
+  await a.waitRoom((m) => seats(m).length === 3);
+  b.send({ t: "leave" });
+  const after = await a.waitRoom((m) => seats(m).length === 1);
+  assert.deepEqual(seats(after), ["Host"]);
+  assert.ok(after.room.mode === "physical" && Object.keys(after.room.game.entries).length === 1);
+
+  const c = await connect();
+  c.send({ t: "join", code, name: "Cy", clientId: "sk-leave-c" });
+  await a.waitRoom((m) => seats(m).length === 2);
+  a.send({ t: "score", intent: { type: "start" } });
+  await c.waitRoom((m) => m.room.mode === "physical" && m.room.game.phase === "playing");
+  c.send({ t: "leave" });
+  await new Promise((r) => setTimeout(r, 100));
+  const mid = latestRoom(a);
+  assert.deepEqual(mid.mode === "physical" ? mid.game.players.map((p) => p.name) : [], ["Host", "Cy"]);
+  a.ws.close();
+  b.ws.close();
+  c.ws.close();
 });

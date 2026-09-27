@@ -36,7 +36,7 @@
 
 .m-rise { animation: m-rise 260ms var(--ease-out) both; }
 .m-flash { animation: m-flash 900ms var(--ease-out) both; }
-.m-stamp { animation: m-stamp 1300ms var(--ease-out) both; }
+.m-stamp { animation: m-stamp 1000ms var(--ease-out) both; }
 .m-shake { animation: m-shake 420ms cubic-bezier(0.36, 0.07, 0.19, 0.97) 120ms both; }
 .m-bar { transform-origin: left; animation: m-scan 700ms var(--ease-out) both; }
 
@@ -65,5 +65,5 @@
 @media (prefers-reduced-motion: reduce) {
   .m-rise, .m-shake, .m-bar { animation: none !important; }
   .m-bit, .m-flake { display: none; }
-  .m-stamp { animation: m-flash 1300ms linear both !important; }
+  .m-stamp { animation: m-flash 1000ms linear both !important; }
 }

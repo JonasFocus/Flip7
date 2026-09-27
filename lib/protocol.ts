@@ -4,7 +4,8 @@ import type { GameEvent, GameState, Intent, ScoreIntent, ScoreState } from "./en
 export type RoomMode = "virtual" | "physical";
 
 export type Room =
-  | { code: string; mode: "virtual"; hostId: string; game: GameState }
+  // autoPlay: the awaited player is disconnected; the server acts for them in `inMs`.
+  | { code: string; mode: "virtual"; hostId: string; game: GameState; autoPlay?: { playerId: string; inMs: number } }
   | { code: string; mode: "physical"; hostId: string; game: ScoreState };
 
 export interface RoomSummary {
@@ -34,3 +35,8 @@ export type ServerMessage =
 // HTTP on the same server: GET /rooms → RoomSummary[] (active in last 2h), GET /health → "ok".
 export const MAX_PLAYERS = 10;
 export const ROOM_TTL_MS = 2 * 60 * 60 * 1000;
+
+// Error/close reasons the client reacts to specifically; shared so the strings can't drift.
+export const KICKED_MESSAGE = "You were removed from the room";
+export const REPLACED_CLOSE_CODE = 4001; // same clientId joined from another tab
+export const REPLACED_MESSAGE = "Opened in another tab";
