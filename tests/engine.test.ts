@@ -142,6 +142,27 @@ test("second second chance is passed to a player without one (auto when single o
   assert.equal(s.discard.length, 1);
 });
 
+test("one hit is one card, then the turn passes; the last player left keeps hitting", () => {
+  let s = rigged({ a: [n(1)], b: [n(2)], c: [n(3)] }, [n(4), n(5), n(6), n(7), n(8), n(9), n(10)]);
+  const handSizes = () => s.players.map((p) => p.hand.length);
+  for (const [who, next] of [["a", "b"], ["b", "c"], ["c", "a"]] as const) {
+    assert.equal(awaitingPlayerId(s), who);
+    const before = handSizes();
+    s = act(s, who, { type: "hit" });
+    assert.equal(s.lastEvents.filter((e) => e.type === "draw").length, 1);
+    assert.deepEqual(handSizes(), before.map((len, i) => (s.players[i]?.id === who ? len + 1 : len)));
+    assert.equal(awaitingPlayerId(s), next);
+    assert.equal(applyIntent(s, who, { type: "hit" }, { isHost: false }).ok, false, "can't hit out of turn");
+  }
+  s = act(s, "a", { type: "stay" });
+  s = act(s, "b", { type: "stay" });
+  assert.equal(awaitingPlayerId(s), "c");
+  s = act(s, "c", { type: "hit" });
+  assert.equal(awaitingPlayerId(s), "c", "only one left: keeps the turn");
+  s = act(s, "c", { type: "hit" });
+  assert.equal(player(s, "c").hand.length, 4);
+});
+
 test("freeze banks target's points and removes them from the round", () => {
   let s = rigged({ a: [n(2)], b: [n(9), plus(4)], c: [n(1)] }, [freeze()]);
   s = act(s, "a", { type: "hit" });

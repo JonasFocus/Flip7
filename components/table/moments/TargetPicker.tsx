@@ -13,7 +13,7 @@ import { bustInThree, pickTarget } from "@/lib/engine/index";
 import type { ActionCard, GameState } from "@/lib/engine/types";
 import { roundPoints, useHeld } from "./util";
 
-const DRAW_BEAT_MS = 800;
+const DRAW_BEAT_MS = 1040;
 import "./moments.css";
 
 type Kind = ActionCard["kind"];

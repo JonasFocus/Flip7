@@ -3,24 +3,33 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { applyIntent, awaitingPlayerId, chooseBotIntent, removePlayer as removeFromGame } from "../engine/index.ts";
 import type { Intent } from "../engine/types.ts";
+import { nextRoundDelayMs } from "../protocol.ts";
 import { botDelay, LOCAL_ME, loadLocal, newLocalGame, saveLocal, withBot, type LocalSave } from "./local.ts";
 import type { TableConnection } from "./types.ts";
 import { useFlashError } from "./useRoom.ts";
 
+type LocalState = LocalSave & { nextRoundAt?: number };
+
+// Same auto-deal as the server: stamped when the round ends, so a re-render never pushes it out.
+function withDeadline(save: LocalSave): LocalState {
+  return save.game.phase === "roundOver" ? { ...save, nextRoundAt: Date.now() + nextRoundDelayMs(save.events) } : save;
+}
+
 // Client-only: mount after hydration (NameGate does) so the saved game can be restored synchronously.
 // ponytail: `name` is read once at start.
 export function useLocalGame(name: string, botCount = 2): TableConnection {
-  const [local, setLocal] = useState<LocalSave>(() => {
+  const [local, setLocal] = useState<LocalState>(() => {
     const saved = loadLocal();
-    return saved ? { game: saved.game, events: [] } : { game: newLocalGame(name, botCount), events: [] };
+    return withDeadline(saved ? { game: saved.game, events: [] } : { game: newLocalGame(name, botCount), events: [] });
   });
   const ref = useRef(local);
   const [error, flash] = useFlashError();
 
-  const commit = useCallback((next: LocalSave, persist = true) => {
+  const commit = useCallback((save: LocalSave, persist = true) => {
+    const next = withDeadline(save);
     ref.current = next;
     setLocal(next);
-    if (persist) saveLocal(next);
+    if (persist) saveLocal(save);
   }, []);
 
   const apply = useCallback(
@@ -43,6 +52,13 @@ export function useLocalGame(name: string, botCount = 2): TableConnection {
     }, botDelay(game));
     return () => clearTimeout(timer);
   }, [local.game, apply]);
+
+  useEffect(() => {
+    const at = local.nextRoundAt;
+    if (at === undefined) return;
+    const timer = setTimeout(() => apply(LOCAL_ME, { type: "nextRound" }), Math.max(0, at - Date.now()));
+    return () => clearTimeout(timer);
+  }, [local.nextRoundAt, apply]);
 
   const send = useCallback((intent: Intent) => apply(LOCAL_ME, intent), [apply]);
   const addBot = useCallback(() => {
@@ -72,6 +88,7 @@ export function useLocalGame(name: string, botCount = 2): TableConnection {
       isHost: true,
       game: local.game,
       events: local.events,
+      nextRoundAt: local.nextRoundAt,
       error,
       send,
       addBot,

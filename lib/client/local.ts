@@ -27,7 +27,7 @@ export function newLocalGame(name: string, botCount: number): GameState {
 }
 
 export function botDelay(s: GameState, rand: () => number = Math.random): number {
-  return s.pending?.type === "flipThree" ? 350 + rand() * 250 : 700 + rand() * 400;
+  return s.pending?.type === "flipThree" ? 455 + rand() * 325 : 910 + rand() * 520;
 }
 
 function isLocalSave(x: unknown): x is LocalSave {

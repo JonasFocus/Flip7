@@ -53,7 +53,7 @@ export function useCountUp(to: number, from: number, delay = 0, ms = 700): numbe
 
 // Round/game end: `active` should include the table's reveal queue having caught up (useReveal),
 // so the last card (e.g. a Flip 7) plays on stage first; then hold briefly for its burst.
-const END_HOLD_MS = 1200;
+const END_HOLD_MS = 1560;
 export function useAfterReveals(active: boolean, events: GameEvent[], seq: number): boolean {
   return useHeld(active, seq, events.some((e) => e.type === "roundEnd") ? END_HOLD_MS : 0);
 }

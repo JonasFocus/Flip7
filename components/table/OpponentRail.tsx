@@ -76,6 +76,7 @@ export function OpponentRail({
   players,
   seats,
   awaitingId,
+  nextUpId,
   you,
   hidden,
   pendingStatus,
@@ -83,6 +84,7 @@ export function OpponentRail({
   players: Player[];
   seats: Player[];
   awaitingId: string | null;
+  nextUpId: string | null;
   you: string;
   hidden: Set<string>;
   pendingStatus: Set<string>;
@@ -142,6 +144,7 @@ export function OpponentRail({
                 className={cx("short-land:hidden", !p.connected && "opacity-40")}
               />
               <span className="min-w-0 flex-1 truncate text-sm font-semibold">{p.name}</span>
+              {p.id === nextUpId && <span className="flex-none text-[10px] font-bold uppercase tracking-[0.14em] text-muted">Next</span>}
               {/* The avatar (and its faded offline state) is hidden in landscape; this dot survives it. */}
               {!p.connected && !p.isBot && <span role="img" aria-label="Offline" className="size-2 flex-none rounded-full bg-busted" />}
             </div>

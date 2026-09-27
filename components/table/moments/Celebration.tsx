@@ -8,7 +8,7 @@ import "./moments.css";
 
 type Burst = Moment & { key: string };
 
-const DURATION_MS = 1500;
+const DURATION_MS = 1950;
 const BIT_COLORS = [1, 3, 5, 7, 8, 9, 10, 12].map((v) => `var(--color-card-${v})`);
 
 // Driven by the reveal queue's narration line (useReveal), so a burst lands with its card, never ahead of it.
@@ -50,7 +50,7 @@ export function stampsOver(burst: Burst | null): boolean {
 function Stamp({ children, className, sub }: { children: ReactNode; className?: string; sub?: string }) {
   return (
     <div className="absolute inset-0 grid place-items-center">
-      <div className="m-flash absolute inset-0 bg-bg/60" style={{ animationDuration: "1000ms" }} />
+      <div className="m-flash absolute inset-0 bg-bg/60" style={{ animationDuration: "1300ms" }} />
       <div className="m-stamp relative text-center">
         {sub && <p className="mb-1 font-display text-lg uppercase tracking-widest text-fg [paint-order:stroke] [-webkit-text-stroke:6px_var(--color-bg)]">{sub}</p>}
         <p className={`font-display text-[clamp(2.75rem,16vw,3.75rem)] uppercase tracking-wide [paint-order:stroke] [-webkit-text-stroke:10px_var(--color-bg)] ${className ?? ""}`}>

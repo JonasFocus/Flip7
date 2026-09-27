@@ -52,11 +52,11 @@ function statusOf(e: GameEvent): string | null {
   return null;
 }
 
-const CARD_MS = 350;
-const FAST_CARD_MS = 180; // catch up when a burst (deal, Flip Three) piles up
-const LINE_MS = 800; // a new sentence needs longer than a card to read
-const FAST_LINE_MS = 420;
-const HOLD_MS = 1100;
+const CARD_MS = 455;
+const FAST_CARD_MS = 235; // catch up when a burst (deal, Flip Three) piles up
+const LINE_MS = 1040; // a new sentence needs longer than a card to read
+const FAST_LINE_MS = 545;
+const HOLD_MS = 1430;
 
 function toSteps(events: GameEvent[], game: GameState, you: string, batch: number): Step[] {
   const lines = describe(events, game, you, batch);

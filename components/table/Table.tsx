@@ -13,6 +13,7 @@ import { Spotlight } from "./moments/Spotlight";
 import { TargetPicker } from "./moments/TargetPicker";
 import { useAfterReveals } from "./moments/util";
 import { ActionBar } from "./ActionBar";
+import { nextUpAfter, shownPlayer } from "./hand";
 import { MyHand } from "./MyHand";
 import { OpponentRail } from "./OpponentRail";
 import { Stage } from "./Stage";
@@ -46,6 +47,11 @@ export function Table({ conn }: { conn: TableConnection }) {
   // Seat order starting to your left, so the rail reads like the table.
   const opponents = seat < 0 ? game.players : [...game.players.slice(seat + 1), ...game.players.slice(0, seat)];
   const me = seat < 0 ? undefined : game.players[seat];
+  // Only on a plain hit/stay turn: the deal and Flip Three / target picks don't follow seat order.
+  const nextUp =
+    game.phase === "playing" && !dealing && game.pending === null && shownAwaiting
+      ? nextUpAfter(game.players.map((p) => shownPlayer(p, hidden, pendingStatus)), shownAwaiting)
+      : null;
 
   return (
     <main className="mx-auto flex h-dvh w-full max-w-md select-none flex-col overflow-hidden pt-safe px-safe short-land:grid short-land:max-w-5xl short-land:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] short-land:gap-2">
@@ -57,7 +63,7 @@ export function Table({ conn }: { conn: TableConnection }) {
           onScores={() => setScores(true)}
           onLeave={conn.leave}
         />
-        <OpponentRail players={opponents} seats={game.players} awaitingId={shownAwaiting} you={you} hidden={hidden} pendingStatus={pendingStatus} />
+        <OpponentRail players={opponents} seats={game.players} awaitingId={shownAwaiting} nextUpId={nextUp} you={you} hidden={hidden} pendingStatus={pendingStatus} />
         <Stage
           game={game}
           you={you}
@@ -81,7 +87,7 @@ export function Table({ conn }: { conn: TableConnection }) {
           yourTurn ? "border-accent shadow-[0_-8px_32px_-12px_oklch(0.89_0.18_98/0.45)]" : "border-line",
         )}
       >
-        {me && <MyHand me={me} bust={bust} hidden={hidden} pendingStatus={pendingStatus} />}
+        {me && <MyHand me={me} bust={bust} hidden={hidden} pendingStatus={pendingStatus} nextUp={nextUp === you} />}
         <ActionBar game={game} you={you} awaitingId={awaitingId} caughtUp={live} beat={beat} send={conn.send} autoPlay={conn.autoPlay} />
       </div>
 

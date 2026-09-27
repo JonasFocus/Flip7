@@ -17,7 +17,7 @@ import {
   setConnected,
 } from "../lib/engine/index.ts";
 import type { GameEvent, Intent } from "../lib/engine/types.ts";
-import { KICKED_MESSAGE, MAX_PLAYERS, REPLACED_CLOSE_CODE, REPLACED_MESSAGE, ROOM_TTL_MS } from "../lib/protocol.ts";
+import { KICKED_MESSAGE, MAX_PLAYERS, nextRoundDelayMs, REPLACED_CLOSE_CODE, REPLACED_MESSAGE, ROOM_TTL_MS } from "../lib/protocol.ts";
 import type { ClientMessage, Room, RoomSummary, ServerMessage } from "../lib/protocol.ts";
 import { parseMessage } from "./validate.ts";
 
@@ -42,6 +42,7 @@ interface LiveRoom {
   lastActive: number;
   creatorId: string; // gets host back on return, so a reload or flaky signal doesn't cost the creator the room
   botTimer: NodeJS.Timeout | null;
+  nextRound: { round: number; at: number; timer: NodeJS.Timeout } | null; // roundOver: the server deals the next round at `at`
   disconnectedAt: Map<string, number>; // humans who dropped mid-game; they get auto-played after AUTO_PLAY_MS
   awayStays: Map<string, { round: number; event: GameEvent }>; // auto-stays to replay to that human when they return
   kicked: Set<string>; // virtual: removed by the host, rejoin refused. physical: lost their last seat, rejoin as spectator (Late arrival re-seats on purpose)
@@ -65,6 +66,7 @@ export interface RunningServer {
 
 export interface ServerOptions {
   autoPlayMs?: number;
+  nextRoundMs?: number; // fixed round-over wait instead of the reveal-based one (tests)
   maxRooms?: number;
   createsPerIpPerMin?: number;
   socketsPerIp?: number;
@@ -73,6 +75,7 @@ export interface ServerOptions {
 
 export function startServer(port: number, opts: ServerOptions = {}): Promise<RunningServer> {
   const autoPlayMs = opts.autoPlayMs ?? AUTO_PLAY_MS;
+  const nextRoundMs = (events: GameEvent[]) => opts.nextRoundMs ?? nextRoundDelayMs(events);
   const maxRooms = opts.maxRooms ?? MAX_ROOMS;
   const createsPerIpPerMin = opts.createsPerIpPerMin ?? CREATES_PER_IP_PER_MIN;
   const socketsPerIp = opts.socketsPerIp ?? MAX_SOCKETS_PER_IP;
@@ -105,7 +108,8 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
     const awaited = awaitingPlayerId(game);
     const since = awaited ? live.disconnectedAt.get(awaited) : undefined;
     const autoPlay = awaited && since !== undefined ? { playerId: awaited, inMs: Math.max(0, since + autoPlayMs - Date.now()) } : undefined;
-    return { ...room, game, autoPlay };
+    const nextRoundInMs = live.nextRound ? Math.max(0, live.nextRound.at - Date.now()) : undefined;
+    return { ...room, game, autoPlay, nextRoundInMs };
   }
 
   function broadcast(live: LiveRoom, events: GameEvent[]) {
@@ -136,6 +140,7 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
   function changed(live: LiveRoom, events: GameEvent[]) {
     live.lastActive = Date.now();
     ensureHost(live);
+    scheduleNextRound(live, events);
     broadcast(live, events);
     scheduleBot(live);
   }
@@ -143,7 +148,34 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
   function deleteRoom(code: string) {
     const live = rooms.get(code);
     if (live?.botTimer) clearTimeout(live.botTimer);
+    if (live?.nextRound) clearTimeout(live.nextRound.timer);
     rooms.delete(code);
+  }
+
+  // Everyone's phone counts down to the same deal, so nobody waits on the host to tap. Kept across reconnects
+  // (same round), dropped on any move out of roundOver (host's "Start now", someone leaving ends the game, delete).
+  function scheduleNextRound(live: LiveRoom, events: GameEvent[]) {
+    const { room } = live;
+    const round = room.mode === "virtual" && room.game.phase === "roundOver" ? room.game.round : null;
+    if (live.nextRound && live.nextRound.round === round) return;
+    if (live.nextRound) clearTimeout(live.nextRound.timer);
+    live.nextRound = null;
+    if (round === null || inRoom(room.code).length === 0) return;
+    const delay = nextRoundMs(events);
+    const timer = setTimeout(() => {
+      live.nextRound = null;
+      const current = live.room;
+      if (current.mode !== "virtual" || current.game.phase !== "roundOver" || current.game.round !== round) return;
+      if (inRoom(current.code).length === 0) return; // nobody watching; the next reconnect restarts the wait
+      const res = applyIntent(current.game, current.hostId, { type: "nextRound" }, { isHost: true });
+      if (!res.ok) {
+        console.error(`next round in ${current.code}: ${res.error}`);
+        return;
+      }
+      current.game = res.state;
+      changed(live, res.events);
+    }, delay);
+    live.nextRound = { round, at: Date.now() + delay, timer };
   }
 
   function scheduleBot(live: LiveRoom) {
@@ -157,7 +189,7 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
     if (!botId || !player) return;
     const since = live.disconnectedAt.get(botId);
     if (!player.isBot && (since === undefined || isOnline(room.code, botId))) return;
-    const pace = game.pending?.type === "flipThree" ? 450 : 700 + Math.random() * 500;
+    const pace = game.pending?.type === "flipThree" ? 585 : 910 + Math.random() * 650;
     const delay = since === undefined ? pace : Math.max(pace, since + autoPlayMs - Date.now());
     const seq = game.seq;
     live.botTimer = setTimeout(() => {
@@ -271,7 +303,7 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
       mode === "virtual"
         ? { code, mode, hostId: clientId, game: addPlayer(createGame(), { id: clientId, name, isBot: false }) }
         : { code, mode, hostId: clientId, game: addScoreSeat(createScoreGame(), { id: clientId, name, ownerId: clientId }) };
-    const live: LiveRoom = { room, lastActive: Date.now(), creatorId: clientId, botTimer: null, disconnectedAt: new Map(), awayStays: new Map(), kicked: new Set() };
+    const live: LiveRoom = { room, lastActive: Date.now(), creatorId: clientId, botTimer: null, nextRound: null, disconnectedAt: new Map(), awayStays: new Map(), kicked: new Set() };
     rooms.set(code, live);
     attach(c, live, clientId, name);
   }

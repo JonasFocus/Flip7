@@ -309,3 +309,59 @@ test("leaving a scorekeeper lobby removes that phone's seats; leaving mid-game k
   b.ws.close();
   c.ws.close();
 });
+
+test("server deals the next round itself after the round-over wait, and the host can still skip it", async () => {
+  const fast = await startServer(0, { nextRoundMs: 400, createsPerIpPerMin: Infinity, joinsPerIpPerMin: Infinity });
+  try {
+    const a = await connect(fast.port);
+    a.send({ t: "create", mode: "virtual", name: "Mom", clientId: "next-a" });
+    const code = (await a.waitRoom(() => true)).room.code;
+    const b = await connect(fast.port);
+    b.send({ t: "join", code, name: "Dad", clientId: "next-b" });
+    await a.waitRoom((m) => virtualGame(m.room).players.length === 2);
+    a.send({ t: "intent", intent: { type: "start" } });
+    let game = virtualGame((await a.waitRoom((m) => virtualGame(m.room).phase === "playing")).room);
+    const players = { [P("next-a")]: a, [P("next-b")]: b };
+
+    // Everyone stays (or resolves their card) until the round ends; nobody sends nextRound.
+    const finishRound = async () => {
+      for (let i = 0; i < 40 && game.phase === "playing"; i++) {
+        const id = awaitingPlayerId(game);
+        const who = id ? players[id] : undefined;
+        assert.ok(id && who, "someone is awaited");
+        const pending = game.pending;
+        const intent: Intent =
+          pending?.type === "chooseTarget" ? { type: "chooseTarget", targetId: pending.options[0] ?? id } : pending ? { type: "hit" } : { type: "stay" };
+        const seq = game.seq;
+        who.send({ t: "intent", intent });
+        game = virtualGame((await a.waitRoom((m) => virtualGame(m.room).seq > seq)).room);
+      }
+    };
+    await finishRound();
+    if (game.phase === "gameOver") return; // practically impossible on round 1
+    assert.equal(game.phase, "roundOver");
+    const over = latestRoom(a);
+    const inMs = over.mode === "virtual" ? over.nextRoundInMs : undefined;
+    assert.ok(inMs !== undefined && inMs > 0 && inMs <= 400, "snapshot carries the countdown");
+    const bOver = await b.waitRoom((m) => virtualGame(m.room).phase === "roundOver");
+    assert.ok(bOver.room.mode === "virtual" && bOver.room.nextRoundInMs !== undefined, "every phone sees it");
+
+    const dealt = await a.waitRoom((m) => virtualGame(m.room).round === 2 && virtualGame(m.room).phase === "playing");
+    assert.ok(dealt.events.some((e) => e.type === "deal"));
+    assert.ok(dealt.room.mode === "virtual" && dealt.room.nextRoundInMs === undefined);
+    game = virtualGame(dealt.room);
+
+    // Host skips the wait: exactly one next round, and the cancelled timer doesn't deal another.
+    await finishRound();
+    if (game.phase === "roundOver") {
+      a.send({ t: "intent", intent: { type: "nextRound" } });
+      await a.waitRoom((m) => virtualGame(m.room).round === 3);
+      await new Promise((r) => setTimeout(r, 600));
+      assert.equal(virtualGame(latestRoom(a)).round, 3);
+    }
+    a.ws.close();
+    b.ws.close();
+  } finally {
+    await fast.close();
+  }
+});

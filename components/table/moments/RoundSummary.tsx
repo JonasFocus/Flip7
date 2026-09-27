@@ -10,6 +10,7 @@ import type { TableConnection } from "@/lib/client/types";
 import { scoreHand } from "@/lib/engine/index";
 import type { Card, GameState, Player } from "@/lib/engine/types";
 import { ScoreSheet } from "./ScoreSheet";
+import { useSecondsLeft } from "../ActionBar";
 import { firstName, isDuplicate } from "../hand";
 import { rankOf, roundPoints, useCountUp, useFocusOnShow, useReducedMotion } from "./util";
 import "./moments.css";
@@ -24,13 +25,12 @@ export function sortHand(hand: Card[]): Card[] {
   );
 }
 
-// Only when it explains the round's points; a bare sum would just repeat them.
+// Only when it explains the round's points; a bare sum would just repeat them. The Flip 7 bonus gets its own badge.
 function breakdown(p: Player): string | null {
   if (p.status === "busted") return null;
   const s = scoreHand(p.hand, { flip7: p.status === "flip7" });
   const parts = [s.doubled ? `${s.numberSum} ×2` : String(s.numberSum)];
   if (s.plus) parts.push(`+${s.plus}`);
-  if (s.flip7Bonus) parts.push(`+${s.flip7Bonus} Flip 7`);
   return parts.length === 1 && !s.doubled ? null : parts.join("  ");
 }
 
@@ -48,6 +48,8 @@ export function RoundSummary({ conn }: { conn: TableConnection }) {
   const list = useRef<HTMLOListElement>(null);
   const yourIndex = sorted.findIndex((p) => p.id === you);
   const reduced = useReducedMotion();
+  const secondsLeft = useSecondsLeft(conn.nextRoundAt);
+  const counting = secondsLeft !== null && secondsLeft <= 3;
 
   // In a big game your row can start below the fold; bring it in once the rows have risen in.
   useEffect(() => {
@@ -87,25 +89,44 @@ export function RoundSummary({ conn }: { conn: TableConnection }) {
           <Button variant="secondary" size="lg" className="px-4! text-base!" onClick={() => setSheet(true)}>
             Scores
           </Button>
+          {secondsLeft !== null && (
+            <p className="flex-1 text-center text-sm font-semibold text-muted tabular-nums">
+              {secondsLeft > 0 ? `Round ${game.round + 1} in ${secondsLeft}s` : `Dealing round ${game.round + 1}…`}
+            </p>
+          )}
           {isHost ? (
             <Button
               size="lg"
-              block
+              block={secondsLeft === null}
+              variant={secondsLeft === null ? undefined : "secondary"}
+              className={secondsLeft === null ? undefined : "px-4! text-base!"}
               loading={sentRound === game.round && !conn.error}
               onClick={() => {
                 setSentRound(game.round);
                 conn.send({ type: "nextRound" });
               }}
             >
-              Next round
+              {secondsLeft === null ? "Next round" : "Start now"}
             </Button>
           ) : (
-            <p role="status" className="flex-1 text-center text-sm text-muted">
-              Waiting for {host} to deal round {game.round + 1}…
-            </p>
+            secondsLeft === null && (
+              <p role="status" className="flex-1 text-center text-sm text-muted">
+                Waiting for {host} to deal round {game.round + 1}…
+              </p>
+            )
           )}
         </footer>
       </div>
+      {counting && secondsLeft > 0 && (
+        <div aria-hidden className="pointer-events-none fixed inset-x-0 bottom-[calc(env(safe-area-inset-bottom)+5.5rem)] z-10 flex justify-center">
+          <div className="flex flex-col items-center rounded-3xl bg-accent px-7 pt-2 pb-3 text-ink shadow-[0_12px_40px_-8px_oklch(0.89_0.18_98/0.6)]">
+            <span className="text-[10px] font-bold uppercase tracking-[0.2em]">Next round</span>
+            <span key={secondsLeft} className="animate-pop font-display text-7xl leading-none tabular-nums">
+              {secondsLeft}
+            </span>
+          </div>
+        </div>
+      )}
       <ScoreSheet game={game} you={you} open={sheet} onClose={() => setSheet(false)} />
     </section>
   );
@@ -117,38 +138,45 @@ function Row({ p, rank, top, index, you, game }: { p: Player; rank: number; top:
   const total = useCountUp(p.total, p.total - pts, delay + 200);
   const busted = p.status === "busted";
   const info = breakdown(p);
+  const bonus = p.status === "flip7" ? scoreHand(p.hand, { flip7: true }).flip7Bonus : 0;
   const progress = Math.min(1, p.total / game.goal);
+  const mine = p.id === you;
 
   return (
     <li
-      data-you={p.id === you || undefined}
-      className={cx("m-rise rounded-2xl border bg-surface p-3", p.id === you ? "border-accent/60" : "border-line")}
+      data-you={mine || undefined}
+      className={cx("m-rise rounded-2xl border-2 p-3", mine ? "border-accent bg-accent/10" : "border-line bg-surface")}
       style={{ animationDelay: `${index * 60}ms` }}
     >
       <div className="flex items-center gap-3">
-        <span className="w-5 flex-none text-center font-display text-sm text-muted tabular-nums">{rank}</span>
+        <span className="w-4 flex-none text-center font-display text-sm text-muted tabular-nums">{rank}</span>
         <Avatar id={p.id} seat={game.players.indexOf(p)} name={p.name} isBot={p.isBot} size="sm" />
         <div className="min-w-0 flex-1">
           <p className="flex items-center gap-2">
-            <span className="truncate font-semibold">{p.id === you ? "You" : p.name}</span>
+            <span className="truncate font-semibold">{mine ? "You" : p.name}</span>
             {p.status === "active" ? <Badge>Banked</Badge> : <StatusBadge status={p.status} />}
           </p>
-          {info && <p className="text-xs text-muted tabular-nums">{info}</p>}
+          {(info || bonus > 0) && (
+            <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted tabular-nums">
+              {info}
+              {bonus > 0 && <Badge tone="flip7">+{bonus} Flip 7 bonus</Badge>}
+            </p>
+          )}
         </div>
-        <div className="text-right tabular-nums">
+        <div className="flex-none text-right tabular-nums">
           <p
-            className={cx("m-rise font-display text-xl leading-none", busted ? "text-busted" : top ? "text-accent" : pts > 0 ? "text-fg" : "text-muted")}
+            className={cx("m-rise font-display text-4xl leading-none", busted ? "text-busted" : top ? "text-accent" : pts > 0 ? "text-fg" : "text-muted")}
             style={{ animationDelay: `${delay}ms` }}
           >
-            {busted ? "0" : `+${pts}`}
+            +{pts}
           </p>
-          <p className="mt-1 text-xs text-muted">
-            <span className="font-display text-sm text-fg">{total}</span> total
+          <p className={cx("mt-1 text-[10px] font-bold uppercase tracking-[0.14em]", busted ? "text-busted" : "text-muted")}>
+            {busted ? "Bust" : "Secured"}
           </p>
         </div>
       </div>
       {p.hand.length > 0 && (
-        <div className="mt-2.5 flex flex-wrap gap-1 pl-8">
+        <div className="mt-2.5 flex flex-wrap gap-1 pl-7">
           {sortHand(p.hand).map((c) => {
             const dup = busted && isDuplicate(p.hand, c);
             return (
@@ -163,11 +191,16 @@ function Row({ p, rank, top, index, you, game }: { p: Player; rank: number; top:
           })}
         </div>
       )}
-      <div className="mt-2.5 ml-8 h-1 overflow-hidden rounded-full bg-surface-2" aria-hidden>
-        <div
-          className={cx("m-bar h-full rounded-full", p.total >= game.goal ? "bg-accent" : "bg-muted/60")}
-          style={{ width: `${progress * 100}%`, animationDelay: `${delay + 200}ms` }}
-        />
+      <div className="mt-2.5 ml-7 flex items-center gap-3">
+        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-surface-2" aria-hidden>
+          <div
+            className={cx("m-bar h-full rounded-full", p.total >= game.goal ? "bg-accent" : "bg-muted/60")}
+            style={{ width: `${progress * 100}%`, animationDelay: `${delay + 200}ms` }}
+          />
+        </div>
+        <p className="flex-none text-xs text-muted tabular-nums">
+          Total <span className="font-display text-base text-fg">{total}</span>
+        </p>
       </div>
     </li>
   );

@@ -25,6 +25,17 @@ export function splitHand(cards: Card[]): { numbers: Card[]; specials: Card[] } 
   return { numbers: sorted.filter((c) => c.kind === "number"), specials: sorted.filter((c) => c.kind !== "number") };
 }
 
+// The seat after `id` still in the round (whose turn follows), or null when `id` is the last one left.
+export function nextUpAfter(players: Player[], id: string | null): string | null {
+  const i = players.findIndex((p) => p.id === id);
+  if (i < 0) return null;
+  for (let k = 1; k < players.length; k++) {
+    const p = players[(i + k) % players.length];
+    if (p?.status === "active") return p.id;
+  }
+  return null;
+}
+
 // Part of the pair that caused a bust.
 export function isDuplicate(hand: Card[], c: Card): boolean {
   return c.kind === "number" && hand.filter((x) => x.kind === "number" && x.value === c.value).length > 1;

@@ -24,7 +24,7 @@ function Waiting({ player, seat, text, alert = false, dots = !alert }: { player?
   );
 }
 
-function useSecondsLeft(deadline: number | undefined): number | null {
+export function useSecondsLeft(deadline: number | undefined): number | null {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (deadline === undefined) return;

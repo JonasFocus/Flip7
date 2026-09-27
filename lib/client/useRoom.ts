@@ -319,8 +319,10 @@ function leaveOnFreshSocket(code: string, name: string) {
 
 function tableOf(c: RoomCore, game: GameState): TableConnection {
   const auto = c.room?.mode === "virtual" ? c.room.autoPlay : undefined;
+  const nextIn = c.room?.mode === "virtual" ? c.room.nextRoundInMs : undefined;
   return {
     autoPlay: auto ? { playerId: auto.playerId, deadline: c.receivedAt + auto.inMs } : undefined,
+    nextRoundAt: typeof nextIn === "number" ? c.receivedAt + nextIn : undefined,
     kind: "online",
     code: c.code,
     status: c.status,

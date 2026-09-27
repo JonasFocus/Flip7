@@ -1,8 +1,8 @@
 import { uniqueNumbers } from "@/lib/engine";
 import type { Player } from "@/lib/engine/types";
 import { PlayingCard } from "@/components/cards/PlayingCard";
-import { StatusBadge } from "@/components/ui/Badge";
 import { cx } from "@/components/ui/cx";
+import { Badge, StatusBadge } from "@/components/ui/Badge";
 import { isDuplicate, roundScore, shownPlayer, splitHand } from "./hand";
 
 function oddsColor(p: number): string {
@@ -16,15 +16,19 @@ export function MyHand({
   bust,
   hidden,
   pendingStatus,
+  nextUp,
 }: {
   me: Player;
   bust: number;
   hidden: Set<string>;
   pendingStatus: Set<string>;
+  nextUp: boolean;
 }) {
   const me = shownPlayer(live, hidden, pendingStatus);
   const visible = me.hand;
   const { numbers, specials } = splitHand(visible);
+  // One row, modifiers after the numbers at the same size, so your card count reads like everyone else's.
+  const cards = [...numbers, ...specials];
   const score = roundScore(me);
   const unique = uniqueNumbers(visible);
   const busted = me.status === "busted";
@@ -45,6 +49,7 @@ export function MyHand({
           <div className="flex items-center gap-2">
             <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted">This round</span>
             {me.status !== "active" && me.status !== "waiting" && <StatusBadge status={me.status} />}
+            {nextUp && me.status === "active" && <Badge>Next up</Badge>}
             <span aria-hidden className="size-1 flex-none rounded-full bg-line" />
             <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted tabular-nums">Total {me.total}</span>
           </div>
@@ -60,13 +65,6 @@ export function MyHand({
             )}
           </div>
         </div>
-        {specials.length > 0 && (
-          <div className="flex flex-none gap-1 text-[40px]">
-            {specials.map((c) => (
-              <PlayingCard key={c.id} card={c} size="sm" className="animate-deal" />
-            ))}
-          </div>
-        )}
       </div>
 
       {/* Font size = card width (em). Cards sit 6px apart and overlap only as much as the row needs. */}
@@ -76,19 +74,27 @@ export function MyHand({
           busted && "animate-shake",
         )}
       >
-        {numbers.length === 0 ? (
+        {cards.length === 0 ? (
           <span className="card border-dashed !bg-transparent !shadow-none [--c:var(--color-line)]" aria-hidden />
         ) : (
-          numbers.map((c, i) => {
+          cards.map((c, i) => {
             const dup = busted && isDuplicate(visible, c);
-            const n = numbers.length;
+            const n = cards.length;
+            // Labels are centred, so a long hand shrinks until each card shows ~0.8 of itself (11 vs 1, +10 vs +1).
             return (
-              <span key={c.id} className="flex-none" style={i === 0 ? undefined : { marginLeft: `min(6px, calc((100cqw - ${n}em) / ${n - 1}))` }}>
+              <span
+                key={c.id}
+                className="flex-none"
+                style={{
+                  fontSize: `min(1em, calc(100cqw / ${0.8 * (n - 1) + 1}))`,
+                  marginLeft: i === 0 ? undefined : `min(6px, calc((100cqw - ${n}em) / ${n - 1}))`,
+                }}
+              >
                 <PlayingCard
                   card={c}
                   size="md"
                   dim={busted && !dup}
-                  className={cx("animate-deal [@media(min-height:880px)]:text-[72px]!", dup && "ring-2 ring-busted ring-offset-2 ring-offset-surface")}
+                  className={cx("animate-deal text-[length:1em]!", dup && "ring-2 ring-busted ring-offset-2 ring-offset-surface")}
                 />
               </span>
             );

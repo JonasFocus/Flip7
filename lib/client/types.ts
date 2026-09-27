@@ -14,6 +14,7 @@ export interface TableConnection {
   game: GameState;
   events: GameEvent[]; // events from the latest change, for animation
   autoPlay?: { playerId: string; deadline: number }; // awaited player is offline; server plays for them at `deadline` (local ms)
+  nextRoundAt?: number; // roundOver: the next round deals itself at this local ms time
   error: string | null;
   send: (intent: Intent) => void;
   addBot: () => void;
