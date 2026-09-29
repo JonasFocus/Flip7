@@ -47,6 +47,7 @@ export interface ImposterConnection {
   hostId: string;
   isHost: boolean;
   game: ImposterState; // already redacted for you
+  votingEndsAt?: number;
   cluesEndsAt?: number; // clues phase: local ms time voting auto-starts
   error: string | null;
   send: (intent: ImposterIntent) => void;

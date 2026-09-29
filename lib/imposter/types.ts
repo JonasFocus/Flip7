@@ -35,6 +35,7 @@ export interface ImposterState {
   imposterId: string | null; // REDACTED to null for everyone except the imposter, until gameOver
   starterId: string | null; // who gives the first clue this round
   cluesDeadline: number | null; // server clock ms when clues auto-advance to voting; clients get Room.cluesEndsInMs instead
+  votingDeadline: number | null;
   votes: Record<string, string>; // voterId -> targetId. REDACTED during voting to only the viewer's own vote
   votedIds: string[]; // who has voted this round (always visible)
   lastResult: VoteResult | null;

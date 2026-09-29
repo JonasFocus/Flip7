@@ -24,6 +24,8 @@ import {
   redactImposter,
   removeImposterPlayer,
   setImposterConnected,
+  serverDeadline as imposterDeadline,
+  onDeadline as onImposterDeadline,
 } from "../lib/imposter/index.ts";
 import * as dice from "../lib/liarsdice/index.ts";
 import * as potato from "../lib/hotpotato/index.ts";
@@ -152,7 +154,7 @@ interface LiveRoom {
   creatorId: string; // gets host back on return, so a reload or flaky signal doesn't cost the creator the room
   botTimer: NodeJS.Timeout | null;
   nextRound: { round: number; at: number; timer: NodeJS.Timeout } | null; // roundOver: the server deals the next round at `at`
-  cluesTimer: NodeJS.Timeout | null; // imposter clues phase: starts voting at game.cluesDeadline
+  cluesTimer: NodeJS.Timeout | null; // imposter clue and voting deadlines
   partyTimer: NodeJS.Timeout | null; // party games: fires onDeadline at the engine's serverDeadline
   disconnectedAt: Map<string, number>; // humans who dropped mid-game; they get auto-played after AUTO_PLAY_MS
   awayStays: Map<string, { round: number; event: GameEvent }>; // auto-stays to replay to that human when they return
@@ -218,7 +220,9 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
     if (room.mode === "imposter") {
       const deadline = room.game.phase === "clues" ? room.game.cluesDeadline : null;
       const cluesEndsInMs = deadline !== null ? Math.max(0, deadline - Date.now()) : undefined;
-      return { ...room, game: redactImposter(room.game, viewerId), cluesEndsInMs };
+      const votingEndsInMs = room.game.phase === "voting" && room.game.votingDeadline !== null
+        ? Math.max(0, room.game.votingDeadline - Date.now()) : undefined;
+      return { ...room, game: redactImposter(room.game, viewerId), cluesEndsInMs, votingEndsInMs };
     }
     if (isParty(room)) {
       return withParty(room, (p) => {
@@ -316,20 +320,19 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
     if (live.cluesTimer) clearTimeout(live.cluesTimer);
     live.cluesTimer = null;
     const { room } = live;
-    if (room.mode !== "imposter" || room.game.phase !== "clues" || room.game.cluesDeadline === null) return;
-    const deadline = room.game.cluesDeadline;
+    if (room.mode !== "imposter") return;
+    const deadline = imposterDeadline(room.game);
+    if (deadline === null) return;
     live.cluesTimer = setTimeout(() => {
       live.cluesTimer = null;
       try {
         const current = live.room;
-        if (current.mode !== "imposter" || current.game.phase !== "clues" || current.game.cluesDeadline !== deadline) return;
-        const res = applyImposterIntent(current.game, current.hostId, { type: "startVoting" }, { isHost: true, now: Date.now() });
-        if (!res.ok) {
-          console.error(`start voting in ${current.code}: ${res.error}`);
-          return;
-        }
-        current.game = res.state;
-        changed(live, []);
+        if (current.mode !== "imposter" || imposterDeadline(current.game) !== deadline) return;
+        const next = onImposterDeadline(current.game, Date.now());
+        if (next !== current.game) {
+          current.game = next;
+          changed(live, []);
+        } else if (deadline > Date.now()) scheduleClues(live);
       } catch (err) {
         console.error("clues timer error", err);
       }

@@ -4,6 +4,7 @@ export {
   MAX_SPY_PLAYERS,
   MIN_SPY_PLAYERS,
   SPY_TIMERS,
+  VOTING_MS,
   addSpyPlayer,
   applySpyIntent,
   createSpyGame,

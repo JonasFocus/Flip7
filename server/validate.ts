@@ -70,7 +70,7 @@ function parseScoreIntent(v: unknown): ScoreIntent | null {
     case "removeSeat":
       return isId(v.seatId) ? { type: "removeSeat", seatId: v.seatId } : null;
     case "clearEntry":
-      return isId(v.seatId) ? { type: "clearEntry", seatId: v.seatId } : null;
+      return isId(v.seatId) && isInt(v.round, 0, 10000) ? { type: "clearEntry", seatId: v.seatId, round: v.round } : null;
     case "submitEntry": {
       const entry = parseEntry(v.entry);
       return isId(v.seatId) && entry && isInt(v.round, 0, 10000)

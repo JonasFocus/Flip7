@@ -80,6 +80,7 @@ export function applyScoreIntent(
       return ok({ ...s, entries: { ...s.entries, [seat.id]: entry } });
     }
     case "clearEntry": {
+      if (intent.round !== s.round) return fail("Round already changed");
       const seat = seatOf(intent.seatId);
       if (s.phase !== "playing") return fail("Not playing");
       if (!seat) return fail("No such seat");
