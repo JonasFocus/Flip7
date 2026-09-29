@@ -39,7 +39,7 @@ export interface SpyState {
   roles: Record<string, string>; // playerId -> role. REDACTED to only the viewer's own role until gameOver (spy has none)
   spyId: string | null; // REDACTED to null for everyone except the spy until gameOver
   firstAskerId: string | null;
-  deadline: number | null; // questions phase: server ms when voting auto-starts
+  deadline: number | null; // server ms when questions or voting end
   votes: Record<string, string>; // voterId -> targetId. REDACTED during voting to only the viewer's own vote
   votedIds: string[]; // who has voted (always visible)
   result: SpyResult | null;
@@ -67,7 +67,7 @@ export interface SpyConnection {
   hostId: string;
   isHost: boolean;
   game: SpyState; // redacted for you
-  deadlineAt?: number; // questions phase: local ms when voting auto-starts
+  deadlineAt?: number; // local ms when questions or voting end
   error: string | null;
   send: (intent: SpyIntent) => void;
   removePlayer: (playerId: string) => void;

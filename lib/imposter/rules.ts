@@ -3,6 +3,7 @@ import type { ImposterIntent, ImposterPlayer, ImposterState, ImposterTimer, Vote
 
 export const MIN_IMPOSTER_PLAYERS = 3;
 export const MAX_IMPOSTER_PLAYERS = 10;
+export const VOTING_MS = 60_000;
 const TIMERS: readonly ImposterTimer[] = [90, 120, 300];
 
 type Rng = () => number;
@@ -27,6 +28,7 @@ export function createImposterGame(): ImposterState {
     imposterId: null,
     starterId: null,
     cluesDeadline: null,
+    votingDeadline: null,
     votes: {},
     votedIds: [],
     lastResult: null,
@@ -51,8 +53,8 @@ export function removeImposterPlayer(s: ImposterState, id: string): ImposterStat
   const players = s.players.filter((p) => p.id !== id);
   const next: ImposterState = { ...s, players, seq: s.seq + 1 };
   if (s.phase === "lobby" || s.phase === "gameOver") return next;
-  if (id === s.imposterId) return { ...next, phase: "gameOver", cluesDeadline: null, winner: "faithful" };
-  if (alive(next).length <= 2) return { ...next, phase: "gameOver", cluesDeadline: null, winner: "imposter" };
+  if (id === s.imposterId) return { ...next, phase: "gameOver", cluesDeadline: null, votingDeadline: null, winner: "faithful" };
+  if (alive(next).length <= 2) return { ...next, phase: "gameOver", cluesDeadline: null, votingDeadline: null, winner: "imposter" };
   // Drop the leaver's ballot and any ballot cast against them; those voters vote again.
   const votes = Object.fromEntries(Object.entries(s.votes).filter(([voter, target]) => voter !== id && target !== id));
   return maybeResolve({ ...next, votes, votedIds: Object.keys(votes) });
@@ -65,6 +67,7 @@ function maybeResolve(s: ImposterState): ImposterState {
 }
 
 function resolve(s: ImposterState): ImposterState {
+  s = { ...s, votingDeadline: null };
   const tally: Record<string, number> = {};
   for (const target of Object.values(s.votes)) tally[target] = (tally[target] ?? 0) + 1;
   const cast = Object.keys(s.votes).length;
@@ -85,6 +88,7 @@ function beginRound(s: ImposterState, round: number, now: number, rng: Rng): Imp
     round,
     starterId: pick(alive(s), rng)?.id ?? null,
     cluesDeadline: now + s.timerSec * 1000,
+    votingDeadline: null,
     votes: {},
     votedIds: [],
   };
@@ -104,6 +108,7 @@ export function applyImposterIntent(
 
   if (intent.type === "vote") {
     if (s.phase !== "voting") return fail("Not voting right now");
+    if (s.votingDeadline !== null && opts.now >= s.votingDeadline) return fail("Voting has ended");
     if (actor.eliminated) return fail("You are out and can't vote");
     if (intent.targetId === actorId) return fail("You can't vote for yourself");
     if (!alive(s).some((p) => p.id === intent.targetId)) return fail("Pick a player who is still in");
@@ -134,7 +139,7 @@ export function applyImposterIntent(
     }
     case "startVoting":
       if (s.phase !== "clues") return fail("Not in the clue phase");
-      return done({ ...s, phase: "voting", cluesDeadline: null, votes: {}, votedIds: [] });
+      return done(toVoting(s, opts.now));
     case "nextRound":
       if (s.phase !== "reveal") return fail("Nothing to continue");
       return done(beginRound(s, s.round + 1, opts.now, rng));
@@ -144,6 +149,21 @@ export function applyImposterIntent(
       return done({ ...createImposterGame(), players, categoryId: s.categoryId, timerSec: s.timerSec });
     }
   }
+}
+
+function toVoting(s: ImposterState, now: number): ImposterState {
+  return { ...s, phase: "voting", cluesDeadline: null, votingDeadline: now + VOTING_MS, votes: {}, votedIds: [] };
+}
+
+export function serverDeadline(s: ImposterState): number | null {
+  return s.phase === "clues" ? s.cluesDeadline : s.phase === "voting" ? s.votingDeadline : null;
+}
+
+export function onDeadline(s: ImposterState, now: number): ImposterState {
+  const due = serverDeadline(s);
+  if (due === null || now < due) return s;
+  const next = s.phase === "clues" ? toVoting(s, now) : resolve(s);
+  return { ...next, seq: s.seq + 1 };
 }
 
 export function redactImposter(s: ImposterState, viewerId: string): ImposterState {

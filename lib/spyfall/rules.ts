@@ -53,6 +53,8 @@ function end(s: SpyState, result: SpyResult): SpyState {
   return { ...s, phase: "gameOver", deadline: null, result };
 }
 
+export const VOTING_MS = 60_000;
+
 const noVotes = { tally: {}, accusedId: null, guess: null };
 
 export function removeSpyPlayer(s: SpyState, id: string, opts: { now: number; rng?: Rng }): SpyState {
@@ -72,7 +74,10 @@ export function removeSpyPlayer(s: SpyState, id: string, opts: { now: number; rn
 function maybeResolve(s: SpyState): SpyState {
   if (s.phase !== "voting" || s.votedIds.length === 0) return s;
   const pending = s.players.some((p) => p.connected && !s.votedIds.includes(p.id));
-  if (pending) return s;
+  return pending ? s : resolve(s);
+}
+
+function resolve(s: SpyState): SpyState {
   const tally: Record<string, number> = {};
   for (const target of Object.values(s.votes)) tally[target] = (tally[target] ?? 0) + 1;
   const cast = Object.keys(s.votes).length;
@@ -95,6 +100,7 @@ export function applySpyIntent(
   switch (intent.type) {
     case "vote": {
       if (s.phase !== "voting") return fail("Not voting right now");
+      if (s.deadline !== null && opts.now >= s.deadline) return fail("Voting has ended");
       if (intent.targetId === actorId) return fail("You can't vote for yourself");
       if (!s.players.some((p) => p.id === intent.targetId)) return fail("Pick a player in the game");
       const votes = { ...s.votes, [actorId]: intent.targetId };
@@ -142,7 +148,7 @@ export function applySpyIntent(
     }
     case "startVoting":
       if (s.phase !== "questions") return fail("Not in the question phase");
-      return done(toVoting(s));
+      return done(toVoting(s, opts.now));
     case "playAgain":
       if (s.phase !== "gameOver") return fail("Game is not over");
       return done({ ...createSpyGame(), players: s.players, timerMin: s.timerMin });
@@ -151,12 +157,12 @@ export function applySpyIntent(
   }
 }
 
-function toVoting(s: SpyState): SpyState {
-  return { ...s, phase: "voting", deadline: null, votes: {}, votedIds: [] };
+function toVoting(s: SpyState, now: number): SpyState {
+  return { ...s, phase: "voting", deadline: now + VOTING_MS, votes: {}, votedIds: [] };
 }
 
 export function serverDeadline(s: SpyState): number | null {
-  return s.phase === "questions" ? s.deadline : null;
+  return s.phase === "questions" || s.phase === "voting" ? s.deadline : null;
 }
 
 export const visibleDeadline = serverDeadline;
@@ -165,7 +171,8 @@ export const visibleDeadline = serverDeadline;
 export const onDeadline: (s: SpyState, now: number, rng?: Rng) => SpyState = (s, now) => {
   const due = serverDeadline(s);
   if (due === null || now < due) return s;
-  return { ...toVoting(s), seq: s.seq + 1 };
+  const next = s.phase === "questions" ? toVoting(s, now) : resolve(s);
+  return { ...next, seq: s.seq + 1 };
 };
 
 export function redactSpy(s: SpyState, viewerId: string): SpyState {

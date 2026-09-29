@@ -112,7 +112,7 @@ export function Board({ conn, onMenu }: { conn: ScoreConnection; onMenu: () => v
         initial={seat ? (game.entries[seat.id] ?? null) : null}
         onSave={save}
         onClear={() => {
-          if (seat) conn.send({ type: "clearEntry", seatId: seat.id });
+          if (seat) conn.send({ type: "clearEntry", seatId: seat.id, round: game.round });
           setEditing(null);
           hold();
         }}

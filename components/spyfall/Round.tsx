@@ -182,6 +182,8 @@ export function Voting({ conn }: { conn: SpyConnection }) {
       <section className="flex flex-col items-center gap-2 pt-2 pb-6 text-center">
         <MicroLabel>Voting</MicroLabel>
         <h1 className="font-display text-3xl tracking-wide">Who&apos;s the spy?</h1>
+        <Countdown endsAt={conn.deadlineAt} />
+        <p className="text-sm text-muted">Votes close when the timer ends.</p>
         <p aria-live="polite" className="text-sm text-muted tabular-nums">
           {game.votedIds.length} of {game.players.length} voted
         </p>
@@ -208,7 +210,7 @@ export function Voting({ conn }: { conn: SpyConnection }) {
       </ul>
 
       <Footer>
-        <Status>{myVote ? "You can change your vote until everyone's in" : "Tap who you think is the spy"}</Status>
+        <Status>{myVote ? "You can change your vote until voting closes" : "Tap who you think is the spy"}</Status>
       </Footer>
     </>
   );

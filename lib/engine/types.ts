@@ -124,7 +124,7 @@ export type ScoreIntent =
   | { type: "removeSeat"; seatId: string }
   | { type: "start" }
   | { type: "submitEntry"; seatId: string; entry: PhysicalEntry; round: number } // round guards stale submits
-  | { type: "clearEntry"; seatId: string }
+  | { type: "clearEntry"; seatId: string; round: number }
   | { type: "finishRound"; round: number } // host only; round = the round being finished
   | { type: "undoRound"; round: number } // host only; round = the round being undone (rounds recorded so far)
   | { type: "setGoal"; goal: number } // host only; mid-game only above the current top total

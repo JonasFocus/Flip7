@@ -148,6 +148,8 @@ export function Voting({ conn }: { conn: ImposterConnection }) {
       <section className="flex flex-col items-center gap-2 pt-2 pb-6 text-center">
         <MicroLabel>Round {game.round} of {game.maxRounds}</MicroLabel>
         <h1 className="font-display text-3xl tracking-wide">Who&apos;s the imposter?</h1>
+        <Countdown endsAt={conn.votingEndsAt} />
+        <p className="text-sm text-muted">Votes close when the timer ends.</p>
         <p aria-live="polite" className="text-sm text-muted tabular-nums">
           {voted} of {inPlay.length} voted
         </p>
@@ -182,7 +184,7 @@ export function Voting({ conn }: { conn: ImposterConnection }) {
           {me?.eliminated
             ? `Waiting on ${inPlay.length - voted} more`
             : myVote
-              ? "You can change your vote until everyone's in"
+              ? "You can change your vote until voting closes"
               : "Tap who you think is faking"}
         </Status>
       </Footer>

@@ -387,6 +387,8 @@ function imposterOf(c: RoomCore, game: ImposterState): ImposterConnection {
     hostId: c.hostId,
     isHost: c.isHost,
     game,
+    votingEndsAt: c.room?.mode === "imposter" && typeof c.room.votingEndsInMs === "number"
+      ? c.receivedAt + c.room.votingEndsInMs : undefined,
     cluesEndsAt: typeof endsIn === "number" ? c.receivedAt + endsIn : undefined,
     error: c.error,
     send: c.sendImposter,
