@@ -698,3 +698,66 @@ test("R4 ABUSE: one IP is capped on open sockets, other IPs unaffected", async (
     await s.close();
   }
 });
+
+test("scorekeeper rejects a delayed clear over the wire and preserves the current hand", async () => {
+  const host = await connect();
+  try {
+    host.send({ t: "create", mode: "physical", name: "Host", clientId: "recovery-score-host" });
+    const created = await host.waitRoom(() => true);
+    if (created.room.mode !== "physical") throw new Error("expected scorekeeper");
+    const seatId = created.room.game.players[0]?.id;
+    assert.ok(seatId);
+    host.send({ t: "score", intent: { type: "start" } });
+    await host.waitRoom((m) => m.room.mode === "physical" && m.room.game.phase === "playing");
+    host.send({ t: "score", intent: { type: "finishRound", round: 1 } });
+    await host.waitRoom((m) => m.room.mode === "physical" && m.room.game.round === 2);
+    const entry = { numbers: [12], plus: [], x2: false, busted: false };
+    host.send({ t: "score", intent: { type: "submitEntry", seatId, round: 2, entry } });
+    await host.waitRoom((m) => m.room.mode === "physical" && m.room.game.entries[seatId] !== null);
+    host.send({ t: "score", intent: { type: "clearEntry", seatId, round: 1 } });
+    assert.equal(await host.waitError(), "Round already changed");
+    const room = last(host);
+    assert.ok(room.mode === "physical");
+    assert.deepEqual(room.game.entries[seatId], entry);
+    host.inbox.length = 0;
+    host.send({ t: "score", intent: { type: "clearEntry", seatId, round: 2 } });
+    await host.waitRoom((m) => m.room.mode === "physical" && m.room.game.round === 2 && m.room.game.entries[seatId] === null);
+  } finally {
+    host.ws.close();
+  }
+});
+
+test("real server timers close Imposter and Spyfall voting with connected abstainers", async () => {
+  await Promise.all((["imposter", "spyfall"] as const).map(async (mode) => {
+    const phones = await Promise.all(Array.from({ length: 4 }, () => connect()));
+    try {
+      const host = phones[0];
+      assert.ok(host);
+      host.send({ t: "create", mode, name: "Host", clientId: `recovery-${mode}-0` });
+      const created = await host.waitRoom(() => true);
+      for (let i = 1; i < phones.length; i++) {
+        const phone = phones[i];
+        assert.ok(phone);
+        phone.send({ t: "join", code: created.room.code, name: `P${i}`, clientId: `recovery-${mode}-${i}` });
+        await phone.waitRoom((m) => m.room.game.players.length === i + 1);
+      }
+      host.send({ t: mode, intent: { type: "start" } });
+      await host.waitRoom((m) => (m.room.mode === "imposter" && m.room.game.phase === "clues") || (m.room.mode === "spyfall" && m.room.game.phase === "questions"));
+      host.send({ t: mode, intent: { type: "startVoting" } });
+      const voting = await host.waitRoom((m) => (m.room.mode === "imposter" || m.room.mode === "spyfall") && m.room.game.phase === "voting");
+      const room = voting.room;
+      assert.ok(room.mode === "imposter" || room.mode === "spyfall");
+      const remaining = room.mode === "imposter" ? room.votingEndsInMs : room.deadlineInMs;
+      assert.ok(remaining !== undefined && remaining > 59000 && remaining <= 60000);
+      for (const phone of phones.slice(1)) phone.send({ t: mode, intent: { type: "vote", targetId: voting.room.hostId } });
+      await host.waitRoom((m) => (m.room.mode === "imposter" || m.room.mode === "spyfall") && m.room.game.phase === "voting" && m.room.game.votedIds.length === 3);
+      const finished = await host.waitRoom((m) => (m.room.mode === "imposter" && (m.room.game.phase === "reveal" || m.room.game.phase === "gameOver")) || (m.room.mode === "spyfall" && m.room.game.phase === "gameOver"), 65000);
+      assert.ok(finished.room.mode === "imposter" || finished.room.mode === "spyfall");
+      assert.ok(finished.room.game.players.every((p) => p.connected));
+      if (finished.room.mode === "imposter") assert.deepEqual(finished.room.game.lastResult?.tally, { [room.hostId]: 3 });
+      else assert.deepEqual(finished.room.game.result?.tally, { [room.hostId]: 3 });
+    } finally {
+      for (const phone of phones) phone.ws.close();
+    }
+  }));
+});
