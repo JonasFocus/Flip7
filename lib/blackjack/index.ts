@@ -4,6 +4,7 @@ export {
   DEAL_STAGGER_MS,
   dealAnimMs,
   DEALER_CARD_MS,
+  HOLE_LEAD_MS,
   DEAL_MS,
   DECKS,
   MAX_BJ_PLAYERS,
