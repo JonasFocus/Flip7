@@ -93,7 +93,9 @@ export function spotNumbers(spot: string): number[] | null {
   }
 }
 
-export const isRlSpot = (v: unknown): v is RlSpot => typeof v === "string" && spotNumbers(v) !== null;
+// Canonical spelling only: aliases like "n:17:x" or "n:05" would be separate keys in the per-spot limit map.
+const CANONICAL_SPOT = /^(?:[a-z]+|[a-z]+:(?:0|[1-9]\d?)(?:-[1-9]\d?)?)$/;
+export const isRlSpot = (v: unknown): v is RlSpot => typeof v === "string" && CANONICAL_SPOT.test(v) && spotNumbers(v) !== null;
 
 // Winnings per chip, not counting the returned stake: 36 pockets / numbers covered - 1 (35 straight up ... 1 even-money).
 export const spotPayout = (spot: RlSpot): number => 36 / (spotNumbers(spot)?.length ?? 36) - 1;

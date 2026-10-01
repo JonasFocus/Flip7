@@ -364,3 +364,9 @@ test("parseRlIntent is strict", () => {
   ];
   for (const b of bad) assert.equal(parseRlIntent(b), null, JSON.stringify(b));
 });
+
+test("aliased spot strings are not real spots", async () => {
+  const { isRlSpot } = await import("../lib/roulette/index.ts");
+  for (const spot of ["n:17:x", "s:1-2-9", "col:1:a", "t:1:a", "n:05", "n:17 "]) assert.equal(isRlSpot(spot), false, spot);
+  for (const spot of ["n:0", "n:17", "s:0-1", "s:1-4", "t:1", "c:1", "l:1", "col:2", "doz:3", "red", "high"]) assert.equal(isRlSpot(spot), true, spot);
+});
