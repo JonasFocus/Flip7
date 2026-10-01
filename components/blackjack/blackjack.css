@@ -60,16 +60,21 @@
 }
 
 /* Corner index: rank over suit, readable even when a hand overlaps it to its left strip. */
+/* Sits on its own card-coloured patch above the court frame, like the index on a real face card. */
 .bj-idx {
   position: absolute;
-  top: 0.06em;
-  left: 0.04em;
+  z-index: 1;
+  top: 0.04em;
+  left: 0.03em;
   width: 0.34em;
+  padding: 0.02em 0 0.03em;
   display: flex;
   flex-direction: column;
   align-items: center;
+  border-radius: 0.04em;
+  background: oklch(0.98 0.005 90);
 }
-.bj-idx[data-flip] { top: auto; left: auto; bottom: 0.06em; right: 0.04em; transform: rotate(180deg); }
+.bj-idx[data-flip] { top: auto; left: auto; bottom: 0.04em; right: 0.03em; transform: rotate(180deg); }
 .bj-idx .bj-r { font-size: 0.34em; letter-spacing: -0.06em; }
 .bj-idx .bj-r[data-wide] { font-size: 0.29em; letter-spacing: -0.1em; }
 .bj-idx .bj-s { font-size: 0.26em; margin-top: 0.02em; }
@@ -86,8 +91,8 @@
   display: grid;
   place-items: center;
   border-radius: 0.04em;
-  border: 0.02em solid currentColor;
-  background: color-mix(in oklch, currentColor 8%, transparent);
+  border: max(1px, 0.025em) solid currentColor;
+  background: color-mix(in oklch, currentColor 6%, transparent);
   font-family: var(--font-display);
   font-weight: 400;
 }

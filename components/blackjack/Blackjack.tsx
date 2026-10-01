@@ -185,8 +185,7 @@ function Felt({
               card={c}
               delay={i < 2 ? (i * (hand.length + 1) + hand.length) * DEAL_STAGGER_MS : 0}
               sweep={clearing}
-              className={cx(i > 0 && "-ml-[calc(var(--d)*0.55)]")}
-              style={{ fontSize: "var(--d)" }}
+              style={{ fontSize: "var(--d)", marginLeft: i > 0 ? `calc(var(--d) * ${FAN - 1})` : undefined }}
             />
           ))}
         </div>
