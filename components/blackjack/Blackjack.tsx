@@ -42,7 +42,9 @@ const chipColor = (amount: number) => [...CHIPS].reverse().find((c) => amount >=
 const short = (n: number) => (n >= 10_000 ? `${Math.round(n / 1000)}k` : n >= 1000 ? `${(n / 1000).toFixed(1).replace(/\.0$/, "")}k` : `${n}`);
 const FAN = 0.42; // each card in a hand shows this much (in card widths) of the one beneath: its corner index
 const SWEEP_MS = 700; // end of settle: cards sweep to the discard tray before the table resets
-const CHIP_FLY_MS = 650;
+const CHIP_FLY_MS = 1100;
+// Chips move once the results have had a beat to read, one seat after another round the table.
+const chipDelay = (order: number) => 700 + Math.max(0, order) * 220;
 
 const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -329,14 +331,14 @@ function Seat({
             key={`${player.bet}-${game.phase === "lobby"}`}
             amount={player.bet}
             flyTo={result?.outcome === "lose" ? "[data-dealer]" : undefined}
-            delay={350}
+            delay={chipDelay(order)}
             className="animate-pop"
           />
         ) : (
           <Avatar id={player.id} seat={player.seat ?? undefined} name={player.name} />
         )}
         {result && result.net > 0 && (
-          <Chip amount={result.net} small flyFrom="[data-dealer]" delay={350} className="absolute -top-2 -right-3 z-10" />
+          <Chip amount={result.net} small flyFrom="[data-dealer]" delay={chipDelay(order)} className="absolute -top-2 -right-3 z-10" />
         )}
         {player.ready && game.phase === "lobby" && (
           <span className="absolute -right-1 -bottom-1 grid size-5 place-items-center rounded-full bg-active text-[11px] text-ink" aria-label="Ready">
@@ -344,7 +346,7 @@ function Seat({
           </span>
         )}
         {turn && secs !== null && (
-          <span className="absolute -top-1 -left-1 grid size-5 place-items-center rounded-full bg-accent font-display text-[10px] text-ink tabular-nums">{secs}</span>
+          <span className="absolute -right-2.5 -bottom-1.5 z-10 grid size-6 place-items-center rounded-full bg-accent font-display text-[11px] text-ink tabular-nums shadow-hard ring-2 ring-bg">{secs}</span>
         )}
       </span>
       <span
@@ -400,12 +402,17 @@ function Chip({
     if (!el || !target || reducedMotion()) return;
     const gap = gapTo(el, target);
     if (!gap) return;
-    const away = { transform: `translate(${gap.dx}px, ${gap.dy}px) scale(0.55)`, opacity: 0.2 };
+    // Picked up off the felt, carried across, set down: a lift, a glide, then a fade at the far end.
+    const there = `translate(${gap.dx}px, ${gap.dy}px) scale(0.6)`;
     const home = { transform: "none", opacity: 1 };
-    const fly = el.animate(flyTo ? [home, { ...away, opacity: 0 }] : [away, home], {
+    const lifted = { transform: "translateY(-10px) scale(1.12)", opacity: 1 };
+    const frames = flyTo
+      ? [home, { ...lifted, offset: 0.2 }, { transform: there, opacity: 1, offset: 0.88 }, { transform: there, opacity: 0 }]
+      : [{ transform: there, opacity: 0 }, { transform: there, opacity: 1, offset: 0.12 }, { ...lifted, offset: 0.8 }, home];
+    const fly = el.animate(frames, {
       duration: CHIP_FLY_MS,
       delay,
-      easing: "cubic-bezier(0.22, 0.9, 0.3, 1)",
+      easing: "ease-in-out",
       fill: flyTo ? "forwards" : "backwards",
     });
     return () => fly.cancel();
