@@ -7,6 +7,7 @@ import {
   addBjPlayer,
   applyBjIntent,
   createBjGame,
+  dealAnimMs,
   handValue,
   newShoe,
   onDeadline,
@@ -127,7 +128,9 @@ test("double takes one card and doubles the stake; bust loses", () => {
 test("turn timer stands for you; leaving on your turn passes it on", () => {
   let s = table(["a", "b"], ["10", "9", "10", "7", "8", "7"]);
   s = act(act(s, "a", { type: "deal" }), "b", { type: "deal" });
-  s = onDeadline(s, 1000 + TURN_MS);
+  assert.equal(s.turnAt, 1000 + dealAnimMs(2)); // the clock starts once the deal animation lands
+  assert.equal(onDeadline(s, 1000 + TURN_MS).turnId, "a");
+  s = onDeadline(s, s.turnAt! + TURN_MS);
   assert.equal(s.turnId, "b");
   s = removeBjPlayer(s, "b", { now: 2000 });
   assert.equal(s.phase, "settle");

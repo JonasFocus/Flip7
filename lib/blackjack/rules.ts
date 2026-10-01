@@ -9,7 +9,12 @@ export const SHOE_SIZE = 52 * DECKS;
 export const DEAL_MS = 10_000; // after the first Deal tap, the rest of the table has this long to bet
 export const TURN_MS = 20_000; // then the server stands for you
 export const SETTLE_MS = 4500;
-export const DEALER_CARD_MS = 700; // per dealer draw, so the reveal finishes before the read time starts
+export const DEALER_CARD_MS = 950; // per dealer draw, so the reveal finishes before the read time starts
+export const DEAL_STAGGER_MS = 240; // client deal animation: gap between cards going round the table
+export const CARD_SLIDE_MS = 620; // client deal animation: one card's trip from the shoe
+
+// The opening deal plays out two passes round the table, dealer last; the first turn's clock starts once it lands.
+export const dealAnimMs = (hands: number): number => (2 * (hands + 1) - 1) * DEAL_STAGGER_MS + CARD_SLIDE_MS;
 const RESHUFFLE_AT = SHOE_SIZE / 4; // cut card at 75% penetration
 
 type Rng = () => number;
@@ -179,8 +184,9 @@ function deal(s: BjState, now: number, rng: Rng): BjState {
   }
   next = { ...next, phase: "playing", players: next.players.map((p) => (isBlackjack(p.cards) ? { ...p, done: true } : p)) };
   // Dealer peeks under a ten or ace: a dealer blackjack ends the hand before anyone acts.
-  if (isBlackjack(real(next.dealer))) return settle(next, now, rng);
-  return nextTurn(next, now, rng);
+  const landed = now + dealAnimMs(bettors.length);
+  if (isBlackjack(real(next.dealer))) return settle(next, landed, rng);
+  return nextTurn(next, landed, rng);
 }
 
 // Deal as soon as every seated player tapped Deal; the first tap starts the clock for the rest.

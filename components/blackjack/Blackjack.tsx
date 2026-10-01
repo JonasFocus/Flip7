@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import "./blackjack.css";
 import { shareInvite } from "@/components/lobby/Lobby";
 import { useSecondsLeft } from "@/components/table/ActionBar";
@@ -9,7 +9,19 @@ import { Button } from "@/components/ui/Button";
 import { cx } from "@/components/ui/cx";
 import { Toast } from "@/components/ui/Toast";
 import { fail, success, tap } from "@/lib/client/haptics";
-import { DEALER_CARD_MS, MIN_BET, SEATS, SETTLE_MS, SHOE_SIZE, handValue, isBlackjack, isBust } from "@/lib/blackjack";
+import {
+  CARD_SLIDE_MS,
+  DEALER_CARD_MS,
+  DEAL_STAGGER_MS,
+  MIN_BET,
+  SEATS,
+  SETTLE_MS,
+  SHOE_SIZE,
+  TURN_MS,
+  handValue,
+  isBlackjack,
+  isBust,
+} from "@/lib/blackjack";
 import type { BjCard, BjConnection, BjPlayer, BjState, Outcome } from "@/lib/blackjack/types";
 
 const SUIT = { s: "♠︎", h: "♥︎", d: "♦︎", c: "♣︎" } as const;
@@ -19,7 +31,6 @@ const CHIPS = [
   { value: 100, color: "var(--color-card-12)" },
   { value: 500, color: "var(--color-card-2)" },
 ];
-const DEAL_STAGGER_MS = 110;
 
 // First base (seat 1) sits at the dealer's left, i.e. the right of the screen, and acts first.
 const SEAT_POS = Array.from({ length: SEATS }, (_, i) => {
@@ -38,7 +49,7 @@ function totalLabel(cards: readonly (BjCard | null)[]): string {
 }
 
 // Settle: the hole card flips, then the dealer draws one card per DEALER_CARD_MS. Derived from the deadline so a reload lands mid-reveal.
-function useDealerShown(conn: BjConnection): number {
+function useDealerShown(conn: BjConnection): { shown: number; done: boolean } {
   const { game, deadlineAt } = conn;
   const len = game.dealer.length;
   const settling = game.phase === "settle" && deadlineAt !== undefined;
@@ -48,19 +59,24 @@ function useDealerShown(conn: BjConnection): number {
     const t = setInterval(() => setNow(Date.now()), 100);
     return () => clearInterval(t);
   }, [settling]);
-  if (!settling) return len;
+  if (!settling) return { shown: len, done: true };
+  // On a dealer blackjack the hand settles mid-deal, so `start` can still be ahead while the cards land.
   const start = deadlineAt - SETTLE_MS - Math.max(0, len - 2) * DEALER_CARD_MS;
-  return Math.min(len, 2 + Math.max(0, Math.floor((now - start) / DEALER_CARD_MS)));
+  const shown = Math.min(len, 2 + Math.max(0, Math.floor((now - start) / DEALER_CARD_MS)));
+  return { shown, done: now >= start && shown >= len };
 }
 
 export function Blackjack({ conn }: { conn: BjConnection }) {
   const [toast, setToast] = useState<string | null>(null);
   const { game } = conn;
   const me = game.players.find((p) => p.id === conn.you);
-  const shown = useDealerShown(conn);
-  const revealed = game.phase === "settle" && shown >= game.dealer.length;
+  const { shown, done } = useDealerShown(conn);
+  const revealed = game.phase === "settle" && done;
   const myTurn = game.phase === "playing" && game.turnId === conn.you;
-  const secs = useSecondsLeft(conn.deadlineAt);
+  const left = useSecondsLeft(conn.deadlineAt);
+  // While the opening deal is still landing, the turn clock hasn't started: hold the buttons and the countdown.
+  const dealing = game.phase === "playing" && left !== null && left > TURN_MS / 1000;
+  const secs = dealing ? null : left;
 
   useEffect(() => {
     if (myTurn) tap();
@@ -98,7 +114,7 @@ export function Blackjack({ conn }: { conn: BjConnection }) {
 
       <Felt conn={conn} shown={shown} revealed={revealed} secs={secs} />
 
-      <Panel conn={conn} me={me} myTurn={myTurn} revealed={revealed} secs={secs} />
+      <Panel conn={conn} me={me} myTurn={myTurn} revealed={revealed} secs={secs} dealing={dealing} />
     </main>
   );
 }
@@ -119,7 +135,7 @@ function Felt({ conn, shown, revealed, secs }: { conn: BjConnection; shown: numb
   }
 
   return (
-    <section aria-label="Table" className="relative mx-2 min-h-0 flex-1">
+    <section aria-label="Table" data-table className="relative mx-2 min-h-0 flex-1">
       <div aria-hidden className="bj-felt absolute inset-x-0 top-0 bottom-[3%]" />
       <svg aria-hidden viewBox="0 0 100 40" className="pointer-events-none absolute top-[24%] left-[6%] w-[88%] font-display">
         <path id={arcId} d="M 6 4 Q 50 34 94 4" fill="none" />
@@ -138,17 +154,21 @@ function Felt({ conn, shown, revealed, secs }: { conn: BjConnection; shown: numb
           {dealerCards.length === 0 && <span className="grid h-full w-[var(--d)] place-items-center rounded-md border-2 border-dashed border-fg/25" />}
           {dealerCards.map((c, i) => (
             <Card
-              key={`${game.round}-${i}-${c ? c.rank + c.suit : "hole"}`}
+              key={`${game.round}-${i}`}
               card={c}
-              className={cx(i > 0 && "-ml-[calc(var(--d)*0.45)]", i === 1 && c ? "animate-flip" : "animate-deal")}
-              style={{ fontSize: "var(--d)", animationDelay: i < 2 && game.phase === "playing" ? `${(i * (hand.length + 1) + hand.length) * DEAL_STAGGER_MS}ms` : undefined }}
+              delay={i < 2 ? (i * (hand.length + 1) + hand.length) * DEAL_STAGGER_MS : 0}
+              className={cx(i > 0 && "-ml-[calc(var(--d)*0.45)]")}
+              style={{ fontSize: "var(--d)" }}
             />
           ))}
         </div>
         <p className="flex items-center gap-1.5 rounded-full bg-ink/70 px-2.5 py-0.5 font-display text-[10px] tracking-[0.14em] text-fg/80">
           DEALER
           {dealerCards.length > 0 && (
-            <span className={cx("tabular-nums", isBust(dealerCards) ? "text-danger" : "text-accent")}>
+            <span
+              style={{ animationDelay: `${(game.phase === "settle" ? 2 * hand.length + 1 : hand.length) * DEAL_STAGGER_MS + CARD_SLIDE_MS}ms` }}
+              className={cx("bj-in tabular-nums", isBust(dealerCards) ? "text-danger" : "text-accent")}
+            >
               {isBust(dealerCards) ? `${dealerTotal.total} BUST` : game.phase === "playing" ? `${dealerTotal.total}+?` : totalLabel(dealerCards)}
             </span>
           )}
@@ -186,10 +206,10 @@ function Felt({ conn, shown, revealed, secs }: { conn: BjConnection; shown: numb
 
 function Shoe({ left }: { left: number }) {
   return (
-    <div className="absolute top-[3%] right-[4%] flex flex-col items-center gap-1" aria-label={`${left} cards left in the shoe`}>
-      <div className="relative h-[42px] w-[30px]">
+    <div role="img" className="absolute top-[3%] right-[4%] flex flex-col items-center gap-1" aria-label={`${left} cards left in the shoe`}>
+      <div data-shoe aria-hidden className="relative h-[42px] w-[30px]">
         {[0, 1, 2].map((i) => (
-          <Card key={i} card={null} className="absolute" style={{ fontSize: 28, left: i * 1.5, top: -i * 1.5 }} />
+          <Card key={i} card={null} slide={false} className="absolute" style={{ fontSize: 28, left: i * 1.5, top: -i * 1.5 }} />
         ))}
       </div>
       <p className="font-display text-[10px] leading-none text-fg/80 tabular-nums">{left}</p>
@@ -218,7 +238,7 @@ function Seat({
 }) {
   const { game } = conn;
   const mine = player.id === conn.you;
-  const turn = game.phase === "playing" && game.turnId === player.id;
+  const turn = game.phase === "playing" && game.turnId === player.id && secs !== null; // secs is null while the deal lands
   const bust = isBust(player.cards);
   const result = revealed ? player.result : null;
   const size = mine ? "clamp(38px,11.5vw,48px)" : "clamp(30px,8.6vw,38px)";
@@ -228,24 +248,21 @@ function Seat({
     <div className="relative flex flex-col items-center">
       {n > 0 && (
         <div className="absolute bottom-full left-1/2 mb-0.5 -translate-x-1/2" style={{ "--s": size } as CSSProperties}>
-          <div className="relative h-[calc(var(--s)*1.4+var(--rise))]" style={{ width: `calc(var(--s) + ${n - 1} * var(--s) * 0.4)`, "--rise": `calc(${n - 1} * var(--s) * 0.16)` } as CSSProperties}>
+          <div className={cx("relative h-[calc(var(--s)*1.4+var(--rise))]", bust && "animate-shake")} style={{ width: `calc(var(--s) + ${n - 1} * var(--s) * 0.4)`, "--rise": `calc(${n - 1} * var(--s) * 0.16)` } as CSSProperties}>
             {player.cards.map((c, i) => (
               <Card
                 key={`${game.round}-${i}`}
                 card={c}
-                className={cx("absolute animate-deal", bust && "brightness-75")}
-                style={{
-                  fontSize: "var(--s)",
-                  left: `calc(${i} * var(--s) * 0.4)`,
-                  bottom: `calc(${i} * var(--s) * 0.16)`,
-                  animationDelay: i < 2 && game.phase === "playing" ? `${(i * (inHandCount + 1) + order) * DEAL_STAGGER_MS}ms` : undefined,
-                }}
+                delay={i < 2 ? (i * (inHandCount + 1) + order) * DEAL_STAGGER_MS : 0}
+                className={cx("absolute transition-[filter] duration-500", bust && "brightness-75")}
+                style={{ fontSize: "var(--s)", left: `calc(${i} * var(--s) * 0.4)`, bottom: `calc(${i} * var(--s) * 0.16)` }}
               />
             ))}
           </div>
           <span
+            style={{ animationDelay: `${((inHandCount + 1) + order) * DEAL_STAGGER_MS + CARD_SLIDE_MS}ms` }}
             className={cx(
-              "absolute -top-2 -right-3 rounded-full px-1.5 py-px font-display text-[10px] tabular-nums shadow-hard",
+              "bj-in absolute -top-2 -right-3 rounded-full px-1.5 py-px font-display text-[10px] tabular-nums shadow-hard",
               bust ? "bg-danger text-ink" : isBlackjack(player.cards) ? "bg-accent text-ink" : "bg-ink text-fg",
             )}
           >
@@ -259,9 +276,10 @@ function Seat({
         className={cx(
           "relative grid size-[clamp(48px,14vw,58px)] place-items-center rounded-full border-2 bg-ink/25",
           turn ? "bj-glow border-accent" : mine ? "border-accent/70" : "border-fg/30",
+          result && result.net > 0 && "bj-win border-active",
         )}
       >
-        {player.bet > 0 ? <Chip amount={player.bet} /> : <Avatar id={player.id} seat={player.seat ?? undefined} name={player.name} />}
+        {player.bet > 0 ? <Chip key={player.bet} amount={player.bet} className="animate-pop" /> : <Avatar id={player.id} seat={player.seat ?? undefined} name={player.name} />}
         {player.ready && game.phase === "lobby" && (
           <span className="absolute -right-1 -bottom-1 grid size-5 place-items-center rounded-full bg-active text-[11px] text-ink" aria-label="Ready">
             ✓
@@ -311,21 +329,94 @@ function Chip({ amount, className }: { amount: number; className?: string }) {
   );
 }
 
-function Card({ card, className, style }: { card: BjCard | null; className?: string; style?: CSSProperties }) {
-  if (!card) return <span role="img" aria-label="Face-down card" data-back className={cx("bj-card", className)} style={style} />;
-  const red = card.suit === "h" || card.suit === "d";
+// Deals out of the shoe face down, spinning onto its spot, and turns over as it lands (a hidden hole card stays down).
+// Later changes (the hole card revealed) turn it over in place via the .bj-inner transition.
+function Card({
+  card,
+  slide = true,
+  delay = 0,
+  className,
+  style,
+}: {
+  card: BjCard | null;
+  slide?: boolean;
+  delay?: number;
+  className?: string;
+  style?: CSSProperties;
+}) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const [onMount] = useState(() => ({ slide, delay, faceUp: card !== null }));
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || !onMount.slide || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const shoe = el.closest("[data-table]")?.querySelector("[data-shoe]");
+    if (!shoe) return;
+    const to = el.getBoundingClientRect();
+    const from = shoe.getBoundingClientRect();
+    const dx = from.left + from.width / 2 - (to.left + to.width / 2);
+    const dy = from.top + from.height / 2 - (to.top + to.height / 2);
+    const timing: KeyframeAnimationOptions = { duration: CARD_SLIDE_MS, delay: onMount.delay, easing: "cubic-bezier(0.22, 0.9, 0.3, 1)", fill: "backwards" };
+    const moves = [
+      el.animate(
+        [
+          { transform: `translate(${dx}px, ${dy}px) rotate(-55deg) scale(0.75)` },
+          { transform: "translate(0, -6%) rotate(4deg) scale(1.06)", offset: 0.75 },
+          { transform: "none" },
+        ],
+        timing,
+      ),
+    ];
+    const inner = el.firstElementChild;
+    if (onMount.faceUp && inner instanceof HTMLElement) {
+      moves.push(inner.animate([{ transform: "rotateY(180deg)" }, { transform: "rotateY(180deg)", offset: 0.55 }, { transform: "rotateY(0deg)" }], timing));
+    }
+    return () => moves.forEach((m) => m.cancel());
+  }, [onMount]);
+
+  const red = card?.suit === "h" || card?.suit === "d";
   return (
-    <span role="img" aria-label={`${card.rank}${SUIT[card.suit]}`} data-red={red || undefined} className={cx("bj-card", className)} style={style}>
-      <span className="bj-rank" data-wide={card.rank === "10" || undefined}>
-        {card.rank}
+    <span
+      ref={ref}
+      role="img"
+      aria-label={card ? `${card.rank}${SUIT[card.suit]}` : "Face-down card"}
+      data-down={card ? undefined : true}
+      className={cx("bj-card", className)}
+      style={style}
+    >
+      <span className="bj-inner">
+        <span className="bj-face bj-front" data-red={red || undefined}>
+          {card && (
+            <>
+              <span className="bj-rank" data-wide={card.rank === "10" || undefined}>
+                {card.rank}
+              </span>
+              <span className="bj-suit-sm">{SUIT[card.suit]}</span>
+              <span className="bj-suit">{SUIT[card.suit]}</span>
+            </>
+          )}
+        </span>
+        <span className="bj-face bj-back" />
       </span>
-      <span className="bj-suit-sm">{SUIT[card.suit]}</span>
-      <span className="bj-suit">{SUIT[card.suit]}</span>
     </span>
   );
 }
 
-function Panel({ conn, me, myTurn, revealed, secs }: { conn: BjConnection; me: BjPlayer | undefined; myTurn: boolean; revealed: boolean; secs: number | null }) {
+function Panel({
+  conn,
+  me,
+  myTurn,
+  revealed,
+  secs,
+  dealing,
+}: {
+  conn: BjConnection;
+  me: BjPlayer | undefined;
+  myTurn: boolean;
+  revealed: boolean;
+  secs: number | null;
+  dealing: boolean;
+}) {
   const { game } = conn;
   const turnName = game.players.find((p) => p.id === game.turnId)?.name ?? "Someone";
   const openSeats = SEATS - game.players.filter((p) => p.seat !== null).length;
@@ -347,6 +438,8 @@ function Panel({ conn, me, myTurn, revealed, secs }: { conn: BjConnection; me: B
     body = <Betting conn={conn} me={me} secs={secs} />;
   } else if (me.cards.length === 0) {
     body = <Status>Sitting this one out. You&apos;re in next hand.</Status>;
+  } else if (game.phase === "playing" && dealing) {
+    body = <Status>Dealing…</Status>;
   } else if (game.phase === "playing") {
     body = myTurn ? <Actions conn={conn} me={me} secs={secs} /> : <Status>{me.done ? "Waiting for the table…" : `${turnName} is playing…`}</Status>;
   } else {

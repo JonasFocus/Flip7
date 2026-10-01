@@ -16,22 +16,46 @@
     0 0 40px -6px oklch(0.89 0.18 98 / 0.35);
 }
 
+/* Two-faced card: .bj-inner turns over (data-down = back showing); the slide in from the shoe is WAAPI in Blackjack.tsx. */
 .bj-card {
   position: relative;
   flex: none;
   width: 1em;
   aspect-ratio: 5 / 7;
-  border-radius: 0.1em;
-  background: oklch(0.98 0.005 90);
-  color: oklch(0.2 0.02 275);
-  box-shadow: 0 0.04em 0 oklch(0.75 0.01 90), 0 0.08em 0.16em oklch(0 0 0 / 0.35);
-  font-family: var(--font-display);
-  line-height: 1;
+  perspective: 5em;
   user-select: none;
   -webkit-user-select: none;
-  overflow: hidden;
 }
-.bj-card[data-red] { color: oklch(0.55 0.21 25); }
+.bj-inner {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  transition: transform 560ms var(--ease-out);
+}
+.bj-card[data-down] .bj-inner { transform: rotateY(180deg); }
+.bj-face {
+  position: absolute;
+  inset: 0;
+  border-radius: 0.1em;
+  overflow: hidden;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  box-shadow: 0 0.04em 0 oklch(0.75 0.01 90), 0 0.08em 0.16em oklch(0 0 0 / 0.35);
+}
+.bj-front {
+  background: oklch(0.98 0.005 90);
+  color: oklch(0.2 0.02 275);
+  font-family: var(--font-display);
+  line-height: 1;
+}
+.bj-front[data-red] { color: oklch(0.55 0.21 25); }
+.bj-back {
+  transform: rotateY(180deg);
+  background:
+    repeating-linear-gradient(45deg, var(--color-accent) 0 0.05em, transparent 0.05em 0.12em),
+    var(--color-danger-deep);
+  box-shadow: inset 0 0 0 0.06em oklch(0.98 0.005 90), 0 0.08em 0.16em oklch(0 0 0 / 0.35);
+}
 .bj-card .bj-rank {
   position: absolute;
   top: 0.08em;
@@ -52,12 +76,6 @@
   bottom: 0.04em;
   font-size: 0.56em;
 }
-.bj-card[data-back] {
-  background:
-    repeating-linear-gradient(45deg, var(--color-accent) 0 0.05em, transparent 0.05em 0.12em),
-    var(--color-danger-deep);
-  box-shadow: inset 0 0 0 0.06em oklch(0.98 0.005 90), 0 0.08em 0.16em oklch(0 0 0 / 0.35);
-}
 
 .bj-chip {
   border-radius: 9999px;
@@ -68,6 +86,7 @@
 }
 .bj-glow { animation: bj-glow 1.4s ease-in-out infinite; }
 .bj-in { animation: bj-in 420ms var(--ease-spring) both; }
+.bj-win { animation: bj-win 900ms ease-out 2 both; }
 }
 
 @keyframes bj-glow {
@@ -78,6 +97,11 @@
   from { opacity: 0; transform: translateY(-40%) scale(0.85); }
 }
 
+@keyframes bj-win {
+  50% { box-shadow: 0 0 0 3px var(--color-active), 0 0 28px 4px oklch(0.85 0.16 160 / 0.7); }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .bj-glow, .bj-in { animation: none; }
+  .bj-glow, .bj-in, .bj-win { animation: none; }
+  .bj-inner { transition: none; }
 }
