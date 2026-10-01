@@ -1,5 +1,8 @@
 export * from "./types.ts";
 export {
+  CARD_SLIDE_MS,
+  DEAL_STAGGER_MS,
+  dealAnimMs,
   DEALER_CARD_MS,
   DEAL_MS,
   DECKS,

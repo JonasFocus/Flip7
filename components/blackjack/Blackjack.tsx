@@ -9,7 +9,19 @@ import { Button } from "@/components/ui/Button";
 import { cx } from "@/components/ui/cx";
 import { Toast } from "@/components/ui/Toast";
 import { fail, success, tap } from "@/lib/client/haptics";
-import { DEALER_CARD_MS, MIN_BET, SEATS, SETTLE_MS, SHOE_SIZE, handValue, isBlackjack, isBust } from "@/lib/blackjack";
+import {
+  CARD_SLIDE_MS,
+  DEALER_CARD_MS,
+  DEAL_STAGGER_MS,
+  MIN_BET,
+  SEATS,
+  SETTLE_MS,
+  SHOE_SIZE,
+  TURN_MS,
+  handValue,
+  isBlackjack,
+  isBust,
+} from "@/lib/blackjack";
 import type { BjCard, BjConnection, BjPlayer, BjState, Outcome } from "@/lib/blackjack/types";
 
 const SUIT = { s: "♠︎", h: "♥︎", d: "♦︎", c: "♣︎" } as const;
@@ -19,8 +31,6 @@ const CHIPS = [
   { value: 100, color: "var(--color-card-12)" },
   { value: 500, color: "var(--color-card-2)" },
 ];
-const DEAL_STAGGER_MS = 240; // gap between cards on the opening deal, dealer-paced
-const SLIDE_MS = 620;
 
 // First base (seat 1) sits at the dealer's left, i.e. the right of the screen, and acts first.
 const SEAT_POS = Array.from({ length: SEATS }, (_, i) => {
@@ -39,7 +49,7 @@ function totalLabel(cards: readonly (BjCard | null)[]): string {
 }
 
 // Settle: the hole card flips, then the dealer draws one card per DEALER_CARD_MS. Derived from the deadline so a reload lands mid-reveal.
-function useDealerShown(conn: BjConnection): number {
+function useDealerShown(conn: BjConnection): { shown: number; done: boolean } {
   const { game, deadlineAt } = conn;
   const len = game.dealer.length;
   const settling = game.phase === "settle" && deadlineAt !== undefined;
@@ -49,19 +59,24 @@ function useDealerShown(conn: BjConnection): number {
     const t = setInterval(() => setNow(Date.now()), 100);
     return () => clearInterval(t);
   }, [settling]);
-  if (!settling) return len;
+  if (!settling) return { shown: len, done: true };
+  // On a dealer blackjack the hand settles mid-deal, so `start` can still be ahead while the cards land.
   const start = deadlineAt - SETTLE_MS - Math.max(0, len - 2) * DEALER_CARD_MS;
-  return Math.min(len, 2 + Math.max(0, Math.floor((now - start) / DEALER_CARD_MS)));
+  const shown = Math.min(len, 2 + Math.max(0, Math.floor((now - start) / DEALER_CARD_MS)));
+  return { shown, done: now >= start && shown >= len };
 }
 
 export function Blackjack({ conn }: { conn: BjConnection }) {
   const [toast, setToast] = useState<string | null>(null);
   const { game } = conn;
   const me = game.players.find((p) => p.id === conn.you);
-  const shown = useDealerShown(conn);
-  const revealed = game.phase === "settle" && shown >= game.dealer.length;
+  const { shown, done } = useDealerShown(conn);
+  const revealed = game.phase === "settle" && done;
   const myTurn = game.phase === "playing" && game.turnId === conn.you;
-  const secs = useSecondsLeft(conn.deadlineAt);
+  const left = useSecondsLeft(conn.deadlineAt);
+  // While the opening deal is still landing, the turn clock hasn't started: hold the buttons and the countdown.
+  const dealing = game.phase === "playing" && left !== null && left > TURN_MS / 1000;
+  const secs = dealing ? null : left;
 
   useEffect(() => {
     if (myTurn) tap();
@@ -99,7 +114,7 @@ export function Blackjack({ conn }: { conn: BjConnection }) {
 
       <Felt conn={conn} shown={shown} revealed={revealed} secs={secs} />
 
-      <Panel conn={conn} me={me} myTurn={myTurn} revealed={revealed} secs={secs} />
+      <Panel conn={conn} me={me} myTurn={myTurn} revealed={revealed} secs={secs} dealing={dealing} />
     </main>
   );
 }
@@ -150,7 +165,10 @@ function Felt({ conn, shown, revealed, secs }: { conn: BjConnection; shown: numb
         <p className="flex items-center gap-1.5 rounded-full bg-ink/70 px-2.5 py-0.5 font-display text-[10px] tracking-[0.14em] text-fg/80">
           DEALER
           {dealerCards.length > 0 && (
-            <span className={cx("tabular-nums", isBust(dealerCards) ? "text-danger" : "text-accent")}>
+            <span
+              style={{ animationDelay: `${hand.length * DEAL_STAGGER_MS + CARD_SLIDE_MS}ms` }}
+              className={cx("bj-in tabular-nums", isBust(dealerCards) ? "text-danger" : "text-accent")}
+            >
               {isBust(dealerCards) ? `${dealerTotal.total} BUST` : game.phase === "playing" ? `${dealerTotal.total}+?` : totalLabel(dealerCards)}
             </span>
           )}
@@ -220,7 +238,7 @@ function Seat({
 }) {
   const { game } = conn;
   const mine = player.id === conn.you;
-  const turn = game.phase === "playing" && game.turnId === player.id;
+  const turn = game.phase === "playing" && game.turnId === player.id && secs !== null; // secs is null while the deal lands
   const bust = isBust(player.cards);
   const result = revealed ? player.result : null;
   const size = mine ? "clamp(38px,11.5vw,48px)" : "clamp(30px,8.6vw,38px)";
@@ -242,8 +260,9 @@ function Seat({
             ))}
           </div>
           <span
+            style={{ animationDelay: `${((inHandCount + 1) + order) * DEAL_STAGGER_MS + CARD_SLIDE_MS}ms` }}
             className={cx(
-              "absolute -top-2 -right-3 rounded-full px-1.5 py-px font-display text-[10px] tabular-nums shadow-hard",
+              "bj-in absolute -top-2 -right-3 rounded-full px-1.5 py-px font-display text-[10px] tabular-nums shadow-hard",
               bust ? "bg-danger text-ink" : isBlackjack(player.cards) ? "bg-accent text-ink" : "bg-ink text-fg",
             )}
           >
@@ -337,7 +356,7 @@ function Card({
     const from = shoe.getBoundingClientRect();
     const dx = from.left + from.width / 2 - (to.left + to.width / 2);
     const dy = from.top + from.height / 2 - (to.top + to.height / 2);
-    const timing: KeyframeAnimationOptions = { duration: SLIDE_MS, delay: onMount.delay, easing: "cubic-bezier(0.22, 0.9, 0.3, 1)", fill: "backwards" };
+    const timing: KeyframeAnimationOptions = { duration: CARD_SLIDE_MS, delay: onMount.delay, easing: "cubic-bezier(0.22, 0.9, 0.3, 1)", fill: "backwards" };
     const moves = [
       el.animate(
         [
@@ -383,7 +402,21 @@ function Card({
   );
 }
 
-function Panel({ conn, me, myTurn, revealed, secs }: { conn: BjConnection; me: BjPlayer | undefined; myTurn: boolean; revealed: boolean; secs: number | null }) {
+function Panel({
+  conn,
+  me,
+  myTurn,
+  revealed,
+  secs,
+  dealing,
+}: {
+  conn: BjConnection;
+  me: BjPlayer | undefined;
+  myTurn: boolean;
+  revealed: boolean;
+  secs: number | null;
+  dealing: boolean;
+}) {
   const { game } = conn;
   const turnName = game.players.find((p) => p.id === game.turnId)?.name ?? "Someone";
   const openSeats = SEATS - game.players.filter((p) => p.seat !== null).length;
@@ -405,6 +438,8 @@ function Panel({ conn, me, myTurn, revealed, secs }: { conn: BjConnection; me: B
     body = <Betting conn={conn} me={me} secs={secs} />;
   } else if (me.cards.length === 0) {
     body = <Status>Sitting this one out. You&apos;re in next hand.</Status>;
+  } else if (game.phase === "playing" && dealing) {
+    body = <Status>Dealing…</Status>;
   } else if (game.phase === "playing") {
     body = myTurn ? <Actions conn={conn} me={me} secs={secs} /> : <Status>{me.done ? "Waiting for the table…" : `${turnName} is playing…`}</Status>;
   } else {
