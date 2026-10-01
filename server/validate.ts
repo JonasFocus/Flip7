@@ -187,6 +187,16 @@ function parseBjIntent(v: unknown): BjIntent | null {
   }
 }
 
+// A create for a game this server build doesn't know yet (the website deployed ahead of the server).
+export function isUnknownGame(raw: string): boolean {
+  try {
+    const v: unknown = JSON.parse(raw);
+    return isObj(v) && v.t === "create" && typeof v.mode === "string" && !isRoomMode(v.mode);
+  } catch {
+    return false;
+  }
+}
+
 export function parseMessage(raw: string): ClientMessage | null {
   let v: unknown;
   try {

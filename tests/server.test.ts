@@ -3,7 +3,7 @@ import { after, before, test } from "node:test";
 import { WebSocket } from "ws";
 import { awaitingPlayerId } from "../lib/engine/index.ts";
 import type { Intent } from "../lib/engine/types.ts";
-import { KICKED_MESSAGE } from "../lib/protocol.ts";
+import { KICKED_MESSAGE, UNKNOWN_GAME_MESSAGE } from "../lib/protocol.ts";
 import type { ClientMessage, Room, ServerMessage } from "../lib/protocol.ts";
 import { publicId as P, startServer } from "../server/index.ts";
 import type { RunningServer } from "../server/index.ts";
@@ -90,6 +90,11 @@ test("rejects malformed input", async () => {
   c.send({ t: "create", mode: "virtual", name: "   ", clientId: "a" });
   assert.equal(await c.waitError(), "Invalid message");
   c.ws.close();
+  // Fresh socket: waitError reads from the start of the inbox, and the errors above all read alike.
+  const early = await connect();
+  early.ws.send(JSON.stringify({ t: "create", mode: "not-a-game-yet", name: "x", clientId: "a" }));
+  assert.equal(await early.waitError(), UNKNOWN_GAME_MESSAGE);
+  early.ws.close();
 });
 
 test("two players create, join, play, reconnect", async () => {
