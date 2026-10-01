@@ -14,20 +14,20 @@ import { JoinCode } from "./JoinCode";
 import { MODE_LABEL, OpenTables, useOpenRooms } from "./OpenTables";
 import { HowToPlay } from "./HowToPlay";
 
-type Mode = "online" | "physical" | "imposter" | "liarsdice" | "hotpotato" | "spyfall";
+type Mode = "online" | "imposter" | "liarsdice" | "hotpotato" | "spyfall" | "blackjack";
 
 const LABEL = "text-[11px] font-bold uppercase tracking-[0.2em] text-muted";
 
 const MODES: { id: Mode; title: string; blurb: string; cta: string; icon: ReactNode }[] = [
-  { id: "online", title: "Play online", blurb: "One phone each, with family", cta: "Create table", icon: <PeopleIcon /> },
-  { id: "physical", title: "Scorekeeper", blurb: "Real cards, we do the math", cta: "Start scoring", icon: <TallyIcon /> },
+  { id: "online", title: "Flip 7", blurb: "One phone each, with family", cta: "Create table", icon: <PeopleIcon /> },
   { id: "imposter", title: "Imposter", blurb: "Find the faker · 3–10 players", cta: "Create room", icon: <MaskIcon /> },
   { id: "liarsdice", title: "Liar's Dice", blurb: "Bluff with dice · 2–8 players", cta: "Create room", icon: <DiceIcon /> },
   { id: "hotpotato", title: "Hot Potato", blurb: "Pass the bomb · 3–10 players", cta: "Create room", icon: <BombIcon /> },
   { id: "spyfall", title: "Where Are We?", blurb: "Find the spy · 3–10 players", cta: "Create room", icon: <PinIcon /> },
+  { id: "blackjack", title: "Blackjack", blurb: "Beat the dealer · 5 seats", cta: "Open table", icon: <ChipIcon /> },
 ];
 
-const ROOM_MODE = { online: "virtual", physical: "physical", imposter: "imposter", liarsdice: "liarsdice", hotpotato: "hotpotato", spyfall: "spyfall" } as const;
+const ROOM_MODE = { online: "virtual", imposter: "imposter", liarsdice: "liarsdice", hotpotato: "hotpotato", spyfall: "spyfall", blackjack: "blackjack" } as const;
 
 const noopSubscribe = () => () => {};
 
@@ -203,14 +203,6 @@ function PeopleIcon() {
   );
 }
 
-function TallyIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" aria-hidden className="size-6">
-      <path d="M5 5v14M9.5 5v14M14 5v14M18.5 5v14M3 16 21 8" />
-    </svg>
-  );
-}
-
 function MaskIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden className="size-6">
@@ -245,6 +237,16 @@ function PinIcon() {
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden className="size-6">
       <path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11Z" />
       <circle cx="12" cy="10" r="2.3" />
+    </svg>
+  );
+}
+
+function ChipIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" aria-hidden className="size-6">
+      <circle cx="12" cy="12" r="8.5" />
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 3.5v3M12 17.5v3M3.5 12h3M17.5 12h3" />
     </svg>
   );
 }
