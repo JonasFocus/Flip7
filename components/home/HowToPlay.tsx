@@ -39,8 +39,16 @@ const RULES: { title: string; body: string; cards?: ReactNode }[] = [
   { title: "Win", body: "First to 200 points at the end of a round takes the game." },
 ];
 
+const CASINO: { title: string; body: string }[] = [
+  { title: "Blackjack", body: "Get closer to 21 than the dealer without going over. Blackjack pays 3:2." },
+  { title: "Baccarat", body: "Bet on Player, Banker (5% commission) or Tie (8:1). Closest to 9 wins; cards are dealt for you." },
+  { title: "Roulette", body: "Drop chips on the layout before the spin. Straight-up pays 35:1; red/black, odd/even and high/low pay 1:1." },
+  { title: "Texas Hold'em", body: "Two hole cards, five shared. Bet, raise or fold each round; the best five-card hand takes the pot." },
+];
+
 export function HowToPlay() {
   return (
+    <div className="flex flex-col gap-3">
     <details className="group rounded-2xl border border-line bg-surface">
       <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between px-4 font-display tracking-wide select-none [&::-webkit-details-marker]:hidden">
         How to play
@@ -62,5 +70,21 @@ export function HowToPlay() {
         ))}
       </ol>
     </details>
+    <details className="group rounded-2xl border border-line bg-surface">
+      <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between px-4 font-display tracking-wide select-none [&::-webkit-details-marker]:hidden">
+        Casino tables
+        <span aria-hidden className="inline-block text-xl text-muted transition-[rotate] duration-200 ease-[var(--ease-out)] group-open:rotate-45">
+          +
+        </span>
+      </summary>
+      <ul className="flex flex-col gap-3 px-4 pb-4">
+        {CASINO.map(({ title, body }) => (
+          <li key={title} className="text-sm leading-snug text-muted">
+            <strong className="font-semibold text-fg">{title}.</strong> {body}
+          </li>
+        ))}
+      </ul>
+    </details>
+    </div>
   );
 }

@@ -14,6 +14,9 @@ export const MODE_LABEL: Record<RoomMode, string> = {
   hotpotato: "Hot Potato",
   spyfall: "Where Are We?",
   blackjack: "Blackjack",
+  baccarat: "Baccarat",
+  roulette: "Roulette",
+  texasholdem: "Texas Hold'em",
 };
 
 const MODE_TONE: Record<RoomMode, BadgeTone> = {
@@ -24,6 +27,9 @@ const MODE_TONE: Record<RoomMode, BadgeTone> = {
   hotpotato: "chance",
   spyfall: "chance",
   blackjack: "accent",
+  baccarat: "accent",
+  roulette: "accent",
+  texasholdem: "accent",
 };
 
 const POLL_MS = 5000;

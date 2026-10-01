@@ -1,0 +1,259 @@
+/* Baccarat table. Colors come from the globals.css theme tokens; cards and chips are components/casino. */
+/* Layered so Tailwind utilities like `absolute` still override these. Casino overrides are scoped under .bac-root. */
+@layer components {
+/* Graphite felt: a pool of light over the dealer end, fine weave, a grain of noise, a deep vignette, a slate rail with a gold hairline. */
+.bac-felt {
+  background:
+    radial-gradient(70% 48% at 50% 20%, oklch(0.4 0.008 260 / 0.8), transparent 75%),
+    radial-gradient(120% 90% at 50% 45%, transparent 55%, oklch(0 0 0 / 0.5)),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"),
+    repeating-linear-gradient(45deg, oklch(1 0 0 / 0.012) 0 1px, transparent 1px 4px),
+    oklch(0.215 0.006 260);
+  border-radius: 0 0 44% 44% / 0 0 5% 5%;
+  border: 9px solid oklch(0.15 0.005 260);
+  border-top: 0;
+  box-shadow:
+    inset 0 0 0 1.5px var(--bac-gold-line),
+    inset 0 0 0 7px oklch(0.215 0.006 260),
+    inset 0 0 0 8px oklch(0.8 0.005 260 / 0.12),
+    inset 0 -30px 70px oklch(0 0 0 / 0.45),
+    0 0 0 1px oklch(0.42 0.005 260 / 0.6),
+    0 28px 60px -24px oklch(0 0 0 / 0.9);
+}
+
+/* Printed rule between the hands and the spots. */
+.bac-rule {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font: 600 9px / 1 var(--font-sans);
+  letter-spacing: 0.32em;
+  text-transform: uppercase;
+  color: var(--bac-gold);
+  opacity: 0.7;
+}
+.bac-rule::before, .bac-rule::after {
+  content: "";
+  width: 34px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--bac-gold-line));
+}
+.bac-rule::after { transform: scaleX(-1); }
+
+/* A betting spot: --tone is its colour, painted as an inlay with a printed inner line; it lights up when it wins. */
+.bac-zone {
+  position: relative;
+  display: grid;
+  place-items: center;
+  border-radius: 0.95rem;
+  border: 1px solid color-mix(in oklch, var(--tone) 50%, transparent);
+  background: linear-gradient(180deg, color-mix(in oklch, var(--tone) 15%, transparent), color-mix(in oklch, var(--tone) 4%, transparent));
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.07), 0 6px 14px -8px oklch(0 0 0 / 0.7);
+  transition: background 200ms var(--ease-out), border-color 200ms var(--ease-out), transform 120ms var(--ease-out), opacity 300ms var(--ease-out);
+  overflow: hidden;
+}
+.bac-zone::before {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: calc(0.95rem - 3px);
+  border: 1px solid color-mix(in oklch, var(--tone) 18%, transparent);
+  pointer-events: none;
+}
+.bac-zone::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(105deg, transparent 35%, oklch(1 0 0 / 0.35) 50%, transparent 65%);
+  transform: translateX(-110%);
+  pointer-events: none;
+}
+button.bac-zone:not(:disabled):active { transform: scale(0.97); background: color-mix(in oklch, var(--tone) 24%, transparent); }
+.bac-zone[data-win] {
+  border-color: var(--tone);
+  background: linear-gradient(180deg, color-mix(in oklch, var(--tone) 36%, transparent), color-mix(in oklch, var(--tone) 14%, transparent));
+  animation: bac-win 1100ms var(--ease-out) 2 both;
+}
+.bac-zone[data-win]::after { animation: bac-sheen 1100ms var(--ease-out) 150ms 1 both; }
+.bac-zone[data-dim] { opacity: 0.4; }
+
+/* Zones rise in one after another when the table first shows. */
+.bac-stagger { animation: bac-rise 520ms var(--ease-out) both; animation-delay: calc(var(--i, 0) * 55ms); }
+
+/* Bead plate: six rows, filled column by column. Beads are lit from the top left like glass. */
+.bac-road {
+  display: grid;
+  grid-template-rows: repeat(6, var(--cell));
+  grid-auto-flow: column;
+  grid-auto-columns: var(--cell);
+  gap: 2px;
+}
+.bac-bead {
+  position: relative;
+  display: grid;
+  place-items: center;
+  border-radius: 9999px;
+  font: 700 calc(var(--cell) * 0.5) / 1 var(--font-display);
+  color: var(--color-ink);
+  background: radial-gradient(circle at 32% 28%, color-mix(in oklch, var(--tone) 70%, white), var(--tone) 62%);
+  box-shadow: inset 0 -1px 1px oklch(0 0 0 / 0.25), 0 1px 2px oklch(0 0 0 / 0.4);
+}
+.bac-bead[data-empty] { background: none; box-shadow: inset 0 0 0 1px oklch(1 0 0 / 0.06); }
+.bac-bead[data-latest] { animation: bac-in 520ms var(--ease-spring) both; outline: 1.5px solid var(--bac-gold); outline-offset: 1px; }
+.bac-bead i {
+  position: absolute;
+  width: 32%;
+  aspect-ratio: 1;
+  border-radius: 9999px;
+  border: 1px solid var(--color-ink);
+}
+.bac-bead .p { top: -2%; left: -2%; background: var(--bac-player); }
+.bac-bead .b { right: -2%; bottom: -2%; background: var(--bac-banker); }
+
+/* A hand: --tone colours its pill; cards lift and ring in gold when it wins. */
+.bac-hand-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px 4px 12px;
+  border-radius: 9999px;
+  border: 1px solid oklch(1 0 0 / 0.1);
+  background: oklch(0 0 0 / 0.42);
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.06);
+  backdrop-filter: blur(6px);
+  font: 600 10px / 1 var(--font-sans);
+  letter-spacing: 0.22em;
+  color: var(--tone);
+  transition: border-color 300ms var(--ease-out), background 300ms var(--ease-out);
+}
+.bac-hand-pill b {
+  display: grid;
+  place-items: center;
+  min-width: 24px;
+  height: 24px;
+  border-radius: 9999px;
+  background: oklch(1 0 0 / 0.09);
+  font: 400 14px / 1 var(--font-display);
+  letter-spacing: 0;
+  color: var(--color-fg);
+  font-variant-numeric: tabular-nums;
+}
+.bac-hand[data-win] .bac-hand-pill { border-color: var(--tone); background: color-mix(in oklch, var(--tone) 22%, oklch(0 0 0 / 0.5)); }
+.bac-hand[data-win] .bac-hand-pill b { background: var(--tone); color: var(--color-ink); }
+.bac-hand[data-win] .bac-cards { animation: bac-lift 700ms var(--ease-out) both; }
+.bac-hand[data-win] .cc-face { box-shadow: 0 0 0 1.5px var(--bac-gold), 0 0.1em 0.3em oklch(0 0 0 / 0.5); }
+.bac-hand[data-lose] { opacity: 0.55; transition: opacity 400ms var(--ease-out); }
+
+.bac-total { animation: bac-pop 420ms var(--ease-spring) both; }
+
+/* Verdict banner and the sparks that leave it. */
+.bac-verdict {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 14px;
+  border-radius: 9999px;
+  border: 1px solid var(--tone);
+  background: linear-gradient(180deg, color-mix(in oklch, var(--tone) 24%, oklch(0 0 0 / 0.55)), oklch(0 0 0 / 0.6));
+  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.12), 0 8px 20px -8px color-mix(in oklch, var(--tone) 55%, black);
+  animation: bac-banner 640ms var(--ease-spring) both;
+}
+.bac-spark {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  margin: -2.5px;
+  border-radius: 9999px;
+  background: var(--bac-gold);
+  opacity: 0;
+  animation: bac-spark 900ms var(--ease-out) calc(var(--d) * 1ms) both;
+}
+.bac-spark:nth-child(3n) { background: var(--tone); width: 4px; height: 4px; }
+
+/* Casino parts on this table: richer shadow depth than the shared defaults (blackjack keeps its own). */
+.bac-root .cc-face { box-shadow: 0 0.03em 0 oklch(0.72 0.01 90), 0 0.1em 0.22em oklch(0 0 0 / 0.4), 0 0.28em 0.5em -0.1em oklch(0 0 0 / 0.45); }
+.bac-root .cc-back { box-shadow: inset 0 0 0 0.05em oklch(0.92 0.005 260), inset 0 0 0 0.09em oklch(0.27 0.008 260), inset 0 0 0 0.1em var(--bac-gold-line), 0 0.1em 0.22em oklch(0 0 0 / 0.5); }
+.bac-root .cc-chip {
+  background: radial-gradient(circle at 34% 28%, color-mix(in oklch, var(--chip) 72%, white), var(--chip) 58%, color-mix(in oklch, var(--chip) 82%, black));
+  box-shadow:
+    inset 0 0 0 0.07em oklch(0 0 0 / 0.12),
+    0 0 0 0.08em var(--chip),
+    0 0.12em 0 0.08em color-mix(in oklch, var(--chip) 48%, black),
+    0 0.34em 0.5em -0.04em oklch(0 0 0 / 0.5);
+}
+
+.bac-in { animation: bac-in 420ms var(--ease-spring) both; }
+.bac-rise { animation: bac-rise 320ms var(--ease-out) both; }
+.bac-card { transition: opacity 500ms ease-in, transform 500ms ease-in; }
+.bac-card.bac-sweep { opacity: 0; transform: translate(-30%, -40%) rotate(-12deg) scale(0.7); }
+
+/* Open seats breathe a soft ring instead of a glow. */
+.bac-seat { animation: bac-ring 1.8s var(--ease-out) infinite; }
+.bac-seated { transition: border-color 250ms var(--ease-out), box-shadow 250ms var(--ease-out); box-shadow: 0 4px 10px -4px oklch(0 0 0 / 0.7), inset 0 1px 0 oklch(1 0 0 / 0.08); }
+
+/* Chip rack: the picked chip lifts, others sit flat. */
+.bac-rack { transition: transform 220ms var(--ease-out), filter 220ms var(--ease-out); }
+.bac-rack[aria-checked="true"] { transform: translateY(-5px); }
+.bac-rack:not([aria-checked="true"]) { filter: saturate(0.85) brightness(0.92); }
+.bac-rack:active { transform: scale(0.96); }
+.bac-rack[aria-checked="true"]:active { transform: translateY(-3px) scale(0.96); }
+
+/* The player's own result card; a win gets a gold edge and a slow sheen. */
+.bac-result[data-net="win"] { border-color: var(--bac-gold-line); background: linear-gradient(180deg, color-mix(in oklch, var(--bac-gold) 14%, var(--color-surface)), var(--color-surface)); box-shadow: 0 10px 28px -14px color-mix(in oklch, var(--bac-gold) 60%, black); }
+.bac-result[data-net="win"] .bac-net { color: var(--bac-gold); text-shadow: 0 0 22px color-mix(in oklch, var(--bac-gold) 50%, transparent); }
+}
+
+:root {
+  --bac-player: oklch(0.74 0.13 250);
+  --bac-banker: oklch(0.68 0.2 25);
+  --bac-tie: oklch(0.8 0.15 160);
+  --bac-gold: oklch(0.84 0.11 88);
+  --bac-gold-line: oklch(0.84 0.11 88 / 0.38);
+}
+
+@keyframes bac-ring {
+  0% { box-shadow: 0 0 0 0 oklch(0.89 0.18 98 / 0.55); }
+  70%, 100% { box-shadow: 0 0 0 9px oklch(0.89 0.18 98 / 0); }
+}
+
+@keyframes bac-in {
+  from { opacity: 0; transform: translateY(-40%) scale(0.85); }
+}
+
+@keyframes bac-rise {
+  from { opacity: 0; transform: translateY(10px); }
+}
+
+@keyframes bac-pop {
+  from { opacity: 0; transform: scale(0.6); }
+}
+
+@keyframes bac-banner {
+  from { opacity: 0; transform: translateY(8px) scale(0.9); filter: blur(3px); }
+}
+
+@keyframes bac-lift {
+  40% { transform: translateY(-6px); }
+}
+
+@keyframes bac-sheen {
+  to { transform: translateX(110%); }
+}
+
+@keyframes bac-spark {
+  0% { opacity: 1; transform: translate(0, 0) scale(1); }
+  100% { opacity: 0; transform: translate(calc(cos(var(--a)) * var(--r)), calc(sin(var(--a)) * var(--r))) scale(0.4); }
+}
+
+@keyframes bac-win {
+  45% { box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.1), 0 0 0 2px var(--tone), 0 8px 26px -6px color-mix(in oklch, var(--tone) 70%, transparent); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bac-in, .bac-rise, .bac-stagger, .bac-seat, .bac-bead[data-latest], .bac-zone[data-win], .bac-zone[data-win]::after, .bac-total, .bac-verdict, .bac-hand[data-win] .bac-cards { animation: none; }
+  .bac-spark { display: none; }
+  .bac-card, .bac-zone, .bac-rack, .bac-hand-pill { transition: none; }
+}

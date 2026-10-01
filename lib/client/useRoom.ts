@@ -9,6 +9,9 @@ import type { DiceIntent } from "../liarsdice/types.ts";
 import type { PotatoIntent } from "../hotpotato/types.ts";
 import type { SpyIntent } from "../spyfall/types.ts";
 import type { BjIntent } from "../blackjack/types.ts";
+import type { BacIntent } from "../baccarat/types.ts";
+import type { RlIntent } from "../roulette/types.ts";
+import type { TxIntent } from "../texasholdem/types.ts";
 import { KICKED_MESSAGE, REPLACED_CLOSE_CODE, REPLACED_MESSAGE, type ClientMessage, type PartyMode, type PartyRoom, type Room } from "../protocol.ts";
 import { clearLastRoom, getClientId, setLastRoom } from "./identity.ts";
 import { parseServerMessage, wsUrl } from "./rooms.ts";
@@ -20,6 +23,9 @@ import type {
   ScoreConnection,
   SpyConnection,
   BjConnection,
+  BacConnection,
+  RlConnection,
+  TxConnection,
   TableConnection,
 } from "./types.ts";
 
@@ -92,6 +98,9 @@ interface RoomCore {
   sendPotato: (intent: PotatoIntent) => void;
   sendSpy: (intent: SpyIntent) => void;
   sendBj: (intent: BjIntent) => void;
+  sendBac: (intent: BacIntent) => void;
+  sendRl: (intent: RlIntent) => void;
+  sendTx: (intent: TxIntent) => void;
   addBot: () => void;
   removePlayer: (playerId: string) => void;
   leave: () => void;
@@ -283,6 +292,9 @@ function useRoomSocket(code: string, name: string): RoomCore {
   const sendPotato = useCallback((intent: PotatoIntent) => sendMessage({ t: "hotpotato", intent }), [sendMessage]);
   const sendSpy = useCallback((intent: SpyIntent) => sendMessage({ t: "spyfall", intent }), [sendMessage]);
   const sendBj = useCallback((intent: BjIntent) => sendMessage({ t: "blackjack", intent }), [sendMessage]);
+  const sendBac = useCallback((intent: BacIntent) => sendMessage({ t: "baccarat", intent }), [sendMessage]);
+  const sendRl = useCallback((intent: RlIntent) => sendMessage({ t: "roulette", intent }), [sendMessage]);
+  const sendTx = useCallback((intent: TxIntent) => sendMessage({ t: "texasholdem", intent }), [sendMessage]);
   const addBot = useCallback(() => sendMessage({ t: "addBot" }), [sendMessage]);
   const removePlayer = useCallback((playerId: string) => sendMessage({ t: "removePlayer", playerId }), [sendMessage]);
   const leave = useCallback(() => {
@@ -318,11 +330,14 @@ function useRoomSocket(code: string, name: string): RoomCore {
       sendPotato,
       sendSpy,
       sendBj,
+      sendBac,
+      sendRl,
+      sendTx,
       addBot,
       removePlayer,
       leave,
     }),
-    [code, status, current, fatalMessage, hadRoom, unreachableWhy, flashError, send, sendScore, sendImposter, sendDice, sendPotato, sendSpy, sendBj, addBot, removePlayer, leave],
+    [code, status, current, fatalMessage, hadRoom, unreachableWhy, flashError, send, sendScore, sendImposter, sendDice, sendPotato, sendSpy, sendBj, sendBac, sendRl, sendTx, addBot, removePlayer, leave],
   );
 }
 
@@ -429,6 +444,9 @@ export interface RoomConnection {
   potato: PotatoConnection | null;
   spy: SpyConnection | null;
   bj: BjConnection | null;
+  bac: BacConnection | null;
+  rl: RlConnection | null;
+  tx: TxConnection | null;
   hadRoom: boolean;
   unreachable: Unreachable;
   leave: () => void;
@@ -449,6 +467,9 @@ export function useRoom(code: string, name: string): RoomConnection {
       potato: room?.mode === "hotpotato" ? partyOf(c, room, c.sendPotato) : null,
       spy: room?.mode === "spyfall" ? partyOf(c, room, c.sendSpy) : null,
       bj: room?.mode === "blackjack" ? partyOf(c, room, c.sendBj) : null,
+      bac: room?.mode === "baccarat" ? partyOf(c, room, c.sendBac) : null,
+      rl: room?.mode === "roulette" ? partyOf(c, room, c.sendRl) : null,
+      tx: room?.mode === "texasholdem" ? partyOf(c, room, c.sendTx) : null,
       hadRoom: c.hadRoom,
       unreachable: c.unreachable,
       leave: c.leave,
