@@ -12,6 +12,7 @@ import { fail, success, tap } from "@/lib/client/haptics";
 import {
   CARD_SLIDE_MS,
   DEALER_CARD_MS,
+  HOLE_LEAD_MS,
   DEAL_STAGGER_MS,
   MIN_BET,
   SEATS,
@@ -65,8 +66,10 @@ function totalLabel(cards: readonly (BjCard | null)[]): string {
   return soft && total < 21 ? `${total - 10}/${total}` : `${total}`;
 }
 
-// Settle: the hole card flips, then the dealer draws one card per DEALER_CARD_MS. Derived from the deadline so a reload lands mid-reveal.
-function useDealerShown(conn: BjConnection): { shown: number; done: boolean; clearing: boolean } {
+const RESULT_BEAT_MS = 700; // results wait for the dealer's last card to land
+
+// Settle: a beat, the hole card turns, then one dealer draw per DEALER_CARD_MS. Derived from the deadline so a reload lands mid-reveal.
+function useDealerShown(conn: BjConnection): { shown: number; holeUp: boolean; done: boolean; clearing: boolean } {
   const { game, deadlineAt } = conn;
   const len = game.dealer.length;
   const settling = game.phase === "settle" && deadlineAt !== undefined;
@@ -76,18 +79,19 @@ function useDealerShown(conn: BjConnection): { shown: number; done: boolean; cle
     const t = setInterval(() => setNow(Date.now()), 100);
     return () => clearInterval(t);
   }, [settling]);
-  if (!settling) return { shown: len, done: true, clearing: false };
-  // On a dealer blackjack the hand settles mid-deal, so `start` can still be ahead while the cards land.
-  const start = deadlineAt - SETTLE_MS - Math.max(0, len - 2) * DEALER_CARD_MS;
-  const shown = Math.min(len, 2 + Math.max(0, Math.floor((now - start) / DEALER_CARD_MS)));
-  return { shown, done: now >= start && shown >= len, clearing: now >= deadlineAt - SWEEP_MS };
+  if (!settling) return { shown: len, holeUp: game.phase !== "playing", done: true, clearing: false };
+  // On a dealer blackjack the hand settles mid-deal, so `t` starts negative while the cards are still landing.
+  const draws = Math.max(0, len - 2);
+  const t = now - (deadlineAt - SETTLE_MS - draws * DEALER_CARD_MS - HOLE_LEAD_MS) - HOLE_LEAD_MS; // ms since the hole card turned
+  const shown = Math.min(len, 2 + Math.max(0, Math.floor(t / DEALER_CARD_MS)));
+  return { shown, holeUp: t >= 0, done: t >= draws * DEALER_CARD_MS + RESULT_BEAT_MS, clearing: now >= deadlineAt - SWEEP_MS };
 }
 
 export function Blackjack({ conn }: { conn: BjConnection }) {
   const [toast, setToast] = useState<string | null>(null);
   const { game } = conn;
   const me = game.players.find((p) => p.id === conn.you);
-  const { shown, done, clearing } = useDealerShown(conn);
+  const { shown, holeUp, done, clearing } = useDealerShown(conn);
   const revealed = game.phase === "settle" && done;
   const myTurn = game.phase === "playing" && game.turnId === conn.you;
   const left = useSecondsLeft(conn.deadlineAt);
@@ -129,7 +133,7 @@ export function Blackjack({ conn }: { conn: BjConnection }) {
         </p>
       </header>
 
-      <Felt conn={conn} shown={shown} revealed={revealed} clearing={clearing} secs={secs} />
+      <Felt conn={conn} shown={shown} holeUp={holeUp} revealed={revealed} clearing={clearing} secs={secs} />
 
       <Panel conn={conn} me={me} myTurn={myTurn} revealed={revealed} secs={secs} dealing={dealing} />
     </main>
@@ -139,12 +143,14 @@ export function Blackjack({ conn }: { conn: BjConnection }) {
 function Felt({
   conn,
   shown,
+  holeUp,
   revealed,
   clearing,
   secs,
 }: {
   conn: BjConnection;
   shown: number;
+  holeUp: boolean;
   revealed: boolean;
   clearing: boolean;
   secs: number | null;
@@ -154,8 +160,9 @@ function Felt({
   const me = game.players.find((p) => p.id === conn.you);
   const canSit = !!me && me.cards.length === 0;
   const hand = inHand(game);
-  const dealerCards = game.dealer.slice(0, shown);
-  const dealerTotal = game.phase === "playing" ? handValue(dealerCards.slice(0, 1)) : handValue(dealerCards);
+  const dealerCards = game.dealer.slice(0, shown).map((c, i) => (i === 1 && !holeUp ? null : c));
+  const holeDown = dealerCards[1] === null;
+  const dealerTotal = holeDown ? handValue(dealerCards.slice(0, 1)) : handValue(dealerCards);
 
   function sit(seat: number) {
     if (!canSit) return;
@@ -198,7 +205,7 @@ function Felt({
               style={{ animationDelay: `${(game.phase === "settle" ? 2 * hand.length + 1 : hand.length) * DEAL_STAGGER_MS + CARD_SLIDE_MS}ms` }}
               className={cx("bj-in font-display text-sm tracking-normal tabular-nums", isBust(dealerCards) ? "text-danger" : "text-fg")}
             >
-              {isBust(dealerCards) ? `${dealerTotal.total} BUST` : game.phase === "playing" ? `${dealerTotal.total}+?` : totalLabel(dealerCards)}
+              {isBust(dealerCards) ? `${dealerTotal.total} BUST` : holeDown ? `${dealerTotal.total}+?` : totalLabel(dealerCards)}
             </span>
           )}
         </p>

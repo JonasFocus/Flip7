@@ -9,7 +9,8 @@ export const SHOE_SIZE = 52 * DECKS;
 export const DEAL_MS = 10_000; // after the first Deal tap, the rest of the table has this long to bet
 export const TURN_MS = 20_000; // then the server stands for you
 export const SETTLE_MS = 6000; // results, chip sweeps, then the cards clear to the discard tray
-export const DEALER_CARD_MS = 950; // per dealer draw, so the reveal finishes before the read time starts
+export const HOLE_LEAD_MS = 800; // after the last player acts, a beat before the dealer turns the hole card
+export const DEALER_CARD_MS = 1300; // per dealer draw, so the reveal finishes before the read time starts
 export const DEAL_STAGGER_MS = 240; // client deal animation: gap between cards going round the table
 export const CARD_SLIDE_MS = 620; // client deal animation: one card's trip from the shoe
 
@@ -154,7 +155,7 @@ function settle(s: BjState, now: number, rng: Rng): BjState {
     return { ...p, chips: p.chips + won, done: true, result: { outcome, net: won - p.bet } };
   });
   const draws = Math.max(0, dealer.length - 2);
-  return { ...next, players, dealer, phase: "settle", turnId: null, turnAt: null, settleAt: now + SETTLE_MS + draws * DEALER_CARD_MS };
+  return { ...next, players, dealer, phase: "settle", turnId: null, turnAt: null, settleAt: now + HOLE_LEAD_MS + draws * DEALER_CARD_MS + SETTLE_MS };
 }
 
 function nextTurn(s: BjState, now: number, rng: Rng): BjState {

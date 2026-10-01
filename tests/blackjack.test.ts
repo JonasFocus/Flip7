@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  HOLE_LEAD_MS,
+  SETTLE_MS,
   SHOE_SIZE,
   START_CHIPS,
   TURN_MS,
@@ -87,6 +89,7 @@ test("dealer stands on 17, pays wins, takes losses, pushes ties", () => {
   s = act(s, "b", { type: "hit" }); // 21 ends the turn by itself
   assert.equal(s.phase, "settle");
   assert.deepEqual(player(s, "a").result, { outcome: "push", net: 0 });
+  assert.equal(s.settleAt, 1000 + HOLE_LEAD_MS + SETTLE_MS); // no dealer draws: a beat, the hole card, then the read time
   assert.deepEqual(player(s, "b").result, { outcome: "win", net: 100 });
   assert.equal(player(s, "b").chips, START_CHIPS + 100);
   const reset = onDeadline(s, s.settleAt!);
