@@ -25,6 +25,105 @@
   pointer-events: none;
 }
 
+/* ---- The 3D wheel ---- */
+.rl-stage {
+  --rl-h: clamp(108px, 19dvh, 170px);
+  position: relative;
+  height: var(--rl-h);
+  display: grid;
+  place-items: center;
+  transition: height 650ms var(--ease-drawer);
+}
+.rl-stage[data-big] { --rl-h: clamp(230px, 44dvh, 380px); }
+/* The plane is square; leaning back it projects to about two thirds of its width, so size it from the stage height. */
+.rl-stage-wheel { width: min(92%, calc(var(--rl-h) * 1.38)); }
+
+.rl-wheel {
+  position: relative;
+  container-type: inline-size;
+  perspective: 160cqw;
+  perspective-origin: 50% 20%;
+}
+.rl-wheel::before {
+  /* Contact shadow on the table under the bowl (flat, outside the 3D plane so it never flattens it). */
+  content: "";
+  position: absolute;
+  left: 4%;
+  right: 4%;
+  top: 22%;
+  bottom: -2%;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, oklch(0 0 0 / 0.6), transparent);
+  filter: blur(6px);
+}
+.rl-plane {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  margin-block: -16cqw;
+  transform-style: preserve-3d;
+  transform: rotateX(50deg);
+}
+.rl-layer { position: absolute; inset: 0; width: 100%; height: 100%; }
+.rl-rotor { transform-style: preserve-3d; will-change: transform; }
+.rl-rim-side {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle, oklch(0.2 0.035 45) 62%, oklch(0.12 0.02 45));
+  box-shadow: inset 0 0 0 1px oklch(0.75 0.07 85 / 0.25);
+}
+.rl-rim-side:nth-child(1) { transform: translateZ(-7cqw); background: oklch(0.1 0.015 45); }
+.rl-rim-side:nth-child(2) { transform: translateZ(-4.7cqw); }
+.rl-rim-side:nth-child(3) { transform: translateZ(-2.4cqw); }
+
+.rl-turret {
+  position: absolute;
+  left: 30%;
+  top: 30%;
+  width: 40%;
+  height: 40%;
+  transform: translateZ(2.4cqw);
+  transform-style: preserve-3d;
+}
+.rl-turret-arm {
+  position: absolute;
+  left: 46%;
+  top: 0;
+  width: 8%;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, oklch(0.55 0.07 72), oklch(0.92 0.07 92) 45%, oklch(0.62 0.08 75));
+  box-shadow: 0 0 0 0.3cqw oklch(0.2 0.03 60 / 0.6);
+}
+.rl-turret-knob {
+  position: absolute;
+  left: 38%;
+  top: 38%;
+  width: 24%;
+  height: 24%;
+  border-radius: 50%;
+  transform: translateZ(1.6cqw);
+  background: radial-gradient(circle at 35% 30%, oklch(0.98 0.04 95), oklch(0.78 0.09 82) 45%, oklch(0.42 0.07 70));
+  box-shadow: 0 0 0 0.3cqw oklch(0.3 0.05 60);
+}
+
+.rl-ball, .rl-ball-shadow {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 6.4%;
+  height: 6.4%;
+  margin: -3.2%;
+  border-radius: 50%;
+  will-change: transform, opacity;
+}
+.rl-ball {
+  background: radial-gradient(circle at 35% 30%, oklch(1 0 0), oklch(0.94 0.01 90) 45%, oklch(0.6 0.015 80));
+  box-shadow: inset -0.4cqw -0.5cqw 0.8cqw oklch(0 0 0 / 0.25);
+}
+.rl-ball-shadow { background: radial-gradient(closest-side, oklch(0 0 0 / 0.85), transparent); }
+
 /* Pill for a result number: enamel in the pocket colour, a brass hairline. */
 .rl-pill {
   background: var(--rl-black);
@@ -37,8 +136,9 @@
 .rl-board {
   display: grid;
   grid-template-columns: repeat(3, 1fr) minmax(0, 0.55fr) minmax(0, 0.6fr);
-  grid-template-rows: repeat(14, var(--rl-row));
-  --rl-row: clamp(32px, 9.2vw, 38px);
+  /* Fills the space it's given (no scrolling on most phones); only below the minimum row height does it scroll. */
+  min-height: 100%;
+  grid-template-rows: repeat(14, minmax(22px, 1fr));
   border-radius: 0.875rem;
   background: var(--rl-felt);
   box-shadow:
@@ -56,7 +156,7 @@
   display: grid;
   place-items: center;
   font-family: var(--font-sans);
-  font-size: 16px;
+  font-size: clamp(13px, 2.1dvh, 16px);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.01em;
@@ -134,8 +234,9 @@
     repeating-conic-gradient(oklch(0.2 0.01 260) 0 15deg, var(--chip) 15deg 30deg);
 }
 
-.rl-overlay { transition: opacity 450ms var(--ease-out); }
-.rl-overlay[data-open="false"] { opacity: 0; pointer-events: none; }
+/* The selected chip in the rack. */
+.rl-chip-on { box-shadow: 0 0 0 2px var(--color-accent), 0 0 18px -2px oklch(0.89 0.18 98 / 0.7), 0 0.22em 0.28em oklch(0 0 0 / 0.4) !important; }
+.rl-sit { animation: rl-sit 1.4s ease-in-out infinite; }
 .rl-rise { animation: rl-rise 320ms var(--ease-out) both; }
 .rl-hero { animation: rl-hero 560ms var(--ease-spring) both; }
 
@@ -159,6 +260,9 @@
 .rl-medal[data-c="green"] { background: var(--rl-green); }
 }
 
+@keyframes rl-sit {
+  50% { box-shadow: 0 0 0 3px oklch(0.89 0.18 98 / 0.35), 0 0 14px oklch(0.89 0.18 98 / 0.5); }
+}
 @keyframes rl-win {
   50% { filter: brightness(1.4); }
 }
@@ -176,7 +280,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .rl-cell[data-win], .rl-mark[data-win], .rl-pocket-glow, .rl-rise, .rl-hero { animation: none; }
-  .rl-overlay, .rl-mark, .rl-cell { transition: none; }
+  .rl-cell[data-win], .rl-mark[data-win], .rl-pocket-glow, .rl-rise, .rl-hero, .rl-sit { animation: none; }
+  .rl-stage, .rl-mark, .rl-cell { transition: none; }
   .rl-root .animate-pop { animation: none; }
 }

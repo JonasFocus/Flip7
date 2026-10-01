@@ -10,19 +10,19 @@ import { Button } from "@/components/ui/Button";
 import { cx } from "@/components/ui/cx";
 import { Toast } from "@/components/ui/Toast";
 import { fail, success, tap } from "@/lib/client/haptics";
-import { BET_MS, LAND_MS, MAX_INSIDE, MAX_OUTSIDE, MIN_BET, SEATS, SETTLE_MS, SPIN_MS, START_CHIPS, colorOf } from "@/lib/roulette";
+import { BET_MS, LAND_MS, MAX_INSIDE, MAX_OUTSIDE, MIN_BET, SEATS, SETTLE_MS, START_CHIPS, colorOf } from "@/lib/roulette";
 import type { RlBet, RlConnection, RlPlayer, RlSpot, RlState } from "@/lib/roulette/types";
 import { Board } from "./Board";
 import { Wheel } from "./Wheel";
 
 const RACK = CHIPS.map((c) => c.value).filter((v) => v >= MIN_BET && v <= 500);
-const HOLD_MS = 1800; // the big wheel lingers on the result before the layout shows who won
+const HOLD_MS = 2200; // the big wheel lingers on the result before it shrinks back and the layout takes over
 const stake = (bets: readonly RlBet[]) => bets.reduce((sum, b) => sum + b.amount, 0);
 const signed = (n: number) => (n > 0 ? `+${shortAmount(n)}` : n < 0 ? `−${shortAmount(-n)}` : "±0");
-const COLOR_NAME = { red: "RED", black: "BLACK", green: "GREEN" } as const;
+const COLOR_NAME = { red: "Red", black: "Black", green: "Green" } as const;
 
 // Settle opens with the ball still dropping: results, history and winnings wait until it lands.
-function useSettleBeats({ game, deadlineAt }: RlConnection): { landed: boolean; overlay: boolean } {
+function useSettleBeats({ game, deadlineAt }: RlConnection): { landed: boolean; big: boolean } {
   const start = game.phase === "settle" && deadlineAt !== undefined ? deadlineAt - SETTLE_MS : null;
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -30,17 +30,17 @@ function useSettleBeats({ game, deadlineAt }: RlConnection): { landed: boolean; 
     const t = setInterval(() => setNow(Date.now()), 100);
     return () => clearInterval(t);
   }, [start]);
-  if (game.phase === "spinning") return { landed: false, overlay: true };
-  if (game.phase !== "settle") return { landed: false, overlay: false };
-  if (start === null) return { landed: true, overlay: false };
-  return { landed: now >= start + LAND_MS, overlay: now < start + LAND_MS + HOLD_MS };
+  if (game.phase === "spinning") return { landed: false, big: true };
+  if (game.phase !== "settle") return { landed: false, big: false };
+  if (start === null) return { landed: true, big: false };
+  return { landed: now >= start + LAND_MS, big: now < start + LAND_MS + HOLD_MS };
 }
 
 export function Roulette({ conn }: { conn: RlConnection }) {
   const { game } = conn;
   const [toast, setToast] = useState<string | null>(null);
   const [chip, setChip] = useState(25);
-  const { landed, overlay } = useSettleBeats(conn);
+  const { landed, big } = useSettleBeats(conn);
   const left = useSecondsLeft(conn.deadlineAt);
   const me = game.players.find((p) => p.id === conn.you);
   const seated = !!me && me.seat !== null;
@@ -91,25 +91,17 @@ export function Roulette({ conn }: { conn: RlConnection }) {
         </p>
       </header>
 
-      <section className="grid grid-cols-[auto_1fr] items-center gap-3 px-3 pb-1" aria-label="Wheel">
-        <Wheel
-          phase={game.phase}
-          result={game.result}
-          last={history.at(-1) ?? null}
-          lit={result}
-          deadlineAt={conn.deadlineAt}
-          className="size-[clamp(80px,24vw,92px)] drop-shadow-[0_6px_10px_oklch(0_0_0/0.55)]"
-        />
-        <Info game={game} secs={left} landed={landed} history={history} />
+      <StatusBar game={game} secs={left} result={result} history={history} />
+
+      <section aria-label="Wheel" className="rl-stage" data-big={big || undefined}>
+        <Wheel phase={game.phase} result={game.result} last={history.at(-1) ?? null} lit={result} deadlineAt={conn.deadlineAt} className="rl-stage-wheel" />
+        {big && result !== null && <StageCaption game={game} result={result} />}
       </section>
 
       <SeatStrip conn={conn} me={me} revealed={landed} />
 
-      <div className="relative min-h-0 flex-1">
-        <div className="rl-scroll h-full overflow-y-auto overscroll-contain px-3.5 pt-3.5 pb-4">
-          <Board players={game.players} you={conn.you} open={open} win={result} onPlace={place} />
-        </div>
-        {game.phase !== "betting" && <Stage game={game} open={overlay} landed={landed} deadlineAt={conn.deadlineAt} />}
+      <div className="rl-scroll relative min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pt-2 pb-2">
+        <Board players={game.players} you={conn.you} open={open} win={result} onPlace={place} />
       </div>
 
       <Panel conn={conn} me={me} amount={amount} setChip={setChip} secs={left} landed={landed} />
@@ -117,54 +109,73 @@ export function Roulette({ conn }: { conn: RlConnection }) {
   );
 }
 
-function Info({ game, secs, landed, history }: { game: RlState; secs: number | null; landed: boolean; history: readonly number[] }) {
-  const total = game.phase === "betting" ? BET_MS : game.phase === "spinning" ? SPIN_MS : SETTLE_MS;
-  const timed = game.phase !== "spinning" && secs !== null;
-  const pct = secs === null ? 0 : Math.min(100, (secs / (total / 1000)) * 100);
-  const result = landed ? game.result : null;
-  const title =
-    game.phase === "betting" ? "Place your bets" : game.phase === "spinning" ? "No more bets" : result === null ? "Ball dropping…" : null;
-
+// One line that always says what's happening: the call (or the result), the clock, and the last numbers.
+function StatusBar({ game, secs, result, history }: { game: RlState; secs: number | null; result: number | null; history: readonly number[] }) {
+  const timed = game.phase === "betting" && secs !== null;
+  const pct = timed ? Math.min(100, (secs / (BET_MS / 1000)) * 100) : game.phase === "betting" ? 100 : 0;
   return (
-    <div className="flex min-w-0 flex-col gap-1.5">
-      <div className="flex flex-col gap-1" role="timer" aria-label={timed ? `${secs} seconds left` : undefined}>
-        <div className="flex items-center justify-between gap-2 font-display text-sm tracking-wide">
-          {title !== null ? (
-            <span className="truncate">{title}</span>
-          ) : (
-            <span key={game.round} className="rl-hero flex items-center gap-2">
-              <span className="rl-pill grid h-7 min-w-9 place-items-center rounded-md px-1.5 font-sans text-lg font-bold tabular-nums" data-c={colorOf(result ?? 0)}>
+    <div className="flex flex-col gap-1.5 px-3 pt-1">
+      <div className="flex items-center gap-2">
+        <div className="min-w-0 flex-1" aria-live="polite">
+          {result !== null ? (
+            <p key={game.round} className="rl-hero flex items-center gap-2">
+              <span className="rl-pill grid h-7 min-w-9 place-items-center rounded-md px-1.5 font-sans text-lg font-bold tabular-nums" data-c={colorOf(result)}>
                 {result}
               </span>
-              <span className="text-xs text-muted">{COLOR_NAME[colorOf(result ?? 0)]}</span>
-            </span>
+              <span className="text-sm font-semibold text-fg/80">{COLOR_NAME[colorOf(result)]}</span>
+            </p>
+          ) : (
+            <p className="truncate font-display text-sm tracking-wide">
+              {game.phase === "betting" ? (secs === null ? "Place your bets" : "Bets closing") : game.phase === "spinning" ? "No more bets" : "Ball dropping…"}
+              {timed && <span className={cx("ml-2 tabular-nums", secs <= 5 ? "text-danger" : "text-muted")}>{secs}s</span>}
+            </p>
           )}
-          {timed && <span className={cx("tabular-nums", secs <= 5 ? "text-danger" : "text-muted")}>{secs}s</span>}
         </div>
-        <div className="h-1.5 overflow-hidden rounded-full bg-surface-2">
-          <div
-            className={cx("h-full rounded-full transition-[width] duration-1000 ease-linear", timed && secs <= 5 ? "bg-danger" : "bg-accent", game.phase === "spinning" && "animate-pulse")}
-            style={{ width: game.phase === "spinning" ? "100%" : `${pct}%` }}
-          />
-        </div>
-        {game.phase === "betting" && (
-          <p className="text-[11px] leading-tight text-muted tabular-nums">
-            {secs === null ? "The wheel spins once someone bets" : `Bets ${MIN_BET}–${MAX_INSIDE} · outside to ${shortAmount(MAX_OUTSIDE)}`}
-          </p>
-        )}
+        <ol aria-label="Recent results" className="flex max-w-[55%] gap-[3px] overflow-hidden">
+          {[...history]
+            .reverse()
+            .slice(0, 9)
+            .map((n, i) => (
+              <li
+                key={history.length - i}
+                data-c={colorOf(n)}
+                className={cx("rl-pill grid size-6 flex-none place-items-center rounded-md font-sans text-[11px] font-bold tabular-nums", i === 0 ? "ring-2 ring-accent" : "opacity-80")}
+              >
+                {n}
+              </li>
+            ))}
+        </ol>
       </div>
-      <ol aria-label="Recent results" className="flex flex-wrap gap-[3px]">
-        {history.length === 0 && <li className="text-[11px] text-muted">No spins yet</li>}
-        {[...history].reverse().map((n, i) => (
-          <li
-            key={`${history.length - i}`}
-            data-c={colorOf(n)}
-            className={cx("rl-pill grid size-5 place-items-center rounded-[5px] font-sans text-[10px] font-bold tabular-nums", i === 0 && "ring-2 ring-accent")}
-          >
-            {n}
-          </li>
-        ))}
-      </ol>
+      <div className="h-1 overflow-hidden rounded-full bg-surface-2">
+        <div
+          className={cx("h-full rounded-full transition-[width] duration-1000 ease-linear", timed && secs <= 5 ? "bg-danger" : "bg-accent", game.phase === "spinning" && "w-full animate-pulse")}
+          style={game.phase === "spinning" ? undefined : { width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+// The landed number over the big wheel, with who won, before the wheel shrinks back.
+function StageCaption({ game, result }: { game: RlState; result: number }) {
+  const winners = game.players.filter((p) => p.result && p.result.net > 0);
+  return (
+    <div className="pointer-events-none absolute inset-x-0 bottom-1 grid place-items-center text-center" aria-live="polite">
+      <div className="flex flex-col items-center gap-1">
+        <p className="rl-hero flex items-center gap-2.5">
+          <span className="rl-medal grid size-12 place-items-center rounded-full font-sans text-2xl font-bold tabular-nums" data-c={colorOf(result)}>
+            {result}
+          </span>
+        </p>
+        <p className="rl-rise rounded-full bg-black/50 px-3 py-0.5 text-xs text-fg/80 backdrop-blur-sm">
+          {winners.length === 0
+            ? "House wins this one"
+            : winners
+                .slice(0, 3)
+                .map((p) => `${p.name} ${signed(p.result?.net ?? 0)}`)
+                .join(" · ")}
+        </p>
+      </div>
     </div>
   );
 }
@@ -173,15 +184,23 @@ function SeatStrip({ conn, me, revealed }: { conn: RlConnection; me: RlPlayer | 
   const { game } = conn;
   const canSit = game.phase === "betting" && !!me && me.bets.length === 0;
   return (
-    <ul aria-label="Seats" className="grid grid-cols-8 px-2 pt-1">
+    <ul aria-label="Seats" className="grid grid-cols-8 px-2 pt-1.5">
       {Array.from({ length: SEATS }, (_, seat) => {
         const p = game.players.find((x) => x.seat === seat);
         const note = p ? (revealed && p.result ? p.result.net : stake(p.bets)) : 0;
         return (
           <li key={seat} className="flex min-w-0 justify-center">
             {p ? (
-              <span className={cx("flex min-h-[46px] w-full min-w-0 flex-col items-center gap-px", !p.connected && "opacity-50")}>
+              <SeatTag
+                leave={p.id === conn.you && canSit ? () => (tap(), conn.send({ type: "standUp" })) : undefined}
+                className={cx("flex min-h-[44px] w-full min-w-0 flex-col items-center gap-px", !p.connected && "opacity-50")}
+              >
                 <span className={cx("relative rounded-full", p.id === conn.you && "ring-2 ring-accent ring-offset-1 ring-offset-bg")}>
+                  {p.id === conn.you && canSit && (
+                    <span aria-hidden className="absolute -top-1 -right-1 z-10 grid size-3.5 place-items-center rounded-full bg-surface-2 text-[9px] leading-none text-fg ring-1 ring-line">
+                      ×
+                    </span>
+                  )}
                   <Avatar id={p.id} seat={seat} name={p.name} size="sm" />
                   {p.ready && game.phase === "betting" && (
                     <span className="absolute -right-1 -bottom-1 grid size-3.5 place-items-center rounded-full bg-active text-[9px] text-ink" aria-label="Ready">
@@ -198,19 +217,19 @@ function SeatStrip({ conn, me, revealed }: { conn: RlConnection; me: RlPlayer | 
                 >
                   {revealed && p.result ? signed(note) : note > 0 ? shortAmount(note) : "·"}
                 </span>
-              </span>
+              </SeatTag>
             ) : (
               <button
                 type="button"
                 disabled={!canSit}
                 onClick={() => (tap(), conn.send({ type: "sit", seat }))}
                 aria-label={`Sit in seat ${seat + 1}`}
-                className="flex min-h-[46px] w-full flex-col items-center gap-px active:scale-95 disabled:opacity-40"
+                className="flex min-h-[44px] w-full flex-col items-center justify-start gap-px transition-transform active:scale-95 disabled:opacity-40"
               >
                 <span
                   className={cx(
                     "grid size-7 place-items-center rounded-full border-2 border-dashed text-xs font-bold",
-                    canSit && me?.seat === null ? "border-accent text-accent" : "border-fg/25 text-fg/40",
+                    canSit && me?.seat === null ? "rl-sit border-accent text-accent" : "border-fg/25 text-fg/40",
                   )}
                 >
                   +
@@ -224,56 +243,19 @@ function SeatStrip({ conn, me, revealed }: { conn: RlConnection; me: RlPlayer | 
   );
 }
 
-// The big wheel over the layout while the ball is in play, then the result and the winners before the layout takes over.
-function Stage({ game, open, landed, deadlineAt }: { game: RlState; open: boolean; landed: boolean; deadlineAt: number | undefined }) {
-  const winners = game.players.filter((p) => p.result && p.result.net > 0);
-  const result = landed ? game.result : null;
+// Your own seat doubles as the "leave seat" button while you have nothing on the layout.
+function SeatTag({ leave, className, children }: { leave: (() => void) | undefined; className: string; children: ReactNode }) {
+  if (!leave) return <span className={className}>{children}</span>;
   return (
-    <div
-      className="rl-overlay absolute inset-0 z-20 grid place-items-center rounded-xl bg-bg/92 backdrop-blur-sm"
-      data-open={open}
-      style={{ containerType: "size" }}
-      aria-hidden={!open}
-    >
-      <div className="flex flex-col items-center gap-2">
-        <Wheel
-          phase={game.phase}
-          result={game.result}
-          last={null}
-          lit={result}
-          deadlineAt={deadlineAt}
-          className="size-[min(78cqw,calc(100cqh-96px))] drop-shadow-[0_14px_18px_oklch(0_0_0/0.6)]"
-        />
-        <div className="grid min-h-[76px] place-items-center text-center" aria-live="polite">
-          {result === null ? (
-            <p className="font-display text-base tracking-[0.14em] text-muted uppercase">{game.phase === "spinning" ? "No more bets" : "Ball dropping…"}</p>
-          ) : (
-            <div className="flex flex-col items-center gap-1.5">
-              <p className="rl-hero flex items-center gap-3">
-                <span className="rl-medal grid size-12 place-items-center rounded-full font-sans text-2xl font-bold tabular-nums" data-c={colorOf(result)}>
-                  {result}
-                </span>
-                <span className="font-display text-sm tracking-[0.14em] text-muted">{COLOR_NAME[colorOf(result)]}</span>
-              </p>
-              <p className="rl-rise text-xs text-muted">
-                {winners.length === 0
-                  ? "No winners this spin"
-                  : winners
-                      .slice(0, 3)
-                      .map((p) => `${p.name} ${signed(p.result?.net ?? 0)}`)
-                      .join(" · ")}
-              </p>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
+    <button type="button" aria-label="Leave seat" onClick={leave} className={cx(className, "transition-transform active:scale-95")}>
+      {children}
+    </button>
   );
 }
 
 function Status({ children }: { children: ReactNode }) {
   return (
-    <p aria-live="polite" className="grid min-h-16 place-items-center rounded-2xl border border-line bg-surface px-4 text-center text-sm text-muted">
+    <p aria-live="polite" className="grid min-h-14 place-items-center rounded-2xl border border-line bg-surface px-4 text-center text-sm text-muted">
       {children}
     </p>
   );
@@ -305,7 +287,7 @@ function Panel({
       <Status>
         {openSeats > 0 ? (
           <span>
-            Tap a glowing <span className="font-semibold text-accent">+</span> above to take a seat
+            Tap a glowing <span className="font-semibold text-accent">+</span> to take a seat
           </span>
         ) : (
           "Every seat is taken. You're watching from the rail."
@@ -320,15 +302,21 @@ function Panel({
     body = <Status>{game.phase === "spinning" ? "Watching this spin. Bets open after the result." : "No bet on this spin."}</Status>;
   } else if (game.phase === "spinning" || !landed || !me.result) {
     view = "wait";
-    body = <Status>{`${stake(me.bets).toLocaleString()} on the table. Good luck.`}</Status>;
+    body = (
+      <Status>
+        <span>
+          <span className="font-semibold text-fg tabular-nums">{stake(me.bets).toLocaleString()}</span> riding on this spin
+        </span>
+      </Status>
+    );
   } else {
     view = "result";
     body = <MyResult net={me.result.net} secs={secs} />;
   }
 
   return (
-    <footer className="flex min-h-[152px] flex-col justify-end px-4 pt-1 pb-safe-2">
-      <div key={view} className="rl-rise flex flex-col gap-1.5">
+    <footer className="flex min-h-[148px] flex-col justify-end border-t border-line/60 bg-bg/80 px-3 pt-2 pb-safe-2 backdrop-blur">
+      <div key={view} className="rl-rise flex flex-col gap-2">
         {body}
       </div>
     </footer>
@@ -357,7 +345,10 @@ function Betting({ conn, me, amount, setChip, secs }: { conn: RlConnection; me: 
 
   return (
     <>
-      <div className="grid grid-cols-5 items-end justify-items-center pt-1.5" role="radiogroup" aria-label="Chip value">
+      <p className="text-center text-[11px] leading-snug text-muted tabular-nums">
+        {total === 0 ? "Tap numbers, lines or corners" : `${shortAmount(total)} on the layout`} · {MIN_BET}–{MAX_INSIDE} inside, {shortAmount(MAX_OUTSIDE)} outside
+      </p>
+      <div className="grid grid-cols-5 justify-items-center" role="radiogroup" aria-label="Chip value">
         {RACK.map((v) => (
           <button
             key={v}
@@ -368,61 +359,38 @@ function Betting({ conn, me, amount, setChip, secs }: { conn: RlConnection; me: 
             disabled={v > me.chips}
             onClick={() => (tap(), setChip(v))}
             className={cx(
-              "relative grid size-12 place-items-center rounded-full transition-transform duration-200 ease-(--ease-out) active:scale-[0.96] disabled:opacity-30",
-              v === amount && "-translate-y-1",
+              "relative grid size-12 place-items-center rounded-full transition-transform duration-200 ease-(--ease-out) active:scale-[0.94] disabled:opacity-30",
+              v === amount ? "-translate-y-1 scale-110" : "opacity-80",
             )}
           >
-            <Chip amount={v} className="size-[44px]! text-xs!" />
-            {v === amount && <span aria-hidden className="absolute -bottom-1 h-[3px] w-5 rounded-full bg-accent" />}
+            <Chip amount={v} className={cx("size-[42px]! text-xs!", v === amount && "rl-chip-on")} />
           </button>
         ))}
       </div>
-      <div className="grid grid-cols-[auto_1fr_1fr_1fr_1fr] gap-1.5">
-        <button
-          type="button"
-          aria-label="Stand up"
-          onClick={() => (tap(), conn.send({ type: "standUp" }))}
-          className="min-h-10 rounded-xl px-2 text-[11px] font-bold tracking-[0.12em] text-muted uppercase transition-colors active:text-fg"
-        >
-          Stand
-        </button>
-        <Pill disabled={me.bets.length === 0} onClick={() => act("undo")}>
-          Undo
-        </Pill>
-        <Pill disabled={me.bets.length === 0} onClick={() => act("clear")}>
-          Clear
-        </Pill>
-        <Pill disabled={me.bets.length > 0 || me.lastBets.length === 0 || me.chips < stake(me.lastBets)} onClick={() => act("rebet")}>
-          Rebet
-        </Pill>
-        <Pill disabled={total === 0 || me.chips < total} onClick={() => act("double")}>
-          Double
-        </Pill>
+      <div className="flex items-center gap-1.5">
+        <Tool label="Undo" icon="↶" disabled={me.bets.length === 0} onClick={() => act("undo")} />
+        <Tool label="Clear" icon="✕" disabled={me.bets.length === 0} onClick={() => act("clear")} />
+        <Tool label="Rebet" icon="↻" disabled={me.bets.length > 0 || me.lastBets.length === 0 || me.chips < stake(me.lastBets)} onClick={() => act("rebet")} />
+        <Tool label="Double" icon="×2" disabled={total === 0 || me.chips < total} onClick={() => act("double")} />
+        <Button size="md" block className="flex-1" disabled={me.ready || total === 0} onClick={() => (success(), conn.send({ type: "ready" }))}>
+          {total === 0 ? "Place a bet" : me.ready ? (waiting > 0 && secs !== null ? `Spin in ${secs}s` : "Spinning…") : "Spin"}
+        </Button>
       </div>
-      <Button size="md" block disabled={me.ready || total === 0} onClick={() => (success(), conn.send({ type: "ready" }))}>
-        {total === 0
-          ? "Tap the layout to bet"
-          : me.ready
-            ? waiting > 0 && secs !== null
-              ? `Spinning in ${secs}s`
-              : "Spinning…"
-            : secs !== null
-              ? `Spin ${shortAmount(total)} · ${secs}s`
-              : `Spin ${shortAmount(total)}`}
-      </Button>
     </>
   );
 }
 
-function Pill({ children, disabled, onClick }: { children: ReactNode; disabled: boolean; onClick: () => void }) {
+function Tool({ label, icon, disabled, onClick }: { label: string; icon: string; disabled: boolean; onClick: () => void }) {
   return (
     <button
       type="button"
+      title={label}
+      aria-label={label}
       disabled={disabled}
       onClick={onClick}
-      className="min-h-10 rounded-xl border border-line bg-surface-2 text-xs font-bold tracking-[0.08em] text-fg uppercase transition-[transform,opacity] duration-150 ease-(--ease-out) active:scale-[0.96] disabled:opacity-35"
+      className="grid size-11 flex-none place-items-center rounded-2xl border border-line bg-surface-2 text-base font-bold text-fg/90 transition-[transform,opacity] duration-150 ease-(--ease-out) active:scale-[0.94] disabled:opacity-30"
     >
-      {children}
+      <span aria-hidden>{icon}</span>
     </button>
   );
 }
