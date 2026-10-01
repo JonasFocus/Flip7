@@ -27,7 +27,7 @@
 
 /* ---- The 3D wheel ---- */
 .rl-stage {
-  --rl-h: clamp(108px, 19dvh, 170px);
+  --rl-h: clamp(88px, 13dvh, 112px);
   position: relative;
   height: var(--rl-h);
   display: grid;
@@ -133,76 +133,80 @@
 .rl-pill[data-c="red"] { background: var(--rl-red); }
 .rl-pill[data-c="green"] { background: var(--rl-green); }
 
+/* ---- Betting board: borderless graphite tiles on one quiet panel; red/black is only a tint, the one accent is amber ---- */
 .rl-board {
+  --rl-tile: oklch(0.255 0.006 260);
+  --rl-tile-out: oklch(0.225 0.006 260);
+  --rl-ink: oklch(0.93 0.004 260);
+  --rl-red-ink: oklch(0.76 0.13 25);
+  --rl-gold: oklch(0.89 0.18 98);
   display: grid;
-  grid-template-columns: repeat(3, 1fr) minmax(0, 0.55fr) minmax(0, 0.6fr);
-  /* Fills the space it's given (no scrolling on most phones); only below the minimum row height does it scroll. */
+  grid-template-columns: repeat(3, 1fr) 0.62fr 0.7fr;
+  /* Fills the space it's given; rows never shrink under a thumb-sized 44px, so a short screen scrolls instead. */
   min-height: 100%;
-  grid-template-rows: repeat(14, minmax(22px, 1fr));
-  border-radius: 0.875rem;
-  background: var(--rl-felt);
-  box-shadow:
-    0 0 0 1px oklch(0.42 0.005 260 / 0.7),
-    0 0 0 3px oklch(0.15 0.005 260),
-    0 0 0 3.5px var(--rl-brass-dim),
-    inset 0 0 36px oklch(0 0 0 / 0.4),
-    0 14px 28px -14px oklch(0 0 0 / 0.8);
+  grid-template-rows: repeat(14, minmax(46px, 1fr));
+  padding: 3px;
+  border-radius: 1.25rem;
+  background: oklch(0.185 0.006 260);
   -webkit-tap-highlight-color: transparent;
 }
 .rl-nums { position: relative; grid-column: 1 / 4; grid-row: 1 / 14; display: grid; grid-template: repeat(13, 1fr) / repeat(3, 1fr); touch-action: manipulation; }
 
+/* The button is the hit area; the visible tile is a rounded pseudo-element inset from it, so gaps replace borders. */
 .rl-cell {
   position: relative;
+  isolation: isolate;
   display: grid;
   place-items: center;
+  align-content: center;
+  gap: 3px;
   font-family: var(--font-sans);
-  font-size: clamp(13px, 2.1dvh, 16px);
-  font-weight: 600;
+  font-size: 17px;
+  font-weight: 500;
+  line-height: 1;
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0.01em;
-  color: oklch(0.98 0.01 90);
-  text-shadow: 0 1px 1px oklch(0 0 0 / 0.5);
-  box-shadow: inset 0 0 0 0.5px oklch(0.85 0.06 85 / 0.3), inset 0 1px 0 oklch(1 0 0 / 0.07);
+  color: var(--rl-ink);
   user-select: none;
   -webkit-user-select: none;
   touch-action: manipulation;
-  transition: opacity 400ms var(--ease-out), filter 120ms var(--ease-out);
+  transition: color 160ms var(--ease-out), opacity 400ms var(--ease-out);
 }
-.rl-nums > .rl-cell:first-child { border-radius: 0.875rem 0.875rem 0 0; }
-.rl-board > .rl-cell:nth-last-child(3) { border-bottom-left-radius: 0.875rem; }
-.rl-cell[data-c="red"] { background: var(--rl-red); }
-.rl-cell[data-c="black"] { background: var(--rl-black); }
-.rl-cell[data-c="green"] { background: var(--rl-green); font-size: 18px; }
-.rl-cell[data-out] {
-  background: linear-gradient(180deg, oklch(0.27 0.007 260), oklch(0.22 0.006 260));
-  font-size: 11.5px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  color: oklch(0.9 0.02 85);
-}
-.rl-cell[data-out][data-c="red"] { background: var(--rl-red); color: oklch(0.98 0.01 90); }
-.rl-cell[data-out][data-c="black"] { background: var(--rl-black); color: oklch(0.98 0.01 90); }
-.rl-lab { writing-mode: vertical-rl; transform: rotate(180deg); }
-.rl-cell[data-hl]::after {
+.rl-cell::after {
   content: "";
   position: absolute;
-  inset: 0;
-  background: oklch(0.89 0.18 98 / 0.3);
-  box-shadow: inset 0 0 0 2px var(--color-accent);
-  pointer-events: none;
+  inset: 2px;
+  z-index: -1;
+  border-radius: 0.7rem;
+  background: var(--rl-tile);
+  transition: background-color 160ms var(--ease-out), box-shadow 160ms var(--ease-out), transform 160ms var(--ease-out);
 }
-.rl-cell:active { filter: brightness(1.25); }
-
-/* Once the ball lands the winners light up and everything else steps back. */
-.rl-board[data-settled] .rl-cell:not([data-win]) { opacity: 0.5; }
-.rl-cell[data-win] {
-  z-index: 1;
-  animation: rl-win 1s ease-in-out infinite;
-  box-shadow: inset 0 0 0 2.5px oklch(0.95 0.12 95), 0 0 16px 1px oklch(0.89 0.18 98 / 0.55);
+.rl-cell[data-c="red"] { color: var(--rl-red-ink); }
+.rl-cell[data-c="green"] { color: oklch(0.78 0.11 160); font-size: 18px; }
+.rl-cell[data-out] {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: oklch(0.8 0.005 260);
 }
-.rl-board[data-closed] .rl-cell { filter: saturate(0.85) brightness(0.9); }
+.rl-cell[data-out]::after { background: var(--rl-tile-out); }
+.rl-cell[data-out] > span:not(.rl-mark) { display: grid; place-items: center; gap: 4px; }
+.rl-cell[data-out] b { font-size: 15px; font-weight: 500; letter-spacing: 0; color: var(--rl-ink); }
+.rl-dot { width: 14px; height: 14px; border-radius: 50%; }
+.rl-dot[data-c="red"] { background: oklch(0.64 0.19 25); }
+.rl-dot[data-c="black"] { box-shadow: inset 0 0 0 1.5px oklch(0.85 0.005 260 / 0.75); }
 
-.rl-mark { position: absolute; z-index: 2; transform: translate(-50%, -50%); pointer-events: none; transition: opacity 400ms; }
+.rl-cell[data-hl]::after { background: oklch(0.89 0.18 98 / 0.14); box-shadow: inset 0 0 0 1px oklch(0.89 0.18 98 / 0.6); }
+.rl-cell:active::after { background: oklch(0.31 0.008 260); transform: scale(0.97); }
+
+/* Once the ball lands the winners get a gold ring and the rest step back. */
+.rl-board[data-settled] .rl-cell:not([data-win]) { opacity: 0.35; }
+.rl-cell[data-win] { z-index: 1; color: var(--rl-gold); }
+.rl-cell[data-win]::after { background: oklch(0.89 0.18 98 / 0.12); box-shadow: inset 0 0 0 1.5px var(--rl-gold); animation: rl-win 1.4s ease-in-out infinite; }
+.rl-board[data-closed] .rl-cell { opacity: 0.6; }
+.rl-board[data-settled][data-closed] .rl-cell:not([data-win]) { opacity: 0.35; }
+
+.rl-mark { position: absolute; z-index: 2; transform: translate(-50%, -50%); pointer-events: none; transition: opacity 400ms; filter: drop-shadow(0 2px 3px oklch(0 0 0 / 0.5)); }
 .rl-mark[data-lose] { opacity: 0.3; }
 .rl-mark[data-win] { animation: rl-hop 700ms var(--ease-spring) 2; }
 
@@ -264,7 +268,7 @@
   50% { box-shadow: 0 0 0 3px oklch(0.89 0.18 98 / 0.35), 0 0 14px oklch(0.89 0.18 98 / 0.5); }
 }
 @keyframes rl-win {
-  50% { filter: brightness(1.4); }
+  50% { background: oklch(0.89 0.18 98 / 0.24); }
 }
 @keyframes rl-pocket {
   50% { opacity: 0.55; }
@@ -280,7 +284,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .rl-cell[data-win], .rl-mark[data-win], .rl-pocket-glow, .rl-rise, .rl-hero, .rl-sit { animation: none; }
-  .rl-stage, .rl-mark, .rl-cell { transition: none; }
+  .rl-cell[data-win]::after, .rl-mark[data-win], .rl-pocket-glow, .rl-rise, .rl-hero, .rl-sit { animation: none; }
+  .rl-stage, .rl-mark, .rl-cell, .rl-cell::after { transition: none; }
+  .rl-cell:active::after { transform: none; }
   .rl-root .animate-pop { animation: none; }
 }
