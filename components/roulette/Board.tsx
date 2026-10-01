@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent } from "react";
+import { Fragment, useEffect, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent } from "react";
 import { Chip } from "@/components/casino/Chip";
 import { betTotals, colorOf, spotNumbers, spotWins, straightSpot } from "@/lib/roulette";
 import type { RlPlayer, RlSpot } from "@/lib/roulette/types";
@@ -100,7 +100,7 @@ export function Board({
     onPlace(spotAt(e.clientX - r.left, e.clientY - r.top, r.width, r.height));
   }
 
-  const outside = (spot: RlSpot, label: string, style: CSSProperties, extra?: { tone?: "red" | "black"; vertical?: boolean }) => {
+  const outside = (spot: RlSpot, label: string, style: CSSProperties, tone?: "red" | "black") => {
     const m = marks.get(spot);
     return (
       <button
@@ -109,7 +109,7 @@ export function Board({
         aria-label={spotName(spot)}
         aria-disabled={!open}
         data-out
-        data-c={extra?.tone}
+        data-c={tone}
         data-win={win !== null && spotWins(spot, win) ? true : undefined}
         style={style}
         className="rl-cell"
@@ -119,7 +119,10 @@ export function Board({
         onPointerLeave={() => setPreview(null)}
         onClick={() => open && onPlace(spot)}
       >
-        <span className={extra?.vertical ? "rl-lab" : undefined}>{label}</span>
+        <span>
+          {tone && <i className="rl-dot" data-c={tone} />}
+          {label.split(" ").map((w, i) => (i === 0 ? <Fragment key={w}>{w}</Fragment> : <b key={w}>{w}</b>))}
+        </span>
         {m && (
           <span className="rl-mark top-1/2 left-1/2" {...markState(spot)}>
             <Marker marks={m} />
@@ -186,8 +189,8 @@ export function Board({
         </div>
       </div>
 
-      {DOZENS.map((d, i) => outside(d.spot, d.label, { gridColumn: 4, gridRow: `${2 + 4 * i} / span 4` }, { vertical: true }))}
-      {EVEN_MONEY.map((o, i) => outside(o.spot, o.label, { gridColumn: 5, gridRow: `${2 + 2 * i} / span 2` }, { tone: o.tone, vertical: true }))}
+      {DOZENS.map((d, i) => outside(d.spot, d.label, { gridColumn: 4, gridRow: `${2 + 4 * i} / span 4` }))}
+      {EVEN_MONEY.map((o, i) => outside(o.spot, o.label, { gridColumn: 5, gridRow: `${2 + 2 * i} / span 2` }, o.tone))}
       {COLUMNS.map((spot, i) => outside(spot, "2:1", { gridColumn: i + 1, gridRow: 14 }))}
     </div>
   );

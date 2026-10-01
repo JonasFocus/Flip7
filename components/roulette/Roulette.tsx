@@ -345,9 +345,14 @@ function Betting({ conn, me, amount, setChip, secs }: { conn: RlConnection; me: 
 
   return (
     <>
-      <p className="text-center text-[11px] leading-snug text-muted tabular-nums">
-        {total === 0 ? "Tap numbers, lines or corners" : `${shortAmount(total)} on the layout`} · {MIN_BET}–{MAX_INSIDE} inside, {shortAmount(MAX_OUTSIDE)} outside
-      </p>
+      <div className="flex items-baseline justify-between gap-3 px-1 tabular-nums">
+        <p aria-live="polite" className="text-xs text-muted">
+          Bet <span className={cx("ml-1 font-sans text-lg font-bold", total > 0 ? "text-fg" : "text-muted")}>{total.toLocaleString()}</span>
+        </p>
+        <p className="text-[11px] text-muted">
+          {MIN_BET}–{MAX_INSIDE} inside · {shortAmount(MAX_OUTSIDE)} outside
+        </p>
+      </div>
       <div className="grid grid-cols-5 justify-items-center" role="radiogroup" aria-label="Chip value">
         {RACK.map((v) => (
           <button
@@ -388,7 +393,7 @@ function Tool({ label, icon, disabled, onClick }: { label: string; icon: string;
       aria-label={label}
       disabled={disabled}
       onClick={onClick}
-      className="grid size-11 flex-none place-items-center rounded-2xl border border-line bg-surface-2 text-base font-bold text-fg/90 transition-[transform,opacity] duration-150 ease-(--ease-out) active:scale-[0.94] disabled:opacity-30"
+      className="grid size-11 flex-none place-items-center rounded-2xl bg-surface-2 text-base font-medium text-fg/90 transition-[transform,opacity] duration-150 ease-(--ease-out) active:scale-[0.94] disabled:opacity-30"
     >
       <span aria-hidden>{icon}</span>
     </button>

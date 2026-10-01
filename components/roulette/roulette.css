@@ -12,117 +12,51 @@
     oklch(0.2 0.006 260);
 }
 
-/* Wheel pockets: enamel comes from the SVG gradients, the frets are brass. */
-.rl-pocket { stroke: var(--rl-brass); stroke-opacity: 0.8; stroke-width: 0.45; }
-.rl-pocket[data-lit] { stroke: oklch(0.97 0.1 95); stroke-opacity: 1; stroke-width: 0.9; filter: brightness(1.45); }
-.rl-pocket-glow {
-  fill: oklch(0.89 0.18 98 / 0.28);
-  stroke: oklch(0.97 0.12 95);
-  stroke-width: 1.2;
-  stroke-linejoin: round;
-  filter: drop-shadow(0 0 2.4px oklch(0.89 0.18 98));
-  animation: rl-pocket 1.1s ease-in-out infinite;
-  pointer-events: none;
-}
-
-/* ---- The 3D wheel ---- */
+/* ==== Wheel (flat, graphite) ==== */
 .rl-stage {
-  --rl-h: clamp(108px, 19dvh, 170px);
+  --rl-h: clamp(104px, 15dvh, 128px);
   position: relative;
   height: var(--rl-h);
   display: grid;
   place-items: center;
   transition: height 650ms var(--ease-drawer);
 }
-.rl-stage[data-big] { --rl-h: clamp(230px, 44dvh, 380px); }
-/* The plane is square; leaning back it projects to about two thirds of its width, so size it from the stage height. */
-.rl-stage-wheel { width: min(92%, calc(var(--rl-h) * 1.38)); }
+.rl-stage[data-big] { --rl-h: clamp(164px, 27dvh, 216px); }
+.rl-stage-wheel { height: calc(100% - 8px); }
 
-.rl-wheel {
-  position: relative;
-  container-type: inline-size;
-  perspective: 160cqw;
-  perspective-origin: 50% 20%;
-}
-.rl-wheel::before {
-  /* Contact shadow on the table under the bowl (flat, outside the 3D plane so it never flattens it). */
-  content: "";
-  position: absolute;
-  left: 4%;
-  right: 4%;
-  top: 22%;
-  bottom: -2%;
-  border-radius: 50%;
-  background: radial-gradient(closest-side, oklch(0 0 0 / 0.6), transparent);
-  filter: blur(6px);
-}
-.rl-plane {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 1;
-  margin-block: -16cqw;
-  transform-style: preserve-3d;
-  transform: rotateX(50deg);
-}
-.rl-layer { position: absolute; inset: 0; width: 100%; height: 100%; }
-.rl-rotor { transform-style: preserve-3d; will-change: transform; }
-.rl-rim-side {
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  background: radial-gradient(circle, oklch(0.2 0.035 45) 62%, oklch(0.12 0.02 45));
-  box-shadow: inset 0 0 0 1px oklch(0.75 0.07 85 / 0.25);
-}
-.rl-rim-side:nth-child(1) { transform: translateZ(-7cqw); background: oklch(0.1 0.015 45); }
-.rl-rim-side:nth-child(2) { transform: translateZ(-4.7cqw); }
-.rl-rim-side:nth-child(3) { transform: translateZ(-2.4cqw); }
+.rl-wheel { position: relative; aspect-ratio: 1; }
+.rl-layer { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.rl-bezel { fill: oklch(0.17 0.005 260); stroke: oklch(0.5 0.006 260 / 0.7); stroke-width: 0.8; }
+.rl-track { fill: oklch(0.13 0.004 260); }
+.rl-lip { fill: none; stroke: oklch(1 0 0 / 0.14); stroke-width: 0.6; }
+.rl-deflector { fill: oklch(0.55 0.006 260); }
+.rl-rotor { will-change: transform; }
 
-.rl-turret {
-  position: absolute;
-  left: 30%;
-  top: 30%;
-  width: 40%;
-  height: 40%;
-  transform: translateZ(2.4cqw);
-  transform-style: preserve-3d;
-}
-.rl-turret-arm {
-  position: absolute;
-  left: 46%;
-  top: 0;
-  width: 8%;
-  height: 100%;
-  border-radius: 999px;
-  background: linear-gradient(90deg, oklch(0.55 0.07 72), oklch(0.92 0.07 92) 45%, oklch(0.62 0.08 75));
-  box-shadow: 0 0 0 0.3cqw oklch(0.2 0.03 60 / 0.6);
-}
-.rl-turret-knob {
-  position: absolute;
-  left: 38%;
-  top: 38%;
-  width: 24%;
-  height: 24%;
-  border-radius: 50%;
-  transform: translateZ(1.6cqw);
-  background: radial-gradient(circle at 35% 30%, oklch(0.98 0.04 95), oklch(0.78 0.09 82) 45%, oklch(0.42 0.07 70));
-  box-shadow: 0 0 0 0.3cqw oklch(0.3 0.05 60);
-}
+.rl-pocket { stroke: oklch(0.1 0.004 260); stroke-width: 0.8; fill: oklch(0.2 0.005 260); transition: fill 250ms var(--ease-out); }
+.rl-pocket[data-c="red"] { fill: oklch(0.38 0.1 25); }
+.rl-pocket[data-c="green"] { fill: oklch(0.36 0.08 160); }
+.rl-pocket[data-lit] { fill: color-mix(in oklch, var(--color-accent) 55%, oklch(0.2 0.005 260)); stroke: var(--color-accent); stroke-width: 1.2; animation: rl-pocket 1.4s ease-in-out infinite; }
+.rl-nums-ring text { fill: oklch(0.9 0.005 260 / 0.85); font: 600 6px var(--font-sans); font-variant-numeric: tabular-nums; }
+/* Too small to read at rest; the numbers appear when the wheel grows for the spin. */
+.rl-nums-ring { opacity: 0; transition: opacity 300ms; }
+.rl-stage[data-big] .rl-nums-ring { opacity: 1; }
+.rl-hub { fill: oklch(0.15 0.004 260); stroke: oklch(1 0 0 / 0.14); stroke-width: 0.6; }
+.rl-hub-ring { fill: none; stroke: oklch(1 0 0 / 0.07); stroke-width: 0.5; }
+.rl-hub-pin { fill: oklch(0.55 0.006 260); }
 
-.rl-ball, .rl-ball-shadow {
+.rl-ball {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 6.4%;
-  height: 6.4%;
-  margin: -3.2%;
+  width: 4.5%;
+  aspect-ratio: 1;
+  margin: -2.25%;
   border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, oklch(1 0 0), oklch(0.92 0.005 260) 55%, oklch(0.7 0.006 260));
+  box-shadow: 0 1px 2px oklch(0 0 0 / 0.7);
   will-change: transform, opacity;
 }
-.rl-ball {
-  background: radial-gradient(circle at 35% 30%, oklch(1 0 0), oklch(0.94 0.01 90) 45%, oklch(0.6 0.015 80));
-  box-shadow: inset -0.4cqw -0.5cqw 0.8cqw oklch(0 0 0 / 0.25);
-}
-.rl-ball-shadow { background: radial-gradient(closest-side, oklch(0 0 0 / 0.85), transparent); }
+/* ==== end wheel ==== */
 
 /* Pill for a result number: enamel in the pocket colour, a brass hairline. */
 .rl-pill {
@@ -133,76 +67,80 @@
 .rl-pill[data-c="red"] { background: var(--rl-red); }
 .rl-pill[data-c="green"] { background: var(--rl-green); }
 
+/* ---- Betting board: borderless graphite tiles on one quiet panel; red/black is only a tint, the one accent is amber ---- */
 .rl-board {
+  --rl-tile: oklch(0.255 0.006 260);
+  --rl-tile-out: oklch(0.225 0.006 260);
+  --rl-ink: oklch(0.93 0.004 260);
+  --rl-red-ink: oklch(0.76 0.13 25);
+  --rl-gold: oklch(0.89 0.18 98);
   display: grid;
-  grid-template-columns: repeat(3, 1fr) minmax(0, 0.55fr) minmax(0, 0.6fr);
-  /* Fills the space it's given (no scrolling on most phones); only below the minimum row height does it scroll. */
+  grid-template-columns: repeat(3, 1fr) 0.62fr 0.7fr;
+  /* Fills the space it's given; rows never shrink under a thumb-sized 44px, so a short screen scrolls instead. */
   min-height: 100%;
-  grid-template-rows: repeat(14, minmax(22px, 1fr));
-  border-radius: 0.875rem;
-  background: var(--rl-felt);
-  box-shadow:
-    0 0 0 1px oklch(0.42 0.005 260 / 0.7),
-    0 0 0 3px oklch(0.15 0.005 260),
-    0 0 0 3.5px var(--rl-brass-dim),
-    inset 0 0 36px oklch(0 0 0 / 0.4),
-    0 14px 28px -14px oklch(0 0 0 / 0.8);
+  grid-template-rows: repeat(14, minmax(46px, 1fr));
+  padding: 3px;
+  border-radius: 1.25rem;
+  background: oklch(0.185 0.006 260);
   -webkit-tap-highlight-color: transparent;
 }
 .rl-nums { position: relative; grid-column: 1 / 4; grid-row: 1 / 14; display: grid; grid-template: repeat(13, 1fr) / repeat(3, 1fr); touch-action: manipulation; }
 
+/* The button is the hit area; the visible tile is a rounded pseudo-element inset from it, so gaps replace borders. */
 .rl-cell {
   position: relative;
+  isolation: isolate;
   display: grid;
   place-items: center;
+  align-content: center;
+  gap: 3px;
   font-family: var(--font-sans);
-  font-size: clamp(13px, 2.1dvh, 16px);
-  font-weight: 600;
+  font-size: 17px;
+  font-weight: 500;
+  line-height: 1;
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0.01em;
-  color: oklch(0.98 0.01 90);
-  text-shadow: 0 1px 1px oklch(0 0 0 / 0.5);
-  box-shadow: inset 0 0 0 0.5px oklch(0.85 0.06 85 / 0.3), inset 0 1px 0 oklch(1 0 0 / 0.07);
+  color: var(--rl-ink);
   user-select: none;
   -webkit-user-select: none;
   touch-action: manipulation;
-  transition: opacity 400ms var(--ease-out), filter 120ms var(--ease-out);
+  transition: color 160ms var(--ease-out), opacity 400ms var(--ease-out);
 }
-.rl-nums > .rl-cell:first-child { border-radius: 0.875rem 0.875rem 0 0; }
-.rl-board > .rl-cell:nth-last-child(3) { border-bottom-left-radius: 0.875rem; }
-.rl-cell[data-c="red"] { background: var(--rl-red); }
-.rl-cell[data-c="black"] { background: var(--rl-black); }
-.rl-cell[data-c="green"] { background: var(--rl-green); font-size: 18px; }
-.rl-cell[data-out] {
-  background: linear-gradient(180deg, oklch(0.27 0.007 260), oklch(0.22 0.006 260));
-  font-size: 11.5px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  color: oklch(0.9 0.02 85);
-}
-.rl-cell[data-out][data-c="red"] { background: var(--rl-red); color: oklch(0.98 0.01 90); }
-.rl-cell[data-out][data-c="black"] { background: var(--rl-black); color: oklch(0.98 0.01 90); }
-.rl-lab { writing-mode: vertical-rl; transform: rotate(180deg); }
-.rl-cell[data-hl]::after {
+.rl-cell::after {
   content: "";
   position: absolute;
-  inset: 0;
-  background: oklch(0.89 0.18 98 / 0.3);
-  box-shadow: inset 0 0 0 2px var(--color-accent);
-  pointer-events: none;
+  inset: 2px;
+  z-index: -1;
+  border-radius: 0.7rem;
+  background: var(--rl-tile);
+  transition: background-color 160ms var(--ease-out), box-shadow 160ms var(--ease-out), transform 160ms var(--ease-out);
 }
-.rl-cell:active { filter: brightness(1.25); }
-
-/* Once the ball lands the winners light up and everything else steps back. */
-.rl-board[data-settled] .rl-cell:not([data-win]) { opacity: 0.5; }
-.rl-cell[data-win] {
-  z-index: 1;
-  animation: rl-win 1s ease-in-out infinite;
-  box-shadow: inset 0 0 0 2.5px oklch(0.95 0.12 95), 0 0 16px 1px oklch(0.89 0.18 98 / 0.55);
+.rl-cell[data-c="red"] { color: var(--rl-red-ink); }
+.rl-cell[data-c="green"] { color: oklch(0.78 0.11 160); font-size: 18px; }
+.rl-cell[data-out] {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: oklch(0.8 0.005 260);
 }
-.rl-board[data-closed] .rl-cell { filter: saturate(0.85) brightness(0.9); }
+.rl-cell[data-out]::after { background: var(--rl-tile-out); }
+.rl-cell[data-out] > span:not(.rl-mark) { display: grid; place-items: center; gap: 4px; }
+.rl-cell[data-out] b { font-size: 15px; font-weight: 500; letter-spacing: 0; color: var(--rl-ink); }
+.rl-dot { width: 14px; height: 14px; border-radius: 50%; }
+.rl-dot[data-c="red"] { background: oklch(0.64 0.19 25); }
+.rl-dot[data-c="black"] { box-shadow: inset 0 0 0 1.5px oklch(0.85 0.005 260 / 0.75); }
 
-.rl-mark { position: absolute; z-index: 2; transform: translate(-50%, -50%); pointer-events: none; transition: opacity 400ms; }
+.rl-cell[data-hl]::after { background: oklch(0.89 0.18 98 / 0.14); box-shadow: inset 0 0 0 1px oklch(0.89 0.18 98 / 0.6); }
+.rl-cell:active::after { background: oklch(0.31 0.008 260); transform: scale(0.97); }
+
+/* Once the ball lands the winners get a gold ring and the rest step back. */
+.rl-board[data-settled] .rl-cell:not([data-win]) { opacity: 0.35; }
+.rl-cell[data-win] { z-index: 1; color: var(--rl-gold); }
+.rl-cell[data-win]::after { background: oklch(0.89 0.18 98 / 0.12); box-shadow: inset 0 0 0 1.5px var(--rl-gold); animation: rl-win 1.4s ease-in-out infinite; }
+.rl-board[data-closed] .rl-cell { opacity: 0.6; }
+.rl-board[data-settled][data-closed] .rl-cell:not([data-win]) { opacity: 0.35; }
+
+.rl-mark { position: absolute; z-index: 2; transform: translate(-50%, -50%); pointer-events: none; transition: opacity 400ms; filter: drop-shadow(0 2px 3px oklch(0 0 0 / 0.5)); }
 .rl-mark[data-lose] { opacity: 0.3; }
 .rl-mark[data-win] { animation: rl-hop 700ms var(--ease-spring) 2; }
 
@@ -264,10 +202,10 @@
   50% { box-shadow: 0 0 0 3px oklch(0.89 0.18 98 / 0.35), 0 0 14px oklch(0.89 0.18 98 / 0.5); }
 }
 @keyframes rl-win {
-  50% { filter: brightness(1.4); }
+  50% { background: oklch(0.89 0.18 98 / 0.24); }
 }
 @keyframes rl-pocket {
-  50% { opacity: 0.55; }
+  50% { filter: brightness(0.8); }
 }
 @keyframes rl-hop {
   40% { transform: translate(-50%, calc(-50% - 7px)) scale(1.18); }
@@ -280,7 +218,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .rl-cell[data-win], .rl-mark[data-win], .rl-pocket-glow, .rl-rise, .rl-hero, .rl-sit { animation: none; }
-  .rl-stage, .rl-mark, .rl-cell { transition: none; }
+  .rl-cell[data-win]::after, .rl-mark[data-win], .rl-pocket[data-lit], .rl-rise, .rl-hero, .rl-sit { animation: none; }
+  .rl-stage, .rl-mark, .rl-cell, .rl-cell::after { transition: none; }
+  .rl-cell:active::after { transform: none; }
   .rl-root .animate-pop { animation: none; }
 }
