@@ -43,7 +43,7 @@
   box-shadow: 0 0.04em 0 oklch(0.75 0.01 90), 0 0.08em 0.16em oklch(0 0 0 / 0.35);
 }
 .bj-front {
-  background: linear-gradient(170deg, oklch(1 0 0), oklch(0.95 0.008 90));
+  background: oklch(0.98 0.005 90); /* flat, so the corner index patch blends in */
   color: oklch(0.22 0.02 275);
   font-family: var(--font-sans);
   font-weight: 800;
