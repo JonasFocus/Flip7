@@ -40,6 +40,20 @@ const SEAT_POS = Array.from({ length: SEATS }, (_, i) => {
 
 const chipColor = (amount: number) => [...CHIPS].reverse().find((c) => amount >= c.value)?.color ?? "var(--color-card-0)";
 const short = (n: number) => (n >= 10_000 ? `${Math.round(n / 1000)}k` : n >= 1000 ? `${(n / 1000).toFixed(1).replace(/\.0$/, "")}k` : `${n}`);
+const SWEEP_MS = 700; // end of settle: cards sweep to the discard tray before the table resets
+const CHIP_FLY_MS = 650;
+
+const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+// Distance from el's centre to the centre of a landmark on the felt ([data-shoe], [data-dealer], [data-discard]).
+function gapTo(el: Element, selector: string): { dx: number; dy: number } | null {
+  const target = el.closest("[data-table]")?.querySelector(selector);
+  if (!target) return null;
+  const a = el.getBoundingClientRect();
+  const b = target.getBoundingClientRect();
+  return { dx: b.left + b.width / 2 - (a.left + a.width / 2), dy: b.top + b.height / 2 - (a.top + a.height / 2) };
+}
+
 const inHand = (g: BjState) => g.players.filter((p) => p.cards.length > 0).sort((a, b) => (a.seat ?? 0) - (b.seat ?? 0));
 
 function totalLabel(cards: readonly (BjCard | null)[]): string {
@@ -49,7 +63,7 @@ function totalLabel(cards: readonly (BjCard | null)[]): string {
 }
 
 // Settle: the hole card flips, then the dealer draws one card per DEALER_CARD_MS. Derived from the deadline so a reload lands mid-reveal.
-function useDealerShown(conn: BjConnection): { shown: number; done: boolean } {
+function useDealerShown(conn: BjConnection): { shown: number; done: boolean; clearing: boolean } {
   const { game, deadlineAt } = conn;
   const len = game.dealer.length;
   const settling = game.phase === "settle" && deadlineAt !== undefined;
@@ -59,18 +73,18 @@ function useDealerShown(conn: BjConnection): { shown: number; done: boolean } {
     const t = setInterval(() => setNow(Date.now()), 100);
     return () => clearInterval(t);
   }, [settling]);
-  if (!settling) return { shown: len, done: true };
+  if (!settling) return { shown: len, done: true, clearing: false };
   // On a dealer blackjack the hand settles mid-deal, so `start` can still be ahead while the cards land.
   const start = deadlineAt - SETTLE_MS - Math.max(0, len - 2) * DEALER_CARD_MS;
   const shown = Math.min(len, 2 + Math.max(0, Math.floor((now - start) / DEALER_CARD_MS)));
-  return { shown, done: now >= start && shown >= len };
+  return { shown, done: now >= start && shown >= len, clearing: now >= deadlineAt - SWEEP_MS };
 }
 
 export function Blackjack({ conn }: { conn: BjConnection }) {
   const [toast, setToast] = useState<string | null>(null);
   const { game } = conn;
   const me = game.players.find((p) => p.id === conn.you);
-  const { shown, done } = useDealerShown(conn);
+  const { shown, done, clearing } = useDealerShown(conn);
   const revealed = game.phase === "settle" && done;
   const myTurn = game.phase === "playing" && game.turnId === conn.you;
   const left = useSecondsLeft(conn.deadlineAt);
@@ -112,14 +126,26 @@ export function Blackjack({ conn }: { conn: BjConnection }) {
         </p>
       </header>
 
-      <Felt conn={conn} shown={shown} revealed={revealed} secs={secs} />
+      <Felt conn={conn} shown={shown} revealed={revealed} clearing={clearing} secs={secs} />
 
       <Panel conn={conn} me={me} myTurn={myTurn} revealed={revealed} secs={secs} dealing={dealing} />
     </main>
   );
 }
 
-function Felt({ conn, shown, revealed, secs }: { conn: BjConnection; shown: number; revealed: boolean; secs: number | null }) {
+function Felt({
+  conn,
+  shown,
+  revealed,
+  clearing,
+  secs,
+}: {
+  conn: BjConnection;
+  shown: number;
+  revealed: boolean;
+  clearing: boolean;
+  secs: number | null;
+}) {
   const { game } = conn;
   const arcId = useId();
   const me = game.players.find((p) => p.id === conn.you);
@@ -157,12 +183,13 @@ function Felt({ conn, shown, revealed, secs }: { conn: BjConnection; shown: numb
               key={`${game.round}-${i}`}
               card={c}
               delay={i < 2 ? (i * (hand.length + 1) + hand.length) * DEAL_STAGGER_MS : 0}
+              sweep={clearing}
               className={cx(i > 0 && "-ml-[calc(var(--d)*0.45)]")}
               style={{ fontSize: "var(--d)" }}
             />
           ))}
         </div>
-        <p className="flex items-center gap-1.5 rounded-full bg-ink/70 px-2.5 py-0.5 font-display text-[10px] tracking-[0.14em] text-fg/80">
+        <p data-dealer className="flex items-center gap-1.5 rounded-full bg-ink/70 px-2.5 py-0.5 font-display text-[10px] tracking-[0.14em] text-fg/80">
           DEALER
           {dealerCards.length > 0 && (
             <span
@@ -176,13 +203,14 @@ function Felt({ conn, shown, revealed, secs }: { conn: BjConnection; shown: numb
       </div>
 
       <Shoe left={game.shoeLeft} />
+      <Discard />
 
       {SEAT_POS.map((pos, seat) => {
         const p = game.players.find((x) => x.seat === seat);
         return (
           <div key={seat} className="absolute z-10 -translate-x-1/2 -translate-y-1/2" style={pos}>
             {p ? (
-              <Seat conn={conn} player={p} order={hand.indexOf(p)} inHandCount={hand.length} revealed={revealed} secs={secs} />
+              <Seat conn={conn} player={p} order={hand.indexOf(p)} inHandCount={hand.length} revealed={revealed} clearing={clearing} secs={secs} />
             ) : (
               <button
                 type="button"
@@ -221,12 +249,26 @@ function Shoe({ left }: { left: number }) {
   );
 }
 
+function Discard() {
+  return (
+    <div aria-hidden className="absolute top-[3%] left-[4%] flex flex-col items-center gap-1">
+      <div data-discard className="relative h-[42px] w-[30px] rotate-[-8deg]">
+        {[0, 1].map((i) => (
+          <Card key={i} card={null} slide={false} className="absolute opacity-60" style={{ fontSize: 28, left: i * 2, top: -i * 1.5 }} />
+        ))}
+      </div>
+      <p className="text-[8px] font-bold tracking-[0.14em] text-fg/50">DISCARD</p>
+    </div>
+  );
+}
+
 function Seat({
   conn,
   player,
   order,
   inHandCount,
   revealed,
+  clearing,
   secs,
 }: {
   conn: BjConnection;
@@ -234,6 +276,7 @@ function Seat({
   order: number;
   inHandCount: number;
   revealed: boolean;
+  clearing: boolean;
   secs: number | null;
 }) {
   const { game } = conn;
@@ -254,6 +297,7 @@ function Seat({
                 key={`${game.round}-${i}`}
                 card={c}
                 delay={i < 2 ? (i * (inHandCount + 1) + order) * DEAL_STAGGER_MS : 0}
+                sweep={clearing}
                 className={cx("absolute transition-[filter] duration-500", bust && "brightness-75")}
                 style={{ fontSize: "var(--s)", left: `calc(${i} * var(--s) * 0.4)`, bottom: `calc(${i} * var(--s) * 0.16)` }}
               />
@@ -268,7 +312,7 @@ function Seat({
           >
             {bust ? "BUST" : totalLabel(player.cards)}
           </span>
-          {result && <ResultTag outcome={result.outcome} net={result.net} />}
+          {result && !clearing && <ResultTag outcome={result.outcome} net={result.net} />}
         </div>
       )}
 
@@ -279,7 +323,21 @@ function Seat({
           result && result.net > 0 && "bj-win border-active",
         )}
       >
-        {player.bet > 0 ? <Chip key={player.bet} amount={player.bet} className="animate-pop" /> : <Avatar id={player.id} seat={player.seat ?? undefined} name={player.name} />}
+        {player.bet > 0 ? (
+          // Re-keyed when betting reopens so a lost stake comes back as a fresh rebet.
+          <Chip
+            key={`${player.bet}-${game.phase === "lobby"}`}
+            amount={player.bet}
+            flyTo={result?.outcome === "lose" ? "[data-dealer]" : undefined}
+            delay={350}
+            className="animate-pop"
+          />
+        ) : (
+          <Avatar id={player.id} seat={player.seat ?? undefined} name={player.name} />
+        )}
+        {result && result.net > 0 && (
+          <Chip amount={result.net} small flyFrom="[data-dealer]" delay={350} className="absolute -top-2 -right-3 z-10" />
+        )}
         {player.ready && game.phase === "lobby" && (
           <span className="absolute -right-1 -bottom-1 grid size-5 place-items-center rounded-full bg-active text-[11px] text-ink" aria-label="Ready">
             ✓
@@ -318,10 +376,49 @@ function ResultTag({ outcome, net }: { outcome: Outcome; net: number }) {
   );
 }
 
-function Chip({ amount, className }: { amount: number; className?: string }) {
+// flyTo: the stake is swept to the dealer (a loss). flyFrom: winnings are pushed out from the dealer.
+function Chip({
+  amount,
+  small = false,
+  flyTo,
+  flyFrom,
+  delay = 0,
+  className,
+}: {
+  amount: number;
+  small?: boolean;
+  flyTo?: string;
+  flyFrom?: string;
+  delay?: number;
+  className?: string;
+}) {
+  const ref = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    const target = flyTo ?? flyFrom;
+    if (!el || !target || reducedMotion()) return;
+    const gap = gapTo(el, target);
+    if (!gap) return;
+    const away = { transform: `translate(${gap.dx}px, ${gap.dy}px) scale(0.55)`, opacity: 0.2 };
+    const home = { transform: "none", opacity: 1 };
+    const fly = el.animate(flyTo ? [home, { ...away, opacity: 0 }] : [away, home], {
+      duration: CHIP_FLY_MS,
+      delay,
+      easing: "cubic-bezier(0.22, 0.9, 0.3, 1)",
+      fill: flyTo ? "forwards" : "backwards",
+    });
+    return () => fly.cancel();
+  }, [flyTo, flyFrom, delay]);
+
   return (
     <span
-      className={cx("bj-chip grid size-[clamp(34px,10vw,42px)] place-items-center font-display text-[11px] tabular-nums", className)}
+      ref={ref}
+      className={cx(
+        "bj-chip grid place-items-center font-display tabular-nums",
+        small ? "size-[clamp(24px,7vw,30px)] text-[9px]" : "size-[clamp(34px,10vw,42px)] text-[11px]",
+        className,
+      )}
       style={{ "--chip": chipColor(amount) } as CSSProperties}
     >
       {short(amount)}
@@ -335,12 +432,14 @@ function Card({
   card,
   slide = true,
   delay = 0,
+  sweep = false,
   className,
   style,
 }: {
   card: BjCard | null;
   slide?: boolean;
   delay?: number;
+  sweep?: boolean; // end of the hand: slide off to the discard tray
   className?: string;
   style?: CSSProperties;
 }) {
@@ -349,13 +448,10 @@ function Card({
 
   useLayoutEffect(() => {
     const el = ref.current;
-    if (!el || !onMount.slide || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    const shoe = el.closest("[data-table]")?.querySelector("[data-shoe]");
-    if (!shoe) return;
-    const to = el.getBoundingClientRect();
-    const from = shoe.getBoundingClientRect();
-    const dx = from.left + from.width / 2 - (to.left + to.width / 2);
-    const dy = from.top + from.height / 2 - (to.top + to.height / 2);
+    if (!el || !onMount.slide || reducedMotion()) return;
+    const gap = gapTo(el, "[data-shoe]");
+    if (!gap) return;
+    const { dx, dy } = gap;
     const timing: KeyframeAnimationOptions = { duration: CARD_SLIDE_MS, delay: onMount.delay, easing: "cubic-bezier(0.22, 0.9, 0.3, 1)", fill: "backwards" };
     const moves = [
       el.animate(
@@ -373,6 +469,18 @@ function Card({
     }
     return () => moves.forEach((m) => m.cancel());
   }, [onMount]);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || !sweep || reducedMotion()) return;
+    const gap = gapTo(el, "[data-discard]");
+    if (!gap) return;
+    const away = el.animate(
+      [{ transform: "none" }, { transform: `translate(${gap.dx}px, ${gap.dy}px) rotate(30deg) scale(0.6)`, opacity: 0 }],
+      { duration: SWEEP_MS - 100, easing: "cubic-bezier(0.5, 0, 0.75, 0)", fill: "forwards" },
+    );
+    return () => away.cancel();
+  }, [sweep]);
 
   const red = card?.suit === "h" || card?.suit === "d";
   return (
@@ -446,7 +554,15 @@ function Panel({
     body = revealed && me.result ? <MyResult outcome={me.result.outcome} net={me.result.net} secs={secs} /> : <Status>Dealer&apos;s turn…</Status>;
   }
 
-  return <footer className="flex min-h-[188px] flex-col justify-end gap-2.5 px-4 pt-2 pb-safe-3">{body}</footer>;
+  // Re-keyed per state so each change (betting, your move, result) eases in instead of snapping.
+  const view = !me || me.seat === null ? "rail" : game.phase === "playing" ? (dealing ? "dealing" : myTurn ? "turn" : "wait") : game.phase === "settle" ? `settle-${revealed}` : "bet";
+  return (
+    <footer className="flex min-h-[188px] flex-col justify-end px-4 pt-2 pb-safe-3">
+      <div key={view} className="bj-rise flex flex-col gap-2.5">
+        {body}
+      </div>
+    </footer>
+  );
 }
 
 function Status({ children }: { children: ReactNode }) {
