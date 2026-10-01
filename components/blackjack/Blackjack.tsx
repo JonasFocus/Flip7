@@ -166,14 +166,14 @@ function Felt({
   return (
     <section aria-label="Table" data-table className="relative mx-2 min-h-0 flex-1">
       <div aria-hidden className="bj-felt absolute inset-x-0 top-0 bottom-[3%]" />
-      <svg aria-hidden viewBox="0 0 100 40" className="pointer-events-none absolute top-[24%] left-[6%] w-[88%] font-display">
+      <svg aria-hidden viewBox="0 0 100 40" className="pointer-events-none absolute top-[24%] left-[6%] w-[88%] font-sans font-semibold">
         <path id={arcId} d="M 6 4 Q 50 34 94 4" fill="none" />
-        <text fontSize="3.6" fill="oklch(0.89 0.18 98 / 0.75)" letterSpacing="0.4">
+        <text fontSize="3.2" fill="oklch(0.86 0.005 260 / 0.5)" letterSpacing="0.9">
           <textPath href={`#${arcId}`} startOffset="50%" textAnchor="middle">
             BLACKJACK PAYS 3 TO 2
           </textPath>
         </text>
-        <text x="50" y="25" fontSize="2.6" fill="oklch(1 0 0 / 0.4)" textAnchor="middle" letterSpacing="0.3">
+        <text x="50" y="25" fontSize="2.2" fill="oklch(0.86 0.005 260 / 0.3)" textAnchor="middle" letterSpacing="0.7">
           DEALER STANDS ON ALL 17s
         </text>
       </svg>
@@ -191,12 +191,12 @@ function Felt({
             />
           ))}
         </div>
-        <p data-dealer className="flex items-center gap-1.5 rounded-full bg-ink/70 px-2.5 py-0.5 font-display text-[10px] tracking-[0.14em] text-fg/80">
+        <p data-dealer className="flex items-center gap-2 rounded-full border border-white/10 bg-black/40 px-3 py-1 text-[10px] font-semibold tracking-[0.2em] text-fg/70 backdrop-blur-sm">
           DEALER
           {dealerCards.length > 0 && (
             <span
               style={{ animationDelay: `${(game.phase === "settle" ? 2 * hand.length + 1 : hand.length) * DEAL_STAGGER_MS + CARD_SLIDE_MS}ms` }}
-              className={cx("bj-in tabular-nums", isBust(dealerCards) ? "text-danger" : "text-accent")}
+              className={cx("bj-in font-display text-sm tracking-normal tabular-nums", isBust(dealerCards) ? "text-danger" : "text-fg")}
             >
               {isBust(dealerCards) ? `${dealerTotal.total} BUST` : game.phase === "playing" ? `${dealerTotal.total}+?` : totalLabel(dealerCards)}
             </span>
@@ -244,7 +244,7 @@ function Shoe({ left }: { left: number }) {
       </div>
       <p className="font-display text-[10px] leading-none text-fg/80 tabular-nums">{left}</p>
       <span aria-hidden className="h-1 w-8 overflow-hidden rounded-full bg-ink/60">
-        <span className="block h-full bg-accent" style={{ width: `${(left / SHOE_SIZE) * 100}%` }} />
+        <span className="block h-full bg-fg/60" style={{ width: `${(left / SHOE_SIZE) * 100}%` }} />
       </span>
       <p className="text-[8px] font-bold tracking-[0.14em] text-fg/50">7 DECKS</p>
     </div>
@@ -308,8 +308,8 @@ function Seat({
           <span
             style={{ animationDelay: `${((inHandCount + 1) + order) * DEAL_STAGGER_MS + CARD_SLIDE_MS}ms` }}
             className={cx(
-              "bj-in absolute -top-2 -right-3 rounded-full px-1.5 py-px font-display text-[10px] tabular-nums shadow-hard",
-              bust ? "bg-danger text-ink" : isBlackjack(player.cards) ? "bg-accent text-ink" : "bg-ink text-fg",
+              "bj-in absolute -top-4 left-1/2 z-10 min-w-8 -translate-x-1/2 rounded-full px-2 py-0.5 text-center font-display text-[13px] leading-tight whitespace-nowrap tabular-nums shadow-[0_2px_8px_oklch(0_0_0/0.5)] ring-1 ring-black/20",
+              bust ? "bg-danger text-ink" : isBlackjack(player.cards) ? "bg-accent text-ink" : "bg-fg text-ink",
             )}
           >
             {bust ? "BUST" : totalLabel(player.cards)}
@@ -344,9 +344,6 @@ function Seat({
           <span className="absolute -right-1 -bottom-1 grid size-5 place-items-center rounded-full bg-active text-[11px] text-ink" aria-label="Ready">
             ✓
           </span>
-        )}
-        {turn && secs !== null && (
-          <span className="absolute -right-2.5 -bottom-1.5 z-10 grid size-6 place-items-center rounded-full bg-accent font-display text-[11px] text-ink tabular-nums shadow-hard ring-2 ring-bg">{secs}</span>
         )}
       </span>
       <span
@@ -571,7 +568,14 @@ function Panel({
   } else if (game.phase === "playing" && dealing) {
     body = <Status>Dealing…</Status>;
   } else if (game.phase === "playing") {
-    body = myTurn ? <Actions conn={conn} me={me} secs={secs} /> : <Status>{me.done ? "Waiting for the table…" : `${turnName} is playing…`}</Status>;
+    body = myTurn ? (
+      <Actions conn={conn} me={me} secs={secs} />
+    ) : (
+      <>
+        <TurnClock label={`${turnName}'s turn`} secs={secs} />
+        <Status>{me.done ? "You're set. Waiting on the table…" : "You're up soon…"}</Status>
+      </>
+    );
   } else {
     body = revealed && me.result ? <MyResult outcome={me.result.outcome} net={me.result.net} secs={secs} /> : <Status>Dealer&apos;s turn…</Status>;
   }
@@ -584,6 +588,23 @@ function Panel({
         {body}
       </div>
     </footer>
+  );
+}
+
+// The only turn countdown: kept down here in the panel, away from the cards and chips on the felt.
+function TurnClock({ label, secs }: { label: ReactNode; secs: number | null }) {
+  const total = TURN_MS / 1000;
+  const pct = secs === null ? 100 : Math.min(100, (secs / total) * 100);
+  return (
+    <div className="flex flex-col gap-1.5" role="timer" aria-label={secs === null ? undefined : `${secs} seconds left`}>
+      <div className="flex items-baseline justify-between font-display text-sm tracking-wide">
+        <span className="truncate">{label}</span>
+        {secs !== null && <span className={cx("tabular-nums", secs <= 5 ? "text-danger" : "text-muted")}>{secs}s</span>}
+      </div>
+      <div className="h-1.5 overflow-hidden rounded-full bg-surface-2">
+        <div className={cx("h-full rounded-full transition-[width] duration-1000 ease-linear", secs !== null && secs <= 5 ? "bg-danger" : "bg-accent")} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
   );
 }
 
@@ -667,10 +688,14 @@ function Actions({ conn, me, secs }: { conn: BjConnection; me: BjPlayer; secs: n
   };
   return (
     <>
-      <p className="text-center font-display text-sm tracking-wide">
-        Your move · <span className="text-accent tabular-nums">{totalLabel(me.cards)}</span>
-        {secs !== null && <span className="text-muted tabular-nums"> · {secs}s</span>}
-      </p>
+      <TurnClock
+        label={
+          <>
+            Your move · <span className="text-accent tabular-nums">{totalLabel(me.cards)}</span>
+          </>
+        }
+        secs={secs}
+      />
       <div className="grid grid-cols-2 gap-2.5">
         <Button size="lg" onClick={() => go("hit")}>
           Hit
