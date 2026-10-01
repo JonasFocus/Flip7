@@ -40,6 +40,7 @@ const SEAT_POS = Array.from({ length: SEATS }, (_, i) => {
 
 const chipColor = (amount: number) => [...CHIPS].reverse().find((c) => amount >= c.value)?.color ?? "var(--color-card-0)";
 const short = (n: number) => (n >= 10_000 ? `${Math.round(n / 1000)}k` : n >= 1000 ? `${(n / 1000).toFixed(1).replace(/\.0$/, "")}k` : `${n}`);
+const FAN = 0.42; // each card in a hand shows this much (in card widths) of the one beneath: its corner index
 const SWEEP_MS = 700; // end of settle: cards sweep to the discard tray before the table resets
 const CHIP_FLY_MS = 650;
 
@@ -184,8 +185,7 @@ function Felt({
               card={c}
               delay={i < 2 ? (i * (hand.length + 1) + hand.length) * DEAL_STAGGER_MS : 0}
               sweep={clearing}
-              className={cx(i > 0 && "-ml-[calc(var(--d)*0.45)]")}
-              style={{ fontSize: "var(--d)" }}
+              style={{ fontSize: "var(--d)", marginLeft: i > 0 ? `calc(var(--d) * ${FAN - 1})` : undefined }}
             />
           ))}
         </div>
@@ -291,7 +291,7 @@ function Seat({
     <div className="relative flex flex-col items-center">
       {n > 0 && (
         <div className="absolute bottom-full left-1/2 mb-0.5 -translate-x-1/2" style={{ "--s": size } as CSSProperties}>
-          <div className={cx("relative h-[calc(var(--s)*1.4+var(--rise))]", bust && "animate-shake")} style={{ width: `calc(var(--s) + ${n - 1} * var(--s) * 0.4)`, "--rise": `calc(${n - 1} * var(--s) * 0.16)` } as CSSProperties}>
+          <div className={cx("relative h-[calc(var(--s)*1.4)]", bust && "animate-shake")} style={{ width: `calc(var(--s) + ${n - 1} * var(--s) * ${FAN})` }}>
             {player.cards.map((c, i) => (
               <Card
                 key={`${game.round}-${i}`}
@@ -299,7 +299,7 @@ function Seat({
                 delay={i < 2 ? (i * (inHandCount + 1) + order) * DEAL_STAGGER_MS : 0}
                 sweep={clearing}
                 className={cx("absolute transition-[filter] duration-500", bust && "brightness-75")}
-                style={{ fontSize: "var(--s)", left: `calc(${i} * var(--s) * 0.4)`, bottom: `calc(${i} * var(--s) * 0.16)` }}
+                style={{ fontSize: "var(--s)", left: `calc(${i} * var(--s) * ${FAN})`, bottom: 0 }}
               />
             ))}
           </div>
@@ -426,6 +426,17 @@ function Chip({
   );
 }
 
+function Index({ card, flip = false }: { card: BjCard; flip?: boolean }) {
+  return (
+    <span aria-hidden className="bj-idx" data-flip={flip || undefined}>
+      <span className="bj-r" data-wide={card.rank === "10" || undefined}>
+        {card.rank}
+      </span>
+      <span className="bj-s">{SUIT[card.suit]}</span>
+    </span>
+  );
+}
+
 // Deals out of the shoe face down, spinning onto its spot, and turns over as it lands (a hidden hole card stays down).
 // Later changes (the hole card revealed) turn it over in place via the .bj-inner transition.
 function Card({
@@ -496,11 +507,15 @@ function Card({
         <span className="bj-face bj-front" data-red={red || undefined}>
           {card && (
             <>
-              <span className="bj-rank" data-wide={card.rank === "10" || undefined}>
-                {card.rank}
-              </span>
-              <span className="bj-suit-sm">{SUIT[card.suit]}</span>
-              <span className="bj-suit">{SUIT[card.suit]}</span>
+              <Index card={card} />
+              {card.rank === "J" || card.rank === "Q" || card.rank === "K" ? (
+                <span className="bj-court">
+                  <span>{card.rank}</span>
+                </span>
+              ) : (
+                <span className="bj-pip">{SUIT[card.suit]}</span>
+              )}
+              <Index card={card} flip />
             </>
           )}
         </span>

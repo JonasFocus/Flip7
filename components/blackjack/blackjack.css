@@ -43,39 +43,60 @@
   box-shadow: 0 0.04em 0 oklch(0.75 0.01 90), 0 0.08em 0.16em oklch(0 0 0 / 0.35);
 }
 .bj-front {
-  background: oklch(0.98 0.005 90);
-  color: oklch(0.2 0.02 275);
-  font-family: var(--font-display);
-  line-height: 1;
+  background: oklch(0.98 0.005 90); /* flat, so the corner index patch blends in */
+  color: oklch(0.22 0.02 275);
+  font-family: var(--font-sans);
+  font-weight: 800;
+  line-height: 0.9;
 }
 .bj-front[data-red] { color: oklch(0.55 0.21 25); }
 .bj-back {
   transform: rotateY(180deg);
   background:
-    repeating-linear-gradient(45deg, var(--color-accent) 0 0.05em, transparent 0.05em 0.12em),
+    repeating-linear-gradient(45deg, oklch(1 0 0 / 0.22) 0 0.03em, transparent 0.03em 0.1em),
+    repeating-linear-gradient(-45deg, oklch(1 0 0 / 0.22) 0 0.03em, transparent 0.03em 0.1em),
     var(--color-danger-deep);
-  box-shadow: inset 0 0 0 0.06em oklch(0.98 0.005 90), 0 0.08em 0.16em oklch(0 0 0 / 0.35);
+  box-shadow: inset 0 0 0 0.05em oklch(0.98 0.005 90), inset 0 0 0 0.09em var(--color-danger-deep), inset 0 0 0 0.1em var(--color-accent), 0 0.08em 0.16em oklch(0 0 0 / 0.35);
 }
-.bj-card .bj-rank {
+
+/* Corner index: rank over suit, readable even when a hand overlaps it to its left strip. */
+/* Sits on its own card-coloured patch above the court frame, like the index on a real face card. */
+.bj-idx {
   position: absolute;
-  top: 0.08em;
-  left: 0.08em;
-  font-size: 0.36em;
-  letter-spacing: -0.06em;
+  z-index: 1;
+  top: 0.04em;
+  left: 0.03em;
+  width: 0.34em;
+  padding: 0.02em 0 0.03em;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  border-radius: 0.04em;
+  background: oklch(0.98 0.005 90);
 }
-.bj-card .bj-rank[data-wide] { font-size: 0.3em; letter-spacing: -0.12em; }
-.bj-card .bj-suit-sm {
+.bj-idx[data-flip] { top: auto; left: auto; bottom: 0.04em; right: 0.03em; transform: rotate(180deg); }
+.bj-idx .bj-r { font-size: 0.34em; letter-spacing: -0.06em; }
+.bj-idx .bj-r[data-wide] { font-size: 0.29em; letter-spacing: -0.1em; }
+.bj-idx .bj-s { font-size: 0.26em; margin-top: 0.02em; }
+.bj-pip {
   position: absolute;
-  top: 0.5em;
-  left: 0.09em;
-  font-size: 0.3em;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 0.52em;
 }
-.bj-card .bj-suit {
+.bj-court {
   position: absolute;
-  right: 0.08em;
-  bottom: 0.04em;
-  font-size: 0.56em;
+  inset: 0.2em 0.17em;
+  display: grid;
+  place-items: center;
+  border-radius: 0.04em;
+  border: max(1px, 0.025em) solid currentColor;
+  background: color-mix(in oklch, currentColor 6%, transparent);
+  font-family: var(--font-display);
+  font-weight: 400;
 }
+.bj-court > span { font-size: 0.42em; }
 
 .bj-chip {
   border-radius: 9999px;
