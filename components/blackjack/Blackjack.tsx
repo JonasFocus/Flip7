@@ -7,6 +7,8 @@ import { useSecondsLeft } from "@/components/table/ActionBar";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { cx } from "@/components/ui/cx";
+import { CardFace } from "@/components/casino/CardFace";
+import { Chip as ChipFace, CHIPS, shortAmount as short } from "@/components/casino/Chip";
 import { Toast } from "@/components/ui/Toast";
 import { fail, success, tap } from "@/lib/client/haptics";
 import {
@@ -25,13 +27,7 @@ import {
 } from "@/lib/blackjack";
 import type { BjCard, BjConnection, BjPlayer, BjState, Outcome } from "@/lib/blackjack/types";
 
-const SUIT = { s: "♠︎", h: "♥︎", d: "♦︎", c: "♣︎" } as const;
-const CHIPS = [
-  { value: 10, color: "var(--color-card-5)" },
-  { value: 25, color: "var(--color-card-7)" },
-  { value: 100, color: "var(--color-card-12)" },
-  { value: 500, color: "var(--color-card-2)" },
-];
+const BET_CHIPS = CHIPS.filter((c) => [10, 25, 100, 500].includes(c.value));
 
 // First base (seat 1) sits at the dealer's left, i.e. the right of the screen, and acts first.
 const SEAT_POS = Array.from({ length: SEATS }, (_, i) => {
@@ -39,8 +35,6 @@ const SEAT_POS = Array.from({ length: SEATS }, (_, i) => {
   return { left: `${50 + 40 * Math.cos(a)}%`, top: `${37 + 49 * Math.sin(a)}%` };
 });
 
-const chipColor = (amount: number) => [...CHIPS].reverse().find((c) => amount >= c.value)?.color ?? "var(--color-card-0)";
-const short = (n: number) => (n >= 10_000 ? `${Math.round(n / 1000)}k` : n >= 1000 ? `${(n / 1000).toFixed(1).replace(/\.0$/, "")}k` : `${n}`);
 const FAN = 0.42; // each card in a hand shows this much (in card widths) of the one beneath: its corner index
 const SWEEP_MS = 700; // end of settle: cards sweep to the discard tray before the table resets
 const CHIP_FLY_MS = 1100;
@@ -128,7 +122,7 @@ export function Blackjack({ conn }: { conn: BjConnection }) {
           #{conn.code}
         </button>
         <p className="flex min-h-11 items-center gap-1.5 rounded-full bg-surface px-3 font-display text-sm tabular-nums text-accent" aria-label={`${chips} chips`}>
-          <span aria-hidden className="bj-chip size-3.5 text-[9px]" style={{ "--chip": "var(--color-accent)" } as CSSProperties} />
+          <ChipFace amount={0} size="xs" label="" color="var(--color-accent)" />
           {chips.toLocaleString()}
         </p>
       </header>
@@ -422,30 +416,7 @@ function Chip({
     return () => fly.cancel();
   }, [flyTo, flyFrom, delay]);
 
-  return (
-    <span
-      ref={ref}
-      className={cx(
-        "bj-chip grid place-items-center font-display tabular-nums",
-        small ? "size-[clamp(24px,7vw,30px)] text-[9px]" : "size-[clamp(34px,10vw,42px)] text-[11px]",
-        className,
-      )}
-      style={{ "--chip": chipColor(amount) } as CSSProperties}
-    >
-      {short(amount)}
-    </span>
-  );
-}
-
-function Index({ card, flip = false }: { card: BjCard; flip?: boolean }) {
-  return (
-    <span aria-hidden className="bj-idx" data-flip={flip || undefined}>
-      <span className="bj-r" data-wide={card.rank === "10" || undefined}>
-        {card.rank}
-      </span>
-      <span className="bj-s">{SUIT[card.suit]}</span>
-    </span>
-  );
+  return <ChipFace ref={ref} amount={amount} size={small ? "sm" : "md"} className={className} />;
 }
 
 // Deals out of the shoe face down, spinning onto its spot, and turns over as it lands (a hidden hole card stays down).
@@ -504,36 +475,7 @@ function Card({
     return () => away.cancel();
   }, [sweep]);
 
-  const red = card?.suit === "h" || card?.suit === "d";
-  return (
-    <span
-      ref={ref}
-      role="img"
-      aria-label={card ? `${card.rank}${SUIT[card.suit]}` : "Face-down card"}
-      data-down={card ? undefined : true}
-      className={cx("bj-card", className)}
-      style={style}
-    >
-      <span className="bj-inner">
-        <span className="bj-face bj-front" data-red={red || undefined}>
-          {card && (
-            <>
-              <Index card={card} />
-              {card.rank === "J" || card.rank === "Q" || card.rank === "K" ? (
-                <span className="bj-court">
-                  <span>{card.rank}</span>
-                </span>
-              ) : (
-                <span className="bj-pip">{SUIT[card.suit]}</span>
-              )}
-              <Index card={card} flip />
-            </>
-          )}
-        </span>
-        <span className="bj-face bj-back" />
-      </span>
-    </span>
-  );
+  return <CardFace ref={ref} card={card} className={className} style={style} />;
 }
 
 function Panel({
@@ -666,17 +608,16 @@ function Betting({ conn, me, secs }: { conn: BjConnection; me: BjPlayer; secs: n
         </button>
       </div>
       <div className="grid grid-cols-4 justify-items-center gap-2">
-        {CHIPS.map((c) => (
+        {BET_CHIPS.map((c) => (
           <button
             key={c.value}
             type="button"
             disabled={me.ready || c.value > me.chips - me.bet}
             onClick={() => add(c.value)}
             aria-label={`Add ${c.value}`}
-            className="bj-chip grid size-[clamp(52px,16vw,62px)] place-items-center font-display text-sm tabular-nums transition-transform active:translate-y-0.5 disabled:opacity-30"
-            style={{ "--chip": c.color } as CSSProperties}
+            className="rounded-full transition-transform active:translate-y-0.5 disabled:opacity-30"
           >
-            {c.value}
+            <ChipFace amount={c.value} size="lg" color={c.color} />
           </button>
         ))}
       </div>

@@ -1,0 +1,182 @@
+/* Roulette table: graphite felt shared with blackjack, a walnut-and-brass wheel, enamel numbers and the betting layout. */
+@layer components {
+.rl-root {
+  --rl-brass: oklch(0.8 0.1 85);
+  --rl-brass-dim: oklch(0.8 0.1 85 / 0.38);
+  --rl-red: linear-gradient(180deg, oklch(0.52 0.17 26), oklch(0.41 0.15 25));
+  --rl-black: linear-gradient(180deg, oklch(0.23 0.008 260), oklch(0.15 0.006 260));
+  --rl-green: linear-gradient(180deg, oklch(0.5 0.12 160), oklch(0.4 0.1 160));
+  --rl-felt:
+    radial-gradient(90% 55% at 50% 20%, oklch(0.31 0.006 260 / 0.8), transparent 75%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.06 0'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)'/%3E%3C/svg%3E"),
+    oklch(0.2 0.006 260);
+}
+
+/* Wheel pockets: enamel comes from the SVG gradients, the frets are brass. */
+.rl-pocket { stroke: var(--rl-brass); stroke-opacity: 0.8; stroke-width: 0.45; }
+.rl-pocket[data-lit] { stroke: oklch(0.97 0.1 95); stroke-opacity: 1; stroke-width: 0.9; filter: brightness(1.45); }
+.rl-pocket-glow {
+  fill: oklch(0.89 0.18 98 / 0.28);
+  stroke: oklch(0.97 0.12 95);
+  stroke-width: 1.2;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 2.4px oklch(0.89 0.18 98));
+  animation: rl-pocket 1.1s ease-in-out infinite;
+  pointer-events: none;
+}
+
+/* Pill for a result number: enamel in the pocket colour, a brass hairline. */
+.rl-pill {
+  background: var(--rl-black);
+  color: oklch(0.98 0.01 90);
+  box-shadow: inset 0 0 0 1px var(--rl-brass-dim), inset 0 1px 0 oklch(1 0 0 / 0.14), 0 1px 2px oklch(0 0 0 / 0.45);
+}
+.rl-pill[data-c="red"] { background: var(--rl-red); }
+.rl-pill[data-c="green"] { background: var(--rl-green); }
+
+.rl-board {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr) minmax(0, 0.55fr) minmax(0, 0.6fr);
+  grid-template-rows: repeat(14, var(--rl-row));
+  --rl-row: clamp(32px, 9.2vw, 38px);
+  border-radius: 0.875rem;
+  background: var(--rl-felt);
+  box-shadow:
+    0 0 0 1px oklch(0.42 0.005 260 / 0.7),
+    0 0 0 3px oklch(0.15 0.005 260),
+    0 0 0 3.5px var(--rl-brass-dim),
+    inset 0 0 36px oklch(0 0 0 / 0.4),
+    0 14px 28px -14px oklch(0 0 0 / 0.8);
+  -webkit-tap-highlight-color: transparent;
+}
+.rl-nums { position: relative; grid-column: 1 / 4; grid-row: 1 / 14; display: grid; grid-template: repeat(13, 1fr) / repeat(3, 1fr); touch-action: manipulation; }
+
+.rl-cell {
+  position: relative;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-sans);
+  font-size: 16px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+  color: oklch(0.98 0.01 90);
+  text-shadow: 0 1px 1px oklch(0 0 0 / 0.5);
+  box-shadow: inset 0 0 0 0.5px oklch(0.85 0.06 85 / 0.3), inset 0 1px 0 oklch(1 0 0 / 0.07);
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+  transition: opacity 400ms var(--ease-out), filter 120ms var(--ease-out);
+}
+.rl-nums > .rl-cell:first-child { border-radius: 0.875rem 0.875rem 0 0; }
+.rl-board > .rl-cell:nth-last-child(3) { border-bottom-left-radius: 0.875rem; }
+.rl-cell[data-c="red"] { background: var(--rl-red); }
+.rl-cell[data-c="black"] { background: var(--rl-black); }
+.rl-cell[data-c="green"] { background: var(--rl-green); font-size: 18px; }
+.rl-cell[data-out] {
+  background: linear-gradient(180deg, oklch(0.27 0.007 260), oklch(0.22 0.006 260));
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: oklch(0.9 0.02 85);
+}
+.rl-cell[data-out][data-c="red"] { background: var(--rl-red); color: oklch(0.98 0.01 90); }
+.rl-cell[data-out][data-c="black"] { background: var(--rl-black); color: oklch(0.98 0.01 90); }
+.rl-lab { writing-mode: vertical-rl; transform: rotate(180deg); }
+.rl-cell[data-hl]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: oklch(0.89 0.18 98 / 0.3);
+  box-shadow: inset 0 0 0 2px var(--color-accent);
+  pointer-events: none;
+}
+.rl-cell:active { filter: brightness(1.25); }
+
+/* Once the ball lands the winners light up and everything else steps back. */
+.rl-board[data-settled] .rl-cell:not([data-win]) { opacity: 0.5; }
+.rl-cell[data-win] {
+  z-index: 1;
+  animation: rl-win 1s ease-in-out infinite;
+  box-shadow: inset 0 0 0 2.5px oklch(0.95 0.12 95), 0 0 16px 1px oklch(0.89 0.18 98 / 0.55);
+}
+.rl-board[data-closed] .rl-cell { filter: saturate(0.85) brightness(0.9); }
+
+.rl-mark { position: absolute; z-index: 2; transform: translate(-50%, -50%); pointer-events: none; transition: opacity 400ms; }
+.rl-mark[data-lose] { opacity: 0.3; }
+.rl-mark[data-win] { animation: rl-hop 700ms var(--ease-spring) 2; }
+
+/* Chips on this table: milled edge spots, a face ring and a soft sheen; the shared flat chip stays untouched elsewhere. */
+.rl-root .cc-chip {
+  position: relative;
+  border: 0;
+  background:
+    radial-gradient(circle, var(--chip) 0 38%, color-mix(in oklch, var(--chip) 82%, black) 56%, oklch(0.99 0 0 / 0.92) 57% 60%, transparent 61%),
+    repeating-conic-gradient(oklch(0.99 0.005 90) 0 15deg, var(--chip) 15deg 30deg);
+  box-shadow:
+    inset 0 0 0 0.06em oklch(0 0 0 / 0.3),
+    0 0.1em 0 color-mix(in oklch, var(--chip) 45%, black),
+    0 0.22em 0.28em oklch(0 0 0 / 0.4);
+}
+.rl-root .cc-chip::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(155deg, oklch(1 0 0 / 0.34), transparent 46%, oklch(0 0 0 / 0.16));
+  pointer-events: none;
+}
+
+/* Other players' chips: dark edge spots instead of pearl, so they never read as yours even when the hues match. */
+.rl-root .rl-other .cc-chip, .rl-root .cc-chip.rl-other {
+  background:
+    radial-gradient(circle, var(--chip) 0 38%, color-mix(in oklch, var(--chip) 82%, black) 56%, oklch(0.2 0.01 260) 57% 60%, transparent 61%),
+    repeating-conic-gradient(oklch(0.2 0.01 260) 0 15deg, var(--chip) 15deg 30deg);
+}
+
+.rl-overlay { transition: opacity 450ms var(--ease-out); }
+.rl-overlay[data-open="false"] { opacity: 0; pointer-events: none; }
+.rl-rise { animation: rl-rise 320ms var(--ease-out) both; }
+.rl-hero { animation: rl-hero 560ms var(--ease-spring) both; }
+
+/* Scrollable board: fades hint at what's off-screen. */
+.rl-scroll {
+  --rl-fade: 14px;
+  mask-image: linear-gradient(to bottom, transparent 0, #000 var(--rl-fade), #000 calc(100% - var(--rl-fade)), transparent 100%);
+}
+
+/* The winning number: enamel medallion in a brass bezel. */
+.rl-medal {
+  background: var(--rl-black);
+  box-shadow:
+    inset 0 0 0 2px oklch(0.85 0.1 90),
+    inset 0 0 0 4px oklch(0.2 0.01 260),
+    inset 0 0 0 4.5px oklch(0.85 0.1 90 / 0.5),
+    0 0 26px -2px oklch(0.89 0.18 98 / 0.55),
+    0 8px 18px -6px oklch(0 0 0 / 0.8);
+}
+.rl-medal[data-c="red"] { background: var(--rl-red); }
+.rl-medal[data-c="green"] { background: var(--rl-green); }
+}
+
+@keyframes rl-win {
+  50% { filter: brightness(1.4); }
+}
+@keyframes rl-pocket {
+  50% { opacity: 0.55; }
+}
+@keyframes rl-hop {
+  40% { transform: translate(-50%, calc(-50% - 7px)) scale(1.18); }
+}
+@keyframes rl-rise {
+  from { opacity: 0; transform: translateY(10px); }
+}
+@keyframes rl-hero {
+  from { opacity: 0; transform: scale(0.5); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rl-cell[data-win], .rl-mark[data-win], .rl-pocket-glow, .rl-rise, .rl-hero { animation: none; }
+  .rl-overlay, .rl-mark, .rl-cell { transition: none; }
+  .rl-root .animate-pop { animation: none; }
+}

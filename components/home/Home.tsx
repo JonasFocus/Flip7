@@ -14,7 +14,7 @@ import { JoinCode } from "./JoinCode";
 import { MODE_LABEL, OpenTables, useOpenRooms } from "./OpenTables";
 import { HowToPlay } from "./HowToPlay";
 
-type Mode = "online" | "imposter" | "liarsdice" | "hotpotato" | "spyfall" | "blackjack";
+type Mode = "online" | "imposter" | "liarsdice" | "hotpotato" | "spyfall" | "blackjack" | "baccarat" | "roulette" | "texasholdem";
 
 const LABEL = "text-[11px] font-bold uppercase tracking-[0.2em] text-muted";
 
@@ -25,9 +25,12 @@ const MODES: { id: Mode; title: string; blurb: string; cta: string; icon: ReactN
   { id: "hotpotato", title: "Hot Potato", blurb: "Pass the bomb · 3–10 players", cta: "Create room", icon: <BombIcon /> },
   { id: "spyfall", title: "Where Are We?", blurb: "Find the spy · 3–10 players", cta: "Create room", icon: <PinIcon /> },
   { id: "blackjack", title: "Blackjack", blurb: "Beat the dealer · 5 seats", cta: "Open table", icon: <ChipIcon /> },
+  { id: "baccarat", title: "Baccarat", blurb: "Punto banco · 5 seats", cta: "Open table", icon: <BaccaratIcon /> },
+  { id: "roulette", title: "Roulette", blurb: "Spin the wheel · 8 seats", cta: "Open table", icon: <RouletteIcon /> },
+  { id: "texasholdem", title: "Texas Hold'em", blurb: "No-limit · 2–8 seats", cta: "Open table", icon: <HoldemIcon /> },
 ];
 
-const ROOM_MODE = { online: "virtual", imposter: "imposter", liarsdice: "liarsdice", hotpotato: "hotpotato", spyfall: "spyfall", blackjack: "blackjack" } as const;
+const ROOM_MODE = { online: "virtual", imposter: "imposter", liarsdice: "liarsdice", hotpotato: "hotpotato", spyfall: "spyfall", blackjack: "blackjack", baccarat: "baccarat", roulette: "roulette", texasholdem: "texasholdem" } as const;
 
 const noopSubscribe = () => () => {};
 
@@ -237,6 +240,33 @@ function PinIcon() {
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden className="size-6">
       <path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11Z" />
       <circle cx="12" cy="10" r="2.3" />
+    </svg>
+  );
+}
+
+function BaccaratIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden className="size-6">
+      <rect x="3" y="5.5" width="10" height="14" rx="2" transform="rotate(-10 8 12.5)" />
+      <rect x="11" y="4.5" width="10" height="14" rx="2" transform="rotate(10 16 11.5)" />
+    </svg>
+  );
+}
+
+function RouletteIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden className="size-6">
+      <circle cx="12" cy="12" r="9" />
+      <circle cx="12" cy="12" r="3" />
+      <path d="M12 3v6M12 15v6M3 12h6M15 12h6" />
+    </svg>
+  );
+}
+
+function HoldemIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden className="size-6">
+      <path d="M12 3c2.6 3.4 7 5.6 7 9.4a3.8 3.8 0 0 1-6.2 2.9c.2 1.6.8 2.8 1.7 3.7h-5c.9-.9 1.5-2.1 1.7-3.7A3.8 3.8 0 0 1 5 12.4C5 8.6 9.4 6.4 12 3Z" />
     </svg>
   );
 }

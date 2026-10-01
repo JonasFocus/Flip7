@@ -1,0 +1,85 @@
+/* Texas Hold'em table. Cards and chips come from components/casino; this is the oval felt and the table's motion. */
+@layer components {
+/* Graphite oval under a soft overhead light: a bevelled rim, a fine woven grain and a thin inlay line, closed all round. */
+.tx-felt {
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  border: 11px solid transparent;
+  border-radius: 50% / 40%;
+  background:
+    radial-gradient(62% 46% at 50% 36%, oklch(0.42 0.01 260 / 0.9), transparent 75%) padding-box,
+    var(--grain) padding-box,
+    oklch(0.255 0.008 260) padding-box,
+    linear-gradient(165deg, oklch(0.46 0.006 260), oklch(0.16 0.005 260) 45%, oklch(0.3 0.006 260)) border-box;
+  box-shadow:
+    inset 0 0 0 1px oklch(1 0 0 / 0.08),
+    inset 0 -34px 70px oklch(0 0 0 / 0.5),
+    inset 0 18px 40px -20px oklch(1 0 0 / 0.07),
+    0 0 0 1px oklch(0.08 0.004 260),
+    0 30px 60px -26px oklch(0 0 0 / 0.9);
+}
+.tx-felt::after {
+  content: "";
+  position: absolute;
+  inset: 7% 6%;
+  border-radius: 50% / 41%;
+  border: 1px solid oklch(1 0 0 / 0.07);
+}
+.tx-glow { animation: tx-glow 1.4s ease-in-out infinite; }
+.tx-win { animation: tx-win 900ms ease-out 3 both; }
+.tx-pop { animation: tx-pop 480ms var(--ease-spring) both; }
+.tx-lift { transform: translateY(-3px); transition: transform 300ms var(--ease-out); }
+.tx-in { animation: tx-in 420ms var(--ease-spring) both; }
+.tx-rise { animation: tx-rise 320ms var(--ease-out) both; }
+}
+
+.tx-range {
+  appearance: none;
+  width: 100%;
+  height: 28px;
+  background: transparent;
+  touch-action: pan-y;
+}
+.tx-range::-webkit-slider-runnable-track { height: 6px; border-radius: 9999px; background: var(--color-surface-2); }
+.tx-range::-moz-range-track { height: 6px; border-radius: 9999px; background: var(--color-surface-2); }
+.tx-range::-webkit-slider-thumb {
+  appearance: none;
+  width: 26px;
+  height: 26px;
+  margin-top: -10px;
+  border-radius: 9999px;
+  border: 0;
+  background: var(--color-accent);
+  box-shadow: 0 0 0 4px oklch(0.2 0.006 260), 0 2px 8px oklch(0 0 0 / 0.6);
+}
+.tx-range::-moz-range-thumb {
+  width: 26px;
+  height: 26px;
+  border-radius: 9999px;
+  border: 0;
+  background: var(--color-accent);
+  box-shadow: 0 0 0 4px oklch(0.2 0.006 260), 0 2px 8px oklch(0 0 0 / 0.6);
+}
+
+@keyframes tx-glow {
+  50% { box-shadow: 0 0 0 3px var(--color-accent), 0 0 22px 2px oklch(0.89 0.18 98 / 0.6); }
+}
+
+@keyframes tx-win {
+  50% { box-shadow: 0 0 0 3px var(--color-active), 0 0 28px 4px oklch(0.85 0.16 160 / 0.7); }
+}
+
+@keyframes tx-pop {
+  from { opacity: 0; transform: translateY(8px) scale(0.92); }
+}
+
+@keyframes tx-in {
+  from { opacity: 0; transform: translateY(-40%) scale(0.85); }
+}
+
+@keyframes tx-rise {
+  from { opacity: 0; transform: translateY(10px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tx-glow, .tx-win, .tx-in, .tx-rise, .tx-pop { animation: none; }
+}

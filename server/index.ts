@@ -31,6 +31,9 @@ import * as dice from "../lib/liarsdice/index.ts";
 import * as potato from "../lib/hotpotato/index.ts";
 import * as spy from "../lib/spyfall/index.ts";
 import * as bj from "../lib/blackjack/index.ts";
+import * as bac from "../lib/baccarat/index.ts";
+import * as rl from "../lib/roulette/index.ts";
+import * as tx from "../lib/texasholdem/index.ts";
 import { isPartyMode, KICKED_MESSAGE, MAX_PLAYERS, nextRoundDelayMs, REPLACED_CLOSE_CODE, REPLACED_MESSAGE, ROOM_TTL_MS } from "../lib/protocol.ts";
 import type { ClientMessage, PartyGames, PartyMode, PartyRoom, Room, RoomSummary, ServerMessage } from "../lib/protocol.ts";
 import { parseMessage } from "./validate.ts";
@@ -54,7 +57,7 @@ export const publicId = (secret: string) => createHash("sha256").update(secret).
 // The uniform engine shape of the party games; the server only talks to them through this.
 interface PartyEngine<S, I> {
   maxPlayers: number;
-  openJoin?: boolean; // newcomers may walk up mid-game (blackjack watchers sit down between hands)
+  openJoin?: boolean; // newcomers may walk up mid-game (casino watchers sit down between hands)
   create: () => S;
   add: (s: S, p: { id: string; name: string }) => S;
   remove: (s: S, id: string, opts: { now: number }) => S;
@@ -121,6 +124,48 @@ const PARTY: { [M in PartyMode]: PartyEngine<PartyGames[M]["state"], PartyGames[
     onDeadline: bj.onDeadline,
     intentOf: (m) => (m.t === "blackjack" ? m.intent : null),
   },
+  baccarat: {
+    maxPlayers: bac.MAX_BAC_PLAYERS,
+    openJoin: true,
+    create: bac.createBacGame,
+    add: bac.addBacPlayer,
+    remove: bac.removeBacPlayer,
+    setConnected: bac.setBacConnected,
+    apply: bac.applyBacIntent,
+    redact: bac.redactBac,
+    serverDeadline: bac.serverDeadline,
+    visibleDeadline: bac.visibleDeadline,
+    onDeadline: bac.onDeadline,
+    intentOf: (m) => (m.t === "baccarat" ? m.intent : null),
+  },
+  roulette: {
+    maxPlayers: rl.MAX_RL_PLAYERS,
+    openJoin: true,
+    create: rl.createRlGame,
+    add: rl.addRlPlayer,
+    remove: rl.removeRlPlayer,
+    setConnected: rl.setRlConnected,
+    apply: rl.applyRlIntent,
+    redact: rl.redactRl,
+    serverDeadline: rl.serverDeadline,
+    visibleDeadline: rl.visibleDeadline,
+    onDeadline: rl.onDeadline,
+    intentOf: (m) => (m.t === "roulette" ? m.intent : null),
+  },
+  texasholdem: {
+    maxPlayers: tx.MAX_TX_PLAYERS,
+    openJoin: true,
+    create: tx.createTxGame,
+    add: tx.addTxPlayer,
+    remove: tx.removeTxPlayer,
+    setConnected: tx.setTxConnected,
+    apply: tx.applyTxIntent,
+    redact: tx.redactTx,
+    serverDeadline: tx.serverDeadline,
+    visibleDeadline: tx.visibleDeadline,
+    onDeadline: tx.onDeadline,
+    intentOf: (m) => (m.t === "texasholdem" ? m.intent : null),
+  },
 };
 
 // A party room opened with its engine: `set` writes the game back, `view` builds a snapshot of this room.
@@ -151,6 +196,18 @@ function withParty<R>(room: PartyRoom, fn: <S, I>(p: Party<S, I>) => R): R {
       const r = room;
       return fn({ e: PARTY.blackjack, game: r.game, set: (g) => void (r.game = g), view: (game, deadlineInMs) => ({ ...r, game, deadlineInMs }) });
     }
+    case "baccarat": {
+      const r = room;
+      return fn({ e: PARTY.baccarat, game: r.game, set: (g) => void (r.game = g), view: (game, deadlineInMs) => ({ ...r, game, deadlineInMs }) });
+    }
+    case "roulette": {
+      const r = room;
+      return fn({ e: PARTY.roulette, game: r.game, set: (g) => void (r.game = g), view: (game, deadlineInMs) => ({ ...r, game, deadlineInMs }) });
+    }
+    case "texasholdem": {
+      const r = room;
+      return fn({ e: PARTY.texasholdem, game: r.game, set: (g) => void (r.game = g), view: (game, deadlineInMs) => ({ ...r, game, deadlineInMs }) });
+    }
   }
 }
 
@@ -165,6 +222,12 @@ function newPartyRoom(mode: PartyMode, code: string, player: { id: string; name:
       return { ...base, mode, game: PARTY.spyfall.add(PARTY.spyfall.create(), player) };
     case "blackjack":
       return { ...base, mode, game: PARTY.blackjack.add(PARTY.blackjack.create(), player) };
+    case "baccarat":
+      return { ...base, mode, game: PARTY.baccarat.add(PARTY.baccarat.create(), player) };
+    case "roulette":
+      return { ...base, mode, game: PARTY.roulette.add(PARTY.roulette.create(), player) };
+    case "texasholdem":
+      return { ...base, mode, game: PARTY.texasholdem.add(PARTY.texasholdem.create(), player) };
   }
 }
 
@@ -669,7 +732,10 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
       case "liarsdice":
       case "hotpotato":
       case "spyfall":
-      case "blackjack": {
+      case "blackjack":
+      case "baccarat":
+      case "roulette":
+      case "texasholdem": {
         const { room } = live;
         const actorId = c.clientId;
         if (!isParty(room) || room.mode !== msg.t) return fail(c, "Wrong game for this room");

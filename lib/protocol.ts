@@ -5,6 +5,9 @@ import type { DiceIntent, DiceState } from "./liarsdice/types.ts";
 import type { PotatoIntent, PotatoState } from "./hotpotato/types.ts";
 import type { SpyIntent, SpyState } from "./spyfall/types.ts";
 import type { BjIntent, BjState } from "./blackjack/types.ts";
+import type { BacIntent, BacState } from "./baccarat/types.ts";
+import type { RlIntent, RlState } from "./roulette/types.ts";
+import type { TxIntent, TxState } from "./texasholdem/types.ts";
 
 // Party games share one engine shape (lib/liarsdice, lib/hotpotato, lib/spyfall), so the server drives them from one table.
 export interface PartyGames {
@@ -12,6 +15,9 @@ export interface PartyGames {
   hotpotato: { state: PotatoState; intent: PotatoIntent };
   spyfall: { state: SpyState; intent: SpyIntent };
   blackjack: { state: BjState; intent: BjIntent };
+  baccarat: { state: BacState; intent: BacIntent };
+  roulette: { state: RlState; intent: RlIntent };
+  texasholdem: { state: TxState; intent: TxIntent };
 }
 export type PartyMode = keyof PartyGames;
 // game is redacted per viewer. deadlineInMs: relative ms until the game's visibleDeadline (clock-skew safe, like cluesEndsInMs).
@@ -20,10 +26,10 @@ export type PartyRoom<M extends PartyMode = PartyMode> = {
 }[M];
 export type PartyMessage<M extends PartyMode = PartyMode> = { [K in M]: { t: K; intent: PartyGames[K]["intent"] } }[M];
 
-export const ROOM_MODES = ["virtual", "physical", "imposter", "liarsdice", "hotpotato", "spyfall", "blackjack"] as const;
+export const ROOM_MODES = ["virtual", "physical", "imposter", "liarsdice", "hotpotato", "spyfall", "blackjack", "baccarat", "roulette", "texasholdem"] as const;
 export type RoomMode = (typeof ROOM_MODES)[number];
 export const isRoomMode = (v: unknown): v is RoomMode => ROOM_MODES.some((m) => m === v);
-export const isPartyMode = (v: RoomMode): v is PartyMode => v === "liarsdice" || v === "hotpotato" || v === "spyfall" || v === "blackjack";
+export const isPartyMode = (v: RoomMode): v is PartyMode => v === "liarsdice" || v === "hotpotato" || v === "spyfall" || v === "blackjack" || v === "baccarat" || v === "roulette" || v === "texasholdem";
 
 export type Room =
   // autoPlay: the awaited player is disconnected; the server acts for them in `inMs`.
@@ -39,7 +45,7 @@ export interface RoomSummary {
   mode: RoomMode;
   hostName: string;
   playerCount: number;
-  joinable: boolean; // physical: always until gameOver; blackjack: always; every other mode: lobby only
+  joinable: boolean; // physical: always until gameOver; blackjack, baccarat, roulette, texasholdem: always; every other mode: lobby only
   lastActive: number;
 }
 

@@ -4,6 +4,9 @@ import type { DiceIntent } from "../lib/liarsdice/types.ts";
 import type { PotatoIntent } from "../lib/hotpotato/types.ts";
 import type { SpyIntent } from "../lib/spyfall/types.ts";
 import type { BjIntent } from "../lib/blackjack/types.ts";
+import { parseBacIntent } from "../lib/baccarat/validate.ts";
+import { parseRlIntent } from "../lib/roulette/validate.ts";
+import { parseTxIntent } from "../lib/texasholdem/validate.ts";
 import { isRoomMode, type ClientMessage } from "../lib/protocol.ts";
 
 type Obj = Record<string, unknown>;
@@ -230,6 +233,18 @@ export function parseMessage(raw: string): ClientMessage | null {
     case "blackjack": {
       const intent = parseBjIntent(v.intent);
       return intent ? { t: "blackjack", intent } : null;
+    }
+    case "baccarat": {
+      const intent = parseBacIntent(v.intent);
+      return intent ? { t: "baccarat", intent } : null;
+    }
+    case "roulette": {
+      const intent = parseRlIntent(v.intent);
+      return intent ? { t: "roulette", intent } : null;
+    }
+    case "texasholdem": {
+      const intent = parseTxIntent(v.intent);
+      return intent ? { t: "texasholdem", intent } : null;
     }
     case "removePlayer":
       return isId(v.playerId) ? { t: "removePlayer", playerId: v.playerId } : null;
