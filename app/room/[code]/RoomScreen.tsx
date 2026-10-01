@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
+import { Blackjack } from "@/components/blackjack/Blackjack";
 import { HotPotato } from "@/components/hotpotato/HotPotato";
 import { Imposter } from "@/components/imposter/Imposter";
 import { LiarsDice } from "@/components/liarsdice/LiarsDice";
@@ -31,7 +32,7 @@ function LiveRoom({ code, name }: { code: string; name: string }) {
 function RoomView({ code, name, onPlayHere }: { code: string; name: string; onPlayHere: () => void }) {
   const room = useRoom(code, name);
   const router = useRouter();
-  const { table: rawTable, score: rawScore, imposter: rawImposter, dice: rawDice, potato: rawPotato, spy: rawSpy, leave: rawLeave } = room;
+  const { table: rawTable, score: rawScore, imposter: rawImposter, dice: rawDice, potato: rawPotato, spy: rawSpy, bj: rawBj, leave: rawLeave } = room;
 
   // Leaving from any screen goes home.
   const table = useMemo(
@@ -49,11 +50,12 @@ function RoomView({ code, name, onPlayHere }: { code: string; name: string; onPl
   const dice = useMemo(() => rawDice && { ...rawDice, leave: () => (rawLeave(), router.replace("/")) }, [rawDice, rawLeave, router]);
   const potato = useMemo(() => rawPotato && { ...rawPotato, leave: () => (rawLeave(), router.replace("/")) }, [rawPotato, rawLeave, router]);
   const spy = useMemo(() => rawSpy && { ...rawSpy, leave: () => (rawLeave(), router.replace("/")) }, [rawSpy, rawLeave, router]);
+  const bj = useMemo(() => rawBj && { ...rawBj, leave: () => (rawLeave(), router.replace("/")) }, [rawBj, rawLeave, router]);
 
   // The in-game header shows its own reconnect state in the same spot.
   const banner = room.status === "reconnecting" && !(table && table.game.phase !== "lobby") && <ReconnectBanner />;
 
-  const seated = table ?? imposter ?? dice ?? potato ?? spy;
+  const seated = table ?? imposter ?? dice ?? potato ?? spy ?? bj;
   if (room.error === KICKED_MESSAGE || (seated && seated.game.players.length > 0 && !seated.game.players.some((p) => p.id === seated.you))) {
     return <NoticeScreen title="Removed" message="The host removed you from this room." />;
   }
@@ -83,6 +85,14 @@ function RoomView({ code, name, onPlayHere }: { code: string; name: string; onPl
       <>
         {banner}
         <Imposter conn={imposter} />
+      </>
+    );
+  }
+  if (bj) {
+    return (
+      <>
+        {banner}
+        <Blackjack conn={bj} />
       </>
     );
   }

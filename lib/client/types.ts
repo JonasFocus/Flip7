@@ -5,6 +5,7 @@ import type { ImposterIntent, ImposterState } from "../imposter/types.ts";
 export type { DiceConnection } from "../liarsdice/types.ts";
 export type { PotatoConnection } from "../hotpotato/types.ts";
 export type { SpyConnection } from "../spyfall/types.ts";
+export type { BjConnection } from "../blackjack/types.ts";
 
 export type ConnectionStatus = "connecting" | "open" | "reconnecting" | "closed";
 

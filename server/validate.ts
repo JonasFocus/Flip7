@@ -3,6 +3,7 @@ import type { ImposterIntent } from "../lib/imposter/types.ts";
 import type { DiceIntent } from "../lib/liarsdice/types.ts";
 import type { PotatoIntent } from "../lib/hotpotato/types.ts";
 import type { SpyIntent } from "../lib/spyfall/types.ts";
+import type { BjIntent } from "../lib/blackjack/types.ts";
 import { isRoomMode, type ClientMessage } from "../lib/protocol.ts";
 
 type Obj = Record<string, unknown>;
@@ -164,6 +165,25 @@ function parseSpyIntent(v: unknown): SpyIntent | null {
   }
 }
 
+function parseBjIntent(v: unknown): BjIntent | null {
+  if (!isObj(v)) return null;
+  switch (v.type) {
+    case "sit":
+      return isInt(v.seat, 0, 9) ? { type: "sit", seat: v.seat } : null;
+    case "bet":
+      return isInt(v.amount, 0, 10_000_000) ? { type: "bet", amount: v.amount } : null;
+    case "standUp":
+    case "deal":
+    case "hit":
+    case "stand":
+    case "double":
+    case "rebuy":
+      return { type: v.type };
+    default:
+      return null;
+  }
+}
+
 export function parseMessage(raw: string): ClientMessage | null {
   let v: unknown;
   try {
@@ -206,6 +226,10 @@ export function parseMessage(raw: string): ClientMessage | null {
     case "spyfall": {
       const intent = parseSpyIntent(v.intent);
       return intent ? { t: "spyfall", intent } : null;
+    }
+    case "blackjack": {
+      const intent = parseBjIntent(v.intent);
+      return intent ? { t: "blackjack", intent } : null;
     }
     case "removePlayer":
       return isId(v.playerId) ? { t: "removePlayer", playerId: v.playerId } : null;

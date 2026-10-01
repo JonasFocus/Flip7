@@ -8,6 +8,7 @@ import type { ImposterIntent, ImposterState } from "../imposter/types.ts";
 import type { DiceIntent } from "../liarsdice/types.ts";
 import type { PotatoIntent } from "../hotpotato/types.ts";
 import type { SpyIntent } from "../spyfall/types.ts";
+import type { BjIntent } from "../blackjack/types.ts";
 import { KICKED_MESSAGE, REPLACED_CLOSE_CODE, REPLACED_MESSAGE, type ClientMessage, type PartyMode, type PartyRoom, type Room } from "../protocol.ts";
 import { clearLastRoom, getClientId, setLastRoom } from "./identity.ts";
 import { parseServerMessage, wsUrl } from "./rooms.ts";
@@ -18,6 +19,7 @@ import type {
   PotatoConnection,
   ScoreConnection,
   SpyConnection,
+  BjConnection,
   TableConnection,
 } from "./types.ts";
 
@@ -89,6 +91,7 @@ interface RoomCore {
   sendDice: (intent: DiceIntent) => void;
   sendPotato: (intent: PotatoIntent) => void;
   sendSpy: (intent: SpyIntent) => void;
+  sendBj: (intent: BjIntent) => void;
   addBot: () => void;
   removePlayer: (playerId: string) => void;
   leave: () => void;
@@ -279,6 +282,7 @@ function useRoomSocket(code: string, name: string): RoomCore {
   const sendDice = useCallback((intent: DiceIntent) => sendMessage({ t: "liarsdice", intent }), [sendMessage]);
   const sendPotato = useCallback((intent: PotatoIntent) => sendMessage({ t: "hotpotato", intent }), [sendMessage]);
   const sendSpy = useCallback((intent: SpyIntent) => sendMessage({ t: "spyfall", intent }), [sendMessage]);
+  const sendBj = useCallback((intent: BjIntent) => sendMessage({ t: "blackjack", intent }), [sendMessage]);
   const addBot = useCallback(() => sendMessage({ t: "addBot" }), [sendMessage]);
   const removePlayer = useCallback((playerId: string) => sendMessage({ t: "removePlayer", playerId }), [sendMessage]);
   const leave = useCallback(() => {
@@ -313,11 +317,12 @@ function useRoomSocket(code: string, name: string): RoomCore {
       sendDice,
       sendPotato,
       sendSpy,
+      sendBj,
       addBot,
       removePlayer,
       leave,
     }),
-    [code, status, current, fatalMessage, hadRoom, unreachableWhy, flashError, send, sendScore, sendImposter, sendDice, sendPotato, sendSpy, addBot, removePlayer, leave],
+    [code, status, current, fatalMessage, hadRoom, unreachableWhy, flashError, send, sendScore, sendImposter, sendDice, sendPotato, sendSpy, sendBj, addBot, removePlayer, leave],
   );
 }
 
@@ -423,6 +428,7 @@ export interface RoomConnection {
   dice: DiceConnection | null;
   potato: PotatoConnection | null;
   spy: SpyConnection | null;
+  bj: BjConnection | null;
   hadRoom: boolean;
   unreachable: Unreachable;
   leave: () => void;
@@ -442,6 +448,7 @@ export function useRoom(code: string, name: string): RoomConnection {
       dice: room?.mode === "liarsdice" ? partyOf(c, room, c.sendDice) : null,
       potato: room?.mode === "hotpotato" ? partyOf(c, room, c.sendPotato) : null,
       spy: room?.mode === "spyfall" ? partyOf(c, room, c.sendSpy) : null,
+      bj: room?.mode === "blackjack" ? partyOf(c, room, c.sendBj) : null,
       hadRoom: c.hadRoom,
       unreachable: c.unreachable,
       leave: c.leave,

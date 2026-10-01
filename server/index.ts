@@ -30,6 +30,7 @@ import {
 import * as dice from "../lib/liarsdice/index.ts";
 import * as potato from "../lib/hotpotato/index.ts";
 import * as spy from "../lib/spyfall/index.ts";
+import * as bj from "../lib/blackjack/index.ts";
 import { isPartyMode, KICKED_MESSAGE, MAX_PLAYERS, nextRoundDelayMs, REPLACED_CLOSE_CODE, REPLACED_MESSAGE, ROOM_TTL_MS } from "../lib/protocol.ts";
 import type { ClientMessage, PartyGames, PartyMode, PartyRoom, Room, RoomSummary, ServerMessage } from "../lib/protocol.ts";
 import { parseMessage } from "./validate.ts";
@@ -53,6 +54,7 @@ export const publicId = (secret: string) => createHash("sha256").update(secret).
 // The uniform engine shape of the party games; the server only talks to them through this.
 interface PartyEngine<S, I> {
   maxPlayers: number;
+  openJoin?: boolean; // newcomers may walk up mid-game (blackjack watchers sit down between hands)
   create: () => S;
   add: (s: S, p: { id: string; name: string }) => S;
   remove: (s: S, id: string, opts: { now: number }) => S;
@@ -105,6 +107,20 @@ const PARTY: { [M in PartyMode]: PartyEngine<PartyGames[M]["state"], PartyGames[
     onDeadline: spy.onDeadline,
     intentOf: (m) => (m.t === "spyfall" ? m.intent : null),
   },
+  blackjack: {
+    maxPlayers: bj.MAX_BJ_PLAYERS,
+    openJoin: true,
+    create: bj.createBjGame,
+    add: bj.addBjPlayer,
+    remove: bj.removeBjPlayer,
+    setConnected: bj.setBjConnected,
+    apply: bj.applyBjIntent,
+    redact: bj.redactBj,
+    serverDeadline: bj.serverDeadline,
+    visibleDeadline: bj.visibleDeadline,
+    onDeadline: bj.onDeadline,
+    intentOf: (m) => (m.t === "blackjack" ? m.intent : null),
+  },
 };
 
 // A party room opened with its engine: `set` writes the game back, `view` builds a snapshot of this room.
@@ -131,6 +147,10 @@ function withParty<R>(room: PartyRoom, fn: <S, I>(p: Party<S, I>) => R): R {
       const r = room;
       return fn({ e: PARTY.spyfall, game: r.game, set: (g) => void (r.game = g), view: (game, deadlineInMs) => ({ ...r, game, deadlineInMs }) });
     }
+    case "blackjack": {
+      const r = room;
+      return fn({ e: PARTY.blackjack, game: r.game, set: (g) => void (r.game = g), view: (game, deadlineInMs) => ({ ...r, game, deadlineInMs }) });
+    }
   }
 }
 
@@ -143,6 +163,8 @@ function newPartyRoom(mode: PartyMode, code: string, player: { id: string; name:
       return { ...base, mode, game: PARTY.hotpotato.add(PARTY.hotpotato.create(), player) };
     case "spyfall":
       return { ...base, mode, game: PARTY.spyfall.add(PARTY.spyfall.create(), player) };
+    case "blackjack":
+      return { ...base, mode, game: PARTY.blackjack.add(PARTY.blackjack.create(), player) };
   }
 }
 
@@ -542,7 +564,7 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
     } else if (isParty(room)) {
       const seated = room.game.players.some((p) => p.id === clientId);
       if (!seated && live.kicked.has(clientId)) return fail(c, KICKED_MESSAGE);
-      if (!seated && room.game.phase !== "lobby") return fail(c, "Game already started");
+      if (!seated && room.game.phase !== "lobby" && !PARTY[room.mode].openJoin) return fail(c, "Game already started");
       if (!seated && room.game.players.length >= PARTY[room.mode].maxPlayers) return fail(c, "Room is full");
       if (!seated && !allow(joinsByIp, c.ip, joinsPerIpPerMin)) return fail(c, TOO_MANY_JOINS);
       const now = Date.now();
@@ -646,7 +668,8 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
       }
       case "liarsdice":
       case "hotpotato":
-      case "spyfall": {
+      case "spyfall":
+      case "blackjack": {
         const { room } = live;
         const actorId = c.clientId;
         if (!isParty(room) || room.mode !== msg.t) return fail(c, "Wrong game for this room");
@@ -689,7 +712,7 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
           joinable:
             (online.get(room.code) ?? 0) > 0 &&
             room.game.players.length < maxPlayersOf(room) &&
-            (room.mode === "physical" ? room.game.phase !== "gameOver" : room.game.phase === "lobby"),
+            (room.mode === "physical" ? room.game.phase !== "gameOver" : room.game.phase === "lobby" || (isParty(room) && PARTY[room.mode].openJoin === true)),
           lastActive,
         };
       });
