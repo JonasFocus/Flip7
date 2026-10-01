@@ -34,9 +34,9 @@ import * as bj from "../lib/blackjack/index.ts";
 import * as bac from "../lib/baccarat/index.ts";
 import * as rl from "../lib/roulette/index.ts";
 import * as tx from "../lib/texasholdem/index.ts";
-import { isPartyMode, KICKED_MESSAGE, MAX_PLAYERS, nextRoundDelayMs, REPLACED_CLOSE_CODE, REPLACED_MESSAGE, ROOM_TTL_MS } from "../lib/protocol.ts";
+import { isPartyMode, KICKED_MESSAGE, MAX_PLAYERS, nextRoundDelayMs, REPLACED_CLOSE_CODE, REPLACED_MESSAGE, UNKNOWN_GAME_MESSAGE, ROOM_TTL_MS } from "../lib/protocol.ts";
 import type { ClientMessage, PartyGames, PartyMode, PartyRoom, Room, RoomSummary, ServerMessage } from "../lib/protocol.ts";
-import { parseMessage } from "./validate.ts";
+import { isUnknownGame, parseMessage } from "./validate.ts";
 
 const TOO_MANY_JOINS = "Too many joins, try again in a minute";
 const MAX_PAYLOAD = 8 * 1024;
@@ -823,8 +823,9 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
       }
       if (++c.count > MAX_MSGS_PER_SEC) return;
       c.alive = true;
-      const msg = isBinary ? null : parseMessage(data.toString());
-      if (!msg) return fail(c, "Invalid message");
+      const raw = isBinary ? null : data.toString();
+      const msg = raw === null ? null : parseMessage(raw);
+      if (!msg) return fail(c, raw !== null && isUnknownGame(raw) ? UNKNOWN_GAME_MESSAGE : "Invalid message");
       try {
         handle(c, msg);
       } catch (err) {
