@@ -9,7 +9,7 @@ export const SHOE_SIZE = 52 * DECKS;
 export const DEAL_MS = 10_000; // after the first Deal tap, the rest of the table has this long to bet
 export const TURN_MS = 20_000; // then the server stands for you
 export const SETTLE_MS = 4500;
-export const DEALER_CARD_MS = 700; // per dealer draw, so the reveal finishes before the read time starts
+export const DEALER_CARD_MS = 950; // per dealer draw, so the reveal finishes before the read time starts
 const RESHUFFLE_AT = SHOE_SIZE / 4; // cut card at 75% penetration
 
 type Rng = () => number;

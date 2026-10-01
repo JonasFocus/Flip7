@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import "./blackjack.css";
 import { shareInvite } from "@/components/lobby/Lobby";
 import { useSecondsLeft } from "@/components/table/ActionBar";
@@ -19,7 +19,8 @@ const CHIPS = [
   { value: 100, color: "var(--color-card-12)" },
   { value: 500, color: "var(--color-card-2)" },
 ];
-const DEAL_STAGGER_MS = 110;
+const DEAL_STAGGER_MS = 240; // gap between cards on the opening deal, dealer-paced
+const SLIDE_MS = 620;
 
 // First base (seat 1) sits at the dealer's left, i.e. the right of the screen, and acts first.
 const SEAT_POS = Array.from({ length: SEATS }, (_, i) => {
@@ -119,7 +120,7 @@ function Felt({ conn, shown, revealed, secs }: { conn: BjConnection; shown: numb
   }
 
   return (
-    <section aria-label="Table" className="relative mx-2 min-h-0 flex-1">
+    <section aria-label="Table" data-table className="relative mx-2 min-h-0 flex-1">
       <div aria-hidden className="bj-felt absolute inset-x-0 top-0 bottom-[3%]" />
       <svg aria-hidden viewBox="0 0 100 40" className="pointer-events-none absolute top-[24%] left-[6%] w-[88%] font-display">
         <path id={arcId} d="M 6 4 Q 50 34 94 4" fill="none" />
@@ -138,10 +139,11 @@ function Felt({ conn, shown, revealed, secs }: { conn: BjConnection; shown: numb
           {dealerCards.length === 0 && <span className="grid h-full w-[var(--d)] place-items-center rounded-md border-2 border-dashed border-fg/25" />}
           {dealerCards.map((c, i) => (
             <Card
-              key={`${game.round}-${i}-${c ? c.rank + c.suit : "hole"}`}
+              key={`${game.round}-${i}`}
               card={c}
-              className={cx(i > 0 && "-ml-[calc(var(--d)*0.45)]", i === 1 && c ? "animate-flip" : "animate-deal")}
-              style={{ fontSize: "var(--d)", animationDelay: i < 2 && game.phase === "playing" ? `${(i * (hand.length + 1) + hand.length) * DEAL_STAGGER_MS}ms` : undefined }}
+              delay={i < 2 ? (i * (hand.length + 1) + hand.length) * DEAL_STAGGER_MS : 0}
+              className={cx(i > 0 && "-ml-[calc(var(--d)*0.45)]")}
+              style={{ fontSize: "var(--d)" }}
             />
           ))}
         </div>
@@ -187,9 +189,9 @@ function Felt({ conn, shown, revealed, secs }: { conn: BjConnection; shown: numb
 function Shoe({ left }: { left: number }) {
   return (
     <div className="absolute top-[3%] right-[4%] flex flex-col items-center gap-1" aria-label={`${left} cards left in the shoe`}>
-      <div className="relative h-[42px] w-[30px]">
+      <div data-shoe className="relative h-[42px] w-[30px]">
         {[0, 1, 2].map((i) => (
-          <Card key={i} card={null} className="absolute" style={{ fontSize: 28, left: i * 1.5, top: -i * 1.5 }} />
+          <Card key={i} card={null} slide={false} className="absolute" style={{ fontSize: 28, left: i * 1.5, top: -i * 1.5 }} />
         ))}
       </div>
       <p className="font-display text-[10px] leading-none text-fg/80 tabular-nums">{left}</p>
@@ -228,18 +230,14 @@ function Seat({
     <div className="relative flex flex-col items-center">
       {n > 0 && (
         <div className="absolute bottom-full left-1/2 mb-0.5 -translate-x-1/2" style={{ "--s": size } as CSSProperties}>
-          <div className="relative h-[calc(var(--s)*1.4+var(--rise))]" style={{ width: `calc(var(--s) + ${n - 1} * var(--s) * 0.4)`, "--rise": `calc(${n - 1} * var(--s) * 0.16)` } as CSSProperties}>
+          <div className={cx("relative h-[calc(var(--s)*1.4+var(--rise))]", bust && "animate-shake")} style={{ width: `calc(var(--s) + ${n - 1} * var(--s) * 0.4)`, "--rise": `calc(${n - 1} * var(--s) * 0.16)` } as CSSProperties}>
             {player.cards.map((c, i) => (
               <Card
                 key={`${game.round}-${i}`}
                 card={c}
-                className={cx("absolute animate-deal", bust && "brightness-75")}
-                style={{
-                  fontSize: "var(--s)",
-                  left: `calc(${i} * var(--s) * 0.4)`,
-                  bottom: `calc(${i} * var(--s) * 0.16)`,
-                  animationDelay: i < 2 && game.phase === "playing" ? `${(i * (inHandCount + 1) + order) * DEAL_STAGGER_MS}ms` : undefined,
-                }}
+                delay={i < 2 ? (i * (inHandCount + 1) + order) * DEAL_STAGGER_MS : 0}
+                className={cx("absolute transition-[filter] duration-500", bust && "brightness-75")}
+                style={{ fontSize: "var(--s)", left: `calc(${i} * var(--s) * 0.4)`, bottom: `calc(${i} * var(--s) * 0.16)` }}
               />
             ))}
           </div>
@@ -259,9 +257,10 @@ function Seat({
         className={cx(
           "relative grid size-[clamp(48px,14vw,58px)] place-items-center rounded-full border-2 bg-ink/25",
           turn ? "bj-glow border-accent" : mine ? "border-accent/70" : "border-fg/30",
+          result && result.net > 0 && "bj-win border-active",
         )}
       >
-        {player.bet > 0 ? <Chip amount={player.bet} /> : <Avatar id={player.id} seat={player.seat ?? undefined} name={player.name} />}
+        {player.bet > 0 ? <Chip key={player.bet} amount={player.bet} className="animate-pop" /> : <Avatar id={player.id} seat={player.seat ?? undefined} name={player.name} />}
         {player.ready && game.phase === "lobby" && (
           <span className="absolute -right-1 -bottom-1 grid size-5 place-items-center rounded-full bg-active text-[11px] text-ink" aria-label="Ready">
             ✓
@@ -311,16 +310,75 @@ function Chip({ amount, className }: { amount: number; className?: string }) {
   );
 }
 
-function Card({ card, className, style }: { card: BjCard | null; className?: string; style?: CSSProperties }) {
-  if (!card) return <span role="img" aria-label="Face-down card" data-back className={cx("bj-card", className)} style={style} />;
-  const red = card.suit === "h" || card.suit === "d";
+// Deals out of the shoe face down, spinning onto its spot, and turns over as it lands (a hidden hole card stays down).
+// Later changes (the hole card revealed) turn it over in place via the .bj-inner transition.
+function Card({
+  card,
+  slide = true,
+  delay = 0,
+  className,
+  style,
+}: {
+  card: BjCard | null;
+  slide?: boolean;
+  delay?: number;
+  className?: string;
+  style?: CSSProperties;
+}) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const [onMount] = useState(() => ({ slide, delay, faceUp: card !== null }));
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || !onMount.slide || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const shoe = el.closest("[data-table]")?.querySelector("[data-shoe]");
+    if (!shoe) return;
+    const to = el.getBoundingClientRect();
+    const from = shoe.getBoundingClientRect();
+    const dx = from.left + from.width / 2 - (to.left + to.width / 2);
+    const dy = from.top + from.height / 2 - (to.top + to.height / 2);
+    const timing: KeyframeAnimationOptions = { duration: SLIDE_MS, delay: onMount.delay, easing: "cubic-bezier(0.22, 0.9, 0.3, 1)", fill: "backwards" };
+    const moves = [
+      el.animate(
+        [
+          { transform: `translate(${dx}px, ${dy}px) rotate(-55deg) scale(0.75)` },
+          { transform: "translate(0, -6%) rotate(4deg) scale(1.06)", offset: 0.75 },
+          { transform: "none" },
+        ],
+        timing,
+      ),
+    ];
+    const inner = el.firstElementChild;
+    if (onMount.faceUp && inner instanceof HTMLElement) {
+      moves.push(inner.animate([{ transform: "rotateY(180deg)" }, { transform: "rotateY(180deg)", offset: 0.55 }, { transform: "rotateY(0deg)" }], timing));
+    }
+    return () => moves.forEach((m) => m.cancel());
+  }, [onMount]);
+
+  const red = card?.suit === "h" || card?.suit === "d";
   return (
-    <span role="img" aria-label={`${card.rank}${SUIT[card.suit]}`} data-red={red || undefined} className={cx("bj-card", className)} style={style}>
-      <span className="bj-rank" data-wide={card.rank === "10" || undefined}>
-        {card.rank}
+    <span
+      ref={ref}
+      role="img"
+      aria-label={card ? `${card.rank}${SUIT[card.suit]}` : "Face-down card"}
+      data-down={card ? undefined : true}
+      className={cx("bj-card", className)}
+      style={style}
+    >
+      <span className="bj-inner">
+        <span className="bj-face bj-front" data-red={red || undefined}>
+          {card && (
+            <>
+              <span className="bj-rank" data-wide={card.rank === "10" || undefined}>
+                {card.rank}
+              </span>
+              <span className="bj-suit-sm">{SUIT[card.suit]}</span>
+              <span className="bj-suit">{SUIT[card.suit]}</span>
+            </>
+          )}
+        </span>
+        <span className="bj-face bj-back" />
       </span>
-      <span className="bj-suit-sm">{SUIT[card.suit]}</span>
-      <span className="bj-suit">{SUIT[card.suit]}</span>
     </span>
   );
 }
