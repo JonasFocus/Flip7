@@ -166,7 +166,7 @@ function Felt({ conn, shown, revealed, secs }: { conn: BjConnection; shown: numb
           DEALER
           {dealerCards.length > 0 && (
             <span
-              style={{ animationDelay: `${hand.length * DEAL_STAGGER_MS + CARD_SLIDE_MS}ms` }}
+              style={{ animationDelay: `${(game.phase === "settle" ? 2 * hand.length + 1 : hand.length) * DEAL_STAGGER_MS + CARD_SLIDE_MS}ms` }}
               className={cx("bj-in tabular-nums", isBust(dealerCards) ? "text-danger" : "text-accent")}
             >
               {isBust(dealerCards) ? `${dealerTotal.total} BUST` : game.phase === "playing" ? `${dealerTotal.total}+?` : totalLabel(dealerCards)}
@@ -206,8 +206,8 @@ function Felt({ conn, shown, revealed, secs }: { conn: BjConnection; shown: numb
 
 function Shoe({ left }: { left: number }) {
   return (
-    <div className="absolute top-[3%] right-[4%] flex flex-col items-center gap-1" aria-label={`${left} cards left in the shoe`}>
-      <div data-shoe className="relative h-[42px] w-[30px]">
+    <div role="img" className="absolute top-[3%] right-[4%] flex flex-col items-center gap-1" aria-label={`${left} cards left in the shoe`}>
+      <div data-shoe aria-hidden className="relative h-[42px] w-[30px]">
         {[0, 1, 2].map((i) => (
           <Card key={i} card={null} slide={false} className="absolute" style={{ fontSize: 28, left: i * 1.5, top: -i * 1.5 }} />
         ))}
