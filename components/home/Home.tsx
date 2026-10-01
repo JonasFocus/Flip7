@@ -18,12 +18,10 @@ type Mode = "online" | "imposter" | "liarsdice" | "hotpotato" | "spyfall" | "bla
 
 const LABEL = "text-[11px] font-bold uppercase tracking-[0.2em] text-muted";
 
+// Archived from the picker (rooms/logic intact): liarsdice, hotpotato, spyfall.
 const MODES: { id: Mode; title: string; blurb: string; cta: string; icon: ReactNode }[] = [
   { id: "online", title: "Flip 7", blurb: "One phone each, with family", cta: "Create table", icon: <PeopleIcon /> },
   { id: "imposter", title: "Imposter", blurb: "Find the faker · 3–10 players", cta: "Create room", icon: <MaskIcon /> },
-  { id: "liarsdice", title: "Liar's Dice", blurb: "Bluff with dice · 2–8 players", cta: "Create room", icon: <DiceIcon /> },
-  { id: "hotpotato", title: "Hot Potato", blurb: "Pass the bomb · 3–10 players", cta: "Create room", icon: <BombIcon /> },
-  { id: "spyfall", title: "Where Are We?", blurb: "Find the spy · 3–10 players", cta: "Create room", icon: <PinIcon /> },
   { id: "blackjack", title: "Blackjack", blurb: "Beat the dealer · 5 seats", cta: "Open table", icon: <ChipIcon /> },
   { id: "baccarat", title: "Baccarat", blurb: "Punto banco · 5 seats", cta: "Open table", icon: <BaccaratIcon /> },
   { id: "roulette", title: "Roulette", blurb: "Spin the wheel · 8 seats", cta: "Open table", icon: <RouletteIcon /> },
@@ -211,35 +209,6 @@ function MaskIcon() {
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden className="size-6">
       <path d="M3 7c3-1.5 6-1.5 9 0 3-1.5 6-1.5 9 0v4c0 4.5-3.5 8-9 8s-9-3.5-9-8V7Z" />
       <path d="M7 11.5c.8-.6 1.8-.6 2.6 0M14.4 11.5c.8-.6 1.8-.6 2.6 0M9.5 15.5c1.5.8 3.5.8 5 0" />
-    </svg>
-  );
-}
-
-function DiceIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden className="size-6">
-      <rect x="3.5" y="3.5" width="17" height="17" rx="4" />
-      <circle cx="8.5" cy="8.5" r="1.1" fill="currentColor" stroke="none" />
-      <circle cx="12" cy="12" r="1.1" fill="currentColor" stroke="none" />
-      <circle cx="15.5" cy="15.5" r="1.1" fill="currentColor" stroke="none" />
-    </svg>
-  );
-}
-
-function BombIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden className="size-6">
-      <circle cx="10.5" cy="14" r="6.5" />
-      <path d="M15 9.5 17 7.5M17.5 3.5v1.5M21 7h-1.5M20 4.5l-1 1" />
-    </svg>
-  );
-}
-
-function PinIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden className="size-6">
-      <path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11Z" />
-      <circle cx="12" cy="10" r="2.3" />
     </svg>
   );
 }
