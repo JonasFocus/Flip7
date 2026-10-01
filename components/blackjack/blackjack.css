@@ -1,19 +1,22 @@
 /* Blackjack table. Colors come from the globals.css theme tokens; card size = font-size (width), insides in em. */
 /* Layered so Tailwind utilities like `absolute` still override these. */
 @layer components {
+/* Graphite felt under a soft overhead light, with a fine light-grey inlay and a slate rail. */
 .bj-felt {
   background:
-    radial-gradient(120% 80% at 50% 0%, oklch(0.5 0.12 162 / 0.55), transparent 60%),
-    repeating-linear-gradient(45deg, oklch(1 0 0 / 0.025) 0 2px, transparent 2px 6px),
-    oklch(0.36 0.09 165);
+    radial-gradient(85% 60% at 50% 22%, oklch(0.34 0.006 260 / 0.9), transparent 72%),
+    repeating-linear-gradient(45deg, oklch(1 0 0 / 0.012) 0 1px, transparent 1px 4px),
+    oklch(0.215 0.006 260);
   border-radius: 0 0 50% 50% / 0 0 46% 46%;
-  border: 10px solid oklch(0.3 0.05 50);
+  border: 9px solid oklch(0.15 0.005 260);
   border-top: 0;
   box-shadow:
-    inset 0 0 0 2px var(--color-accent),
-    inset 0 -24px 60px oklch(0 0 0 / 0.35),
-    0 0 0 2px oklch(0.2 0.03 50),
-    0 0 40px -6px oklch(0.89 0.18 98 / 0.35);
+    inset 0 0 0 1.5px oklch(0.8 0.005 260 / 0.35),
+    inset 0 0 0 7px oklch(0.215 0.006 260),
+    inset 0 0 0 8px oklch(0.8 0.005 260 / 0.12),
+    inset 0 -30px 70px oklch(0 0 0 / 0.45),
+    0 0 0 1px oklch(0.42 0.005 260 / 0.6),
+    0 28px 60px -24px oklch(0 0 0 / 0.9);
 }
 
 /* Two-faced card: .bj-inner turns over (data-down = back showing); the slide in from the shoe is WAAPI in Blackjack.tsx. */
@@ -53,10 +56,10 @@
 .bj-back {
   transform: rotateY(180deg);
   background:
-    repeating-linear-gradient(45deg, oklch(1 0 0 / 0.22) 0 0.03em, transparent 0.03em 0.1em),
-    repeating-linear-gradient(-45deg, oklch(1 0 0 / 0.22) 0 0.03em, transparent 0.03em 0.1em),
-    var(--color-danger-deep);
-  box-shadow: inset 0 0 0 0.05em oklch(0.98 0.005 90), inset 0 0 0 0.09em var(--color-danger-deep), inset 0 0 0 0.1em var(--color-accent), 0 0.08em 0.16em oklch(0 0 0 / 0.35);
+    repeating-linear-gradient(45deg, oklch(0.85 0.005 260 / 0.16) 0 0.025em, transparent 0.025em 0.09em),
+    repeating-linear-gradient(-45deg, oklch(0.85 0.005 260 / 0.16) 0 0.025em, transparent 0.025em 0.09em),
+    oklch(0.27 0.008 260);
+  box-shadow: inset 0 0 0 0.05em oklch(0.92 0.005 260), inset 0 0 0 0.09em oklch(0.27 0.008 260), inset 0 0 0 0.1em oklch(0.8 0.005 260 / 0.6), 0 0.08em 0.16em oklch(0 0 0 / 0.45);
 }
 
 /* Corner index: rank over suit, readable even when a hand overlaps it to its left strip. */
