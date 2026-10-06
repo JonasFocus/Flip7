@@ -44,7 +44,8 @@
 .rl-hub-ring { fill: none; stroke: oklch(1 0 0 / 0.07); stroke-width: 0.5; }
 .rl-hub-pin { fill: oklch(0.55 0.006 260); }
 
-.rl-ball {
+.rl-ball,
+.rl-ball-shadow {
   position: absolute;
   left: 50%;
   top: 50%;
@@ -52,10 +53,10 @@
   aspect-ratio: 1;
   margin: -2.25%;
   border-radius: 50%;
-  background: radial-gradient(circle at 35% 30%, oklch(1 0 0), oklch(0.92 0.005 260) 55%, oklch(0.7 0.006 260));
-  box-shadow: 0 1px 2px oklch(0 0 0 / 0.7);
   will-change: transform, opacity;
 }
+.rl-ball { background: radial-gradient(circle at 35% 30%, oklch(1 0 0), oklch(0.92 0.005 260) 55%, oklch(0.7 0.006 260)); }
+.rl-ball-shadow { background: radial-gradient(closest-side, oklch(0 0 0 / 0.85), oklch(0 0 0 / 0.4) 60%, transparent); }
 /* ==== end wheel ==== */
 
 /* Pill for a result number: enamel in the pocket colour, a brass hairline. */

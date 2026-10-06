@@ -4,24 +4,27 @@ import { useEffect, useRef, type CSSProperties } from "react";
 import { cx } from "@/components/ui/cx";
 import { LAND_MS, POCKETS, SETTLE_MS, SPIN_MS, colorOf } from "@/lib/roulette";
 import type { RlPhase } from "@/lib/roulette/types";
+import {
+  DEFLECTORS,
+  DEFLECTOR_R,
+  REST_R,
+  STEP,
+  WALL_R,
+  landingPose,
+  makeSpin,
+  planLanding,
+  pocketDeg,
+  rotorAt,
+  spinPose,
+  type BallPose,
+  type Landing,
+  type Spin,
+} from "./ballPath";
 
-const STEP = 360 / POCKETS.length;
-const ROTOR_DEG_PER_MS = 0.026;
-const BALL_DEG_PER_MS = -0.4; // against the rotor
 const BALL_UNITS = 9; // ball diameter in wheel units (the viewBox is 200 wide)
-const TRACK_R = 87;
-const REST_R = 64;
-const BOUNCES = 4;
-const BOUNCE_DECAY = 0.5; // each hop lasts this much of the one before, and rises its square as high
-const BOUNCE_SPAN = Array.from({ length: BOUNCES }, (_, k) => BOUNCE_DECAY ** k);
-const BOUNCE_TOTAL = BOUNCE_SPAN.reduce((a, b) => a + b, 0);
 
-const mod = (a: number, b: number) => ((a % b) + b) % b;
-const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
-const smooth = (v: number) => clamp01(v) ** 2 * (3 - 2 * clamp01(v));
 const round = (v: number) => Math.round(v * 1e3) / 1e3; // server and client must print identical SVG coordinates
 const polar = (r: number, deg: number): [number, number] => [round(r * Math.sin((deg * Math.PI) / 180)), round(-r * Math.cos((deg * Math.PI) / 180))];
-const pocketDeg = (n: number) => POCKETS.indexOf(n) * STEP;
 
 function wedge(i: number): string {
   const [a0, a1] = [i * STEP - STEP / 2, i * STEP + STEP / 2];
@@ -33,83 +36,54 @@ function wedge(i: number): string {
 }
 
 const WEDGES = POCKETS.map((n, i) => ({ n, d: wedge(i), at: polar(64, i * STEP), deg: i * STEP, color: colorOf(n) }));
-const DEFLECTORS = Array.from({ length: 8 }, (_, i) => i * 45 + 22.5);
 
 interface Drive {
   phase: RlPhase;
   result: number | null;
   last: number | null;
   deadlineAt: number | undefined;
+  seed: string;
   still: boolean;
 }
 
-interface BallPose {
-  deg: number;
-  r: number;
-  hop: number; // 0..1: how far the ball is off the wood, drives its scale
-  opacity: number;
+interface Throw {
+  spin: { seed: string; spin: Spin } | null;
+  landing: { seed: string; landing: Landing } | null;
 }
 
-// Height of the hops at u in 0..1 over the whole bounce run: parabolas that shrink geometrically, like a ball losing energy.
-function hopAt(u: number): number {
-  let t = clamp01(u) * BOUNCE_TOTAL;
-  for (let k = 0; k < BOUNCES; k++) {
-    const span = BOUNCE_SPAN[k] ?? 0;
-    if (t <= span) {
-      const x = t / span;
-      return 4 * x * (1 - x) * BOUNCE_DECAY ** (2 * k);
-    }
-    t -= span;
-  }
-  return 0;
-}
-
-// Wheel and ball are pure functions of the clock, so every phone and a reload mid-spin land in the same place.
-// The server reveals the pocket only when the ball must drop: until then the ball circulates at a constant speed.
-// Then, over LAND_MS, it slows in the rotor's frame (an ease-out power curve whose start slope equals the circulation
-// speed, so there is no kink), drops off the track past the deflectors, and hops across pockets into the winning one.
-function ballAt(now: number, d: Drive): BallPose {
-  const rotor = d.still ? 0 : mod(now * ROTOR_DEG_PER_MS, 360);
-  const rest = (n: number | null): BallPose => ({ deg: rotor + (n === null ? 0 : pocketDeg(n)), r: REST_R, hop: 0, opacity: n === null ? 0 : 1 });
-
+// The ball is a pure function of the clock and the spin's seed (ballPath.ts), so every phone and a reload mid-spin
+// follow the same throw. A spin and its landing are fixed the first time this phone sees them: later snapshots
+// re-derive the deadline from their own arrival time, and a few ms of jitter must not reshuffle a throw in flight.
+function ballAt(now: number, d: Drive, cache: Throw): BallPose {
+  const rest = (n: number | null): BallPose => ({ deg: (d.still ? 0 : rotorAt(now)) + (n === null ? 0 : pocketDeg(n)), r: REST_R, z: 0, opacity: n === null ? 0 : 1 });
   if (d.phase === "betting") return rest(d.last);
   if (d.phase === "spinning") {
-    const t = d.deadlineAt === undefined ? Infinity : now - (d.deadlineAt - SPIN_MS);
-    return { deg: d.still ? 0 : now * BALL_DEG_PER_MS, r: REST_R + (TRACK_R - REST_R) * smooth(t / 500), hop: 0, opacity: clamp01(t / 250) };
+    if (d.still) return { deg: 0, r: WALL_R, z: 0, opacity: 1 };
+    if (cache.spin?.seed !== d.seed) cache.spin = { seed: d.seed, spin: makeSpin(d.seed, (d.deadlineAt ?? now + SPIN_MS) - SPIN_MS, d.last) };
+    return spinPose(cache.spin.spin, now - cache.spin.spin.start);
   }
   const n = d.result ?? d.last;
   if (n === null || d.deadlineAt === undefined || d.still) return rest(n);
-
   const start = d.deadlineAt - SETTLE_MS;
-  const p = (now - start) / LAND_MS;
-  if (p >= 1) return rest(n);
-
-  const from = mod(start * (BALL_DEG_PER_MS - ROTOR_DEG_PER_MS), 360); // ball angle relative to the rotor at p = 0
-  const sweep = 360 + mod(from - pocketDeg(n), 360); // 360..720 degrees backwards, ending exactly on the pocket
-  const power = ((ROTOR_DEG_PER_MS - BALL_DEG_PER_MS) * LAND_MS) / sweep; // 1 - (1 - x)^power starts at the circulation speed
-  const travel = 1 - (1 - clamp01(p)) ** power;
-
-  const u = clamp01((p - 0.5) / 0.5); // hopping between pockets
-  const hop = hopAt(u);
-  const nudge = STEP * 1.4 * (1 - u) ** 2 * Math.sin(u * Math.PI * 5);
-  const knock = [0.34, 0.43].reduce((s, c) => s + 2.2 * Math.exp(-(((p - c) / 0.016) ** 2)), 0); // hits on the deflectors
-  const drop = smooth((p - 0.3) / 0.28);
-  return {
-    deg: rotor + from - sweep * travel + nudge,
-    r: TRACK_R - (TRACK_R - REST_R) * drop + hop * 2 - knock,
-    hop: hop + knock * 0.2,
-    opacity: 1,
-  };
+  if (cache.landing?.seed !== d.seed) {
+    if (now - start >= LAND_MS) return rest(n);
+    // Arrived after the reveal (a reload, a late join): replay the throw as if it had been watched from the start.
+    const thrown = cache.spin?.seed === d.seed ? cache.spin.spin : makeSpin(d.seed, start - SPIN_MS, null);
+    cache.landing = { seed: d.seed, landing: planLanding(thrown, start, n, d.seed) };
+  }
+  const l = cache.landing.landing;
+  return now - l.t0 >= LAND_MS ? rest(n) : landingPose(l, now);
 }
 
-// Flat top-down wheel: a still bezel and track, a rotor that only ever rotates, and a ball moved by one transform per
-// frame (rotate, then travel along the radius in percent of its own size), so nothing depends on pixel measurements.
+// Flat top-down wheel: a still bezel and track, a rotor that only ever rotates, and a ball and its shadow moved by one
+// transform each per frame, in percent of their own size, so nothing depends on pixel measurements.
 export function Wheel({
   phase,
   result,
   last,
   lit,
   deadlineAt,
+  seed,
   className,
   style,
 }: {
@@ -118,16 +92,19 @@ export function Wheel({
   last: number | null; // the previous result, where the ball rests between spins
   lit: number | null; // pocket to light up once the ball has landed
   deadlineAt: number | undefined;
+  seed: string; // the same for every phone at the table and new for every spin
   className?: string;
   style?: CSSProperties;
 }) {
   const rotorRef = useRef<SVGGElement>(null);
   const ballRef = useRef<HTMLDivElement>(null);
-  const drive = useRef<Drive>({ phase, result, last, deadlineAt, still: false });
+  const shadowRef = useRef<HTMLDivElement>(null);
+  const drive = useRef<Drive>({ phase, result, last, deadlineAt, seed, still: false });
+  const cache = useRef<Throw>({ spin: null, landing: null });
 
   useEffect(() => {
-    drive.current = { ...drive.current, phase, result, last, deadlineAt };
-  }, [phase, result, last, deadlineAt]);
+    drive.current = { ...drive.current, phase, result, last, deadlineAt, seed };
+  }, [phase, result, last, deadlineAt, seed]);
 
   useEffect(() => {
     const reduce = matchMedia("(prefers-reduced-motion: reduce)");
@@ -138,11 +115,22 @@ export function Wheel({
     const frame = () => {
       const d = drive.current;
       const now = Date.now();
-      const ball = ballAt(now, d);
-      if (rotorRef.current) rotorRef.current.style.transform = `rotate(${d.still ? 0 : mod(now * ROTOR_DEG_PER_MS, 360)}deg)`;
+      const ball = ballAt(now, d, cache.current);
+      if (rotorRef.current) rotorRef.current.style.transform = `rotate(${d.still ? 0 : rotorAt(now)}deg)`;
+      // Placed by translation, not rotation, so its highlight stays put as on a lit ball. Height brings it toward the
+      // viewer and casts its shadow further down and to the right.
+      const rad = (ball.deg * Math.PI) / 180;
+      const x = ((ball.r * Math.sin(rad)) / BALL_UNITS) * 100;
+      const y = ((-ball.r * Math.cos(rad)) / BALL_UNITS) * 100;
       if (ballRef.current) {
-        ballRef.current.style.transform = `rotate(${ball.deg}deg) translateY(${(-ball.r / BALL_UNITS) * 100}%) scale(${1 + ball.hop * 0.3})`;
+        ballRef.current.style.transform = `translate(${x}%, ${y}%) scale(${1 + ball.z * 0.035})`;
         ballRef.current.style.opacity = `${ball.opacity}`;
+      }
+      if (shadowRef.current) {
+        const dx = ((0.5 + ball.z * 0.45) / BALL_UNITS) * 100;
+        const dy = ((0.8 + ball.z * 0.6) / BALL_UNITS) * 100;
+        shadowRef.current.style.transform = `translate(${x + dx}%, ${y + dy}%) scale(${1 + ball.z * 0.04})`;
+        shadowRef.current.style.opacity = `${ball.opacity * Math.max(0.2, 0.75 - ball.z * 0.06)}`;
       }
       raf = requestAnimationFrame(frame);
     };
@@ -160,8 +148,8 @@ export function Wheel({
         <circle r="94" className="rl-track" />
         <circle r="80" className="rl-lip" />
         {DEFLECTORS.map((a) => {
-          const [x, y] = polar(87, a);
-          return <path key={a} d="M0 -3L1.3 0L0 3L-1.3 0Z" transform={`translate(${x} ${y}) rotate(${a})`} className="rl-deflector" />;
+          const [x, y] = polar(DEFLECTOR_R, a);
+          return <path key={a} d="M0 -2.6L1.2 0L0 2.6L-1.2 0Z" transform={`translate(${x} ${y}) rotate(${a})`} className="rl-deflector" />;
         })}
         <g ref={rotorRef} className="rl-rotor">
           {WEDGES.map((w) => (
@@ -179,6 +167,7 @@ export function Wheel({
           <circle r="4" className="rl-hub-pin" />
         </g>
       </svg>
+      <div ref={shadowRef} aria-hidden className="rl-ball-shadow" style={{ opacity: 0 }} />
       <div ref={ballRef} aria-hidden className="rl-ball" style={{ opacity: 0 }} />
     </div>
   );

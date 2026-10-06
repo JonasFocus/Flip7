@@ -94,7 +94,7 @@ export function Roulette({ conn }: { conn: RlConnection }) {
       <StatusBar game={game} secs={left} result={result} history={history} />
 
       <section aria-label="Wheel" className="rl-stage" data-big={big || undefined}>
-        <Wheel phase={game.phase} result={game.result} last={history.at(-1) ?? null} lit={result} deadlineAt={conn.deadlineAt} className="rl-stage-wheel" />
+        <Wheel phase={game.phase} result={game.result} last={history.at(-1) ?? null} lit={result} deadlineAt={conn.deadlineAt} seed={`${conn.code}:${game.round}`} className="rl-stage-wheel" />
         {big && result !== null && <StageCaption game={game} result={result} />}
       </section>
 
