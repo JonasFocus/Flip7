@@ -391,7 +391,7 @@ function Dealt({
     return () => away.cancel();
   }, [sweep]);
 
-  return <CardFace ref={ref} card={card} size={size} className={cx("transition-[filter,opacity,font-size] duration-500", dim && "opacity-40 brightness-75", className)} style={style} />;
+  return <CardFace ref={ref} card={card} pips size={size} className={cx("transition-[filter,opacity,font-size] duration-500", dim && "opacity-40 brightness-75", className)} style={style} />;
 }
 
 function Seat({

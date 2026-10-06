@@ -83,6 +83,25 @@
 }
 .cc-court > span { font-size: 0.42em; }
 
+/* Real-deck pip layout (opt-in via `pips`): slimmer corner indices so the pips have room. */
+.cc-card[data-pips] .cc-idx { width: 0.24em; top: 0.035em; left: 0.02em; }
+.cc-card[data-pips] .cc-idx[data-flip] { top: auto; left: auto; bottom: 0.035em; right: 0.02em; }
+.cc-card[data-pips] .cc-idx .cc-r { font-size: 0.25em; }
+.cc-card[data-pips] .cc-idx .cc-r[data-wide] { font-size: 0.21em; }
+.cc-card[data-pips] .cc-idx .cc-s { font-size: 0.19em; }
+.cc-card[data-pips] .cc-pip { font-size: 0.6em; }
+.cc-card[data-pips] .cc-court { inset: 0.24em 0.22em; grid-template-rows: 1fr auto; place-items: center; }
+.cc-card[data-pips] .cc-court > span:first-child { font-size: 0.4em; align-self: end; }
+.cc-court > .cc-court-suit { font-size: 0.2em; padding-bottom: 0.15em; font-family: var(--font-sans); }
+.cc-pips { position: absolute; inset: 0.11em 0.1em; }
+.cc-pips > span {
+  position: absolute;
+  font-size: 0.21em;
+  line-height: 1;
+  transform: translate(-50%, -50%);
+}
+.cc-pips > span[data-flip] { transform: translate(-50%, -50%) rotate(180deg); }
+
 .cc-chip {
   border-radius: 9999px;
   border: 0.16em dashed oklch(0.98 0 0 / 0.85);
