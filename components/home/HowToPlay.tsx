@@ -41,7 +41,7 @@ const RULES: { title: string; body: string; cards?: ReactNode }[] = [
 
 const CASINO: { title: string; body: string }[] = [
   { title: "Blackjack", body: "Get closer to 21 than the dealer without going over. Blackjack pays 3:2." },
-  { title: "Head-to-Head 21", body: "You and a friend each play the same dealer, but you bet against each other: whoever does better takes the other's chips. No table max, go all in any time, and play until someone is broke." },
+  { title: "Head-to-Head 21", body: "You and a friend each play the same dealer, but you bet against each other: whoever does better takes the other's chips. Each of you buys in for $20 to $100 and can buy more between hands. No table max, and you can go all in any time." },
   { title: "Baccarat", body: "Bet on Player, Banker (5% commission) or Tie (8:1). Closest to 9 wins; cards are dealt for you." },
   { title: "Roulette", body: "Drop chips on the layout before the spin. Straight-up pays 35:1; red/black, odd/even and high/low pay 1:1." },
   { title: "Texas Hold'em", body: "Two hole cards, five shared. Bet, raise or fold each round; the best five-card hand takes the pot." },

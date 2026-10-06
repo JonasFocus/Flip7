@@ -468,6 +468,7 @@ test("head-to-head 21: two seats, the match starts on the second join, a third i
     assert.deepEqual(v.room.game.shoe, []);
     assert.equal(v.room.game.shoeLeft, 364);
   }
+  phones[0]?.send({ t: "bjduel", intent: { type: "buyin", amount: 50 } });
   phones[0]?.send({ t: "bjduel", intent: { type: "chip", value: 5 } });
   await phones[1]?.waitRoom((m) => m.room.mode === "bjduel" && m.room.game.players.some((p) => p.stack.length === 1));
   phones[0]?.send({ t: "bjduel", intent: { type: "chip", value: 10 } as never });

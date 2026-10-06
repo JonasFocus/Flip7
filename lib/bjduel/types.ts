@@ -21,15 +21,14 @@ export interface DuelPlayer {
   doubled: boolean; // the second half of `stack` is the double
   // settle only: how you did against the dealer, whether that beat your opponent, and the chips that changed hands
   result: { outcome: Outcome; vs: Versus; net: number } | null;
-  rematch: boolean; // over: tapped Rematch
+  bought: number; // total bought in at this table, so the table can show who's up
 }
 
 export type DuelPhase =
   | "lobby" // waiting for the second player
-  | "betting" // both stack chips and lock in
+  | "betting" // both buy in if they need to, stack chips and lock in
   | "playing" // first to act alternates each hand; dealer's hole card hidden
-  | "settle" // dealer played out, results shown until settleAt
-  | "over"; // someone is broke; both tap Rematch for a fresh one
+  | "settle"; // dealer played out, results shown until settleAt
 
 export interface DuelState {
   phase: DuelPhase;
@@ -58,7 +57,7 @@ export type DuelIntent =
   | { type: "hit" }
   | { type: "stand" }
   | { type: "double" }
-  | { type: "rematch" }; // over
+  | { type: "buyin"; amount: number }; // betting: buy chips, $20 to $100 at a time (to start, when broke, or to top up)
 
 export interface DuelConnection {
   code: string;
