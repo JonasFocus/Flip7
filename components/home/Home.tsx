@@ -14,7 +14,7 @@ import { JoinCode } from "./JoinCode";
 import { MODE_LABEL, OpenTables, useOpenRooms } from "./OpenTables";
 import { HowToPlay } from "./HowToPlay";
 
-type Mode = "online" | "imposter" | "liarsdice" | "hotpotato" | "spyfall" | "blackjack" | "baccarat" | "roulette" | "texasholdem";
+type Mode = "online" | "imposter" | "liarsdice" | "hotpotato" | "spyfall" | "blackjack" | "bjduel" | "baccarat" | "roulette" | "texasholdem";
 
 const LABEL = "text-[11px] font-bold uppercase tracking-[0.2em] text-muted";
 
@@ -23,12 +23,13 @@ const MODES: { id: Mode; title: string; blurb: string; cta: string; icon: ReactN
   { id: "online", title: "Flip 7", blurb: "One phone each, with family", cta: "Create table", icon: <PeopleIcon /> },
   { id: "imposter", title: "Imposter", blurb: "Find the faker · 3–10 players", cta: "Create room", icon: <MaskIcon /> },
   { id: "blackjack", title: "Blackjack", blurb: "Beat the dealer · 5 seats", cta: "Open table", icon: <ChipIcon /> },
+  { id: "bjduel", title: "Head-to-Head 21", blurb: "Challenge a friend · 2 players", cta: "Open duel", icon: <DuelIcon /> },
   { id: "baccarat", title: "Baccarat", blurb: "Punto banco · 5 seats", cta: "Open table", icon: <BaccaratIcon /> },
   { id: "roulette", title: "Roulette", blurb: "Spin the wheel · 8 seats", cta: "Open table", icon: <RouletteIcon /> },
   { id: "texasholdem", title: "Texas Hold'em", blurb: "No-limit · 2–8 seats", cta: "Open table", icon: <HoldemIcon /> },
 ];
 
-const ROOM_MODE = { online: "virtual", imposter: "imposter", liarsdice: "liarsdice", hotpotato: "hotpotato", spyfall: "spyfall", blackjack: "blackjack", baccarat: "baccarat", roulette: "roulette", texasholdem: "texasholdem" } as const;
+const ROOM_MODE = { online: "virtual", imposter: "imposter", liarsdice: "liarsdice", hotpotato: "hotpotato", spyfall: "spyfall", blackjack: "blackjack", bjduel: "bjduel", baccarat: "baccarat", roulette: "roulette", texasholdem: "texasholdem" } as const;
 
 const noopSubscribe = () => () => {};
 
@@ -246,6 +247,15 @@ function ChipIcon() {
       <circle cx="12" cy="12" r="8.5" />
       <circle cx="12" cy="12" r="4" />
       <path d="M12 3.5v3M12 17.5v3M3.5 12h3M17.5 12h3" />
+    </svg>
+  );
+}
+
+function DuelIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinejoin="round" aria-hidden className="size-6">
+      <rect x="3" y="5" width="9" height="13" rx="1.6" transform="rotate(-10 7.5 11.5)" />
+      <rect x="12" y="5" width="9" height="13" rx="1.6" transform="rotate(10 16.5 11.5)" />
     </svg>
   );
 }

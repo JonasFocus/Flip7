@@ -116,14 +116,14 @@ function draw(s: BjState, rng: Rng): { card: BjCard; shoe: BjCard[] } {
   return { card, shoe: rest };
 }
 
-function payout(outcome: Outcome, bet: number): number {
+export function payout(outcome: Outcome, bet: number): number {
   if (outcome === "blackjack") return bet + Math.floor((bet * 3) / 2);
   if (outcome === "win") return bet * 2;
   if (outcome === "push") return bet;
   return 0;
 }
 
-function outcomeOf(cards: BjCard[], dealer: BjCard[]): Outcome {
+export function outcomeOf(cards: BjCard[], dealer: BjCard[]): Outcome {
   if (isBust(cards)) return "lose";
   const dealerBj = isBlackjack(dealer);
   if (isBlackjack(cards)) return dealerBj ? "push" : "blackjack";

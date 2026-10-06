@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { Blackjack } from "@/components/blackjack/Blackjack";
+import { BlackjackDuel } from "@/components/bjduel/BlackjackDuel";
 import { Baccarat } from "@/components/baccarat/Baccarat";
 import { Roulette } from "@/components/roulette/Roulette";
 import { TexasHoldem } from "@/components/texasholdem/TexasHoldem";
@@ -35,7 +36,7 @@ function LiveRoom({ code, name }: { code: string; name: string }) {
 function RoomView({ code, name, onPlayHere }: { code: string; name: string; onPlayHere: () => void }) {
   const room = useRoom(code, name);
   const router = useRouter();
-  const { table: rawTable, score: rawScore, imposter: rawImposter, dice: rawDice, potato: rawPotato, spy: rawSpy, bj: rawBj, bac: rawBac, rl: rawRl, tx: rawTx, leave: rawLeave } = room;
+  const { table: rawTable, score: rawScore, imposter: rawImposter, dice: rawDice, potato: rawPotato, spy: rawSpy, bj: rawBj, duel: rawDuel, bac: rawBac, rl: rawRl, tx: rawTx, leave: rawLeave } = room;
 
   // Leaving from any screen goes home.
   const table = useMemo(
@@ -54,6 +55,7 @@ function RoomView({ code, name, onPlayHere }: { code: string; name: string; onPl
   const potato = useMemo(() => rawPotato && { ...rawPotato, leave: () => (rawLeave(), router.replace("/")) }, [rawPotato, rawLeave, router]);
   const spy = useMemo(() => rawSpy && { ...rawSpy, leave: () => (rawLeave(), router.replace("/")) }, [rawSpy, rawLeave, router]);
   const bj = useMemo(() => rawBj && { ...rawBj, leave: () => (rawLeave(), router.replace("/")) }, [rawBj, rawLeave, router]);
+  const duel = useMemo(() => rawDuel && { ...rawDuel, leave: () => (rawLeave(), router.replace("/")) }, [rawDuel, rawLeave, router]);
   const bac = useMemo(() => rawBac && { ...rawBac, leave: () => (rawLeave(), router.replace("/")) }, [rawBac, rawLeave, router]);
   const rl = useMemo(() => rawRl && { ...rawRl, leave: () => (rawLeave(), router.replace("/")) }, [rawRl, rawLeave, router]);
   const tx = useMemo(() => rawTx && { ...rawTx, leave: () => (rawLeave(), router.replace("/")) }, [rawTx, rawLeave, router]);
@@ -61,7 +63,7 @@ function RoomView({ code, name, onPlayHere }: { code: string; name: string; onPl
   // The in-game header shows its own reconnect state in the same spot.
   const banner = room.status === "reconnecting" && !(table && table.game.phase !== "lobby") && <ReconnectBanner />;
 
-  const seated = table ?? imposter ?? dice ?? potato ?? spy ?? bj ?? bac ?? rl ?? tx;
+  const seated = table ?? imposter ?? dice ?? potato ?? spy ?? bj ?? duel ?? bac ?? rl ?? tx;
   if (room.error === KICKED_MESSAGE || (seated && seated.game.players.length > 0 && !seated.game.players.some((p) => p.id === seated.you))) {
     return <NoticeScreen title="Removed" message="The host removed you from this room." />;
   }
@@ -99,6 +101,14 @@ function RoomView({ code, name, onPlayHere }: { code: string; name: string; onPl
       <>
         {banner}
         <Blackjack conn={bj} />
+      </>
+    );
+  }
+  if (duel) {
+    return (
+      <>
+        {banner}
+        <BlackjackDuel conn={duel} />
       </>
     );
   }

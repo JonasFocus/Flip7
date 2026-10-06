@@ -23,6 +23,8 @@ export {
   isBust,
   newShoe,
   onDeadline,
+  outcomeOf,
+  payout,
   redactBj,
   removeBjPlayer,
   serverDeadline,

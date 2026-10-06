@@ -4,6 +4,7 @@ import type { DiceIntent } from "../lib/liarsdice/types.ts";
 import type { PotatoIntent } from "../lib/hotpotato/types.ts";
 import type { SpyIntent } from "../lib/spyfall/types.ts";
 import type { BjIntent } from "../lib/blackjack/types.ts";
+import type { DuelIntent } from "../lib/bjduel/types.ts";
 import { parseBacIntent } from "../lib/baccarat/validate.ts";
 import { parseRlIntent } from "../lib/roulette/validate.ts";
 import { parseTxIntent } from "../lib/texasholdem/validate.ts";
@@ -187,6 +188,24 @@ function parseBjIntent(v: unknown): BjIntent | null {
   }
 }
 
+function parseDuelIntent(v: unknown): DuelIntent | null {
+  if (!isObj(v)) return null;
+  switch (v.type) {
+    case "chip":
+      return v.value === 1 || v.value === 2 || v.value === 5 ? { type: "chip", value: v.value } : null;
+    case "undo":
+    case "clear":
+    case "lock":
+    case "hit":
+    case "stand":
+    case "double":
+    case "rematch":
+      return { type: v.type };
+    default:
+      return null;
+  }
+}
+
 // A create for a game this server build doesn't know yet (the website deployed ahead of the server).
 export function isUnknownGame(raw: string): boolean {
   try {
@@ -243,6 +262,10 @@ export function parseMessage(raw: string): ClientMessage | null {
     case "blackjack": {
       const intent = parseBjIntent(v.intent);
       return intent ? { t: "blackjack", intent } : null;
+    }
+    case "bjduel": {
+      const intent = parseDuelIntent(v.intent);
+      return intent ? { t: "bjduel", intent } : null;
     }
     case "baccarat": {
       const intent = parseBacIntent(v.intent);

@@ -6,6 +6,7 @@ export type { DiceConnection } from "../liarsdice/types.ts";
 export type { PotatoConnection } from "../hotpotato/types.ts";
 export type { SpyConnection } from "../spyfall/types.ts";
 export type { BjConnection } from "../blackjack/types.ts";
+export type { DuelConnection } from "../bjduel/types.ts";
 export type { BacConnection } from "../baccarat/types.ts";
 export type { RlConnection } from "../roulette/types.ts";
 export type { TxConnection } from "../texasholdem/types.ts";
