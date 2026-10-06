@@ -4,7 +4,8 @@ import {
   BET_MS,
   SETTLE_MS,
   SHUFFLE_MS,
-  START_CHIPS,
+  MAX_BUY_IN,
+  MIN_BUY_IN,
   TURN_MS,
   addDuelPlayer,
   applyDuelIntent,
@@ -41,11 +42,19 @@ function err(s: DuelState, actor: string, intent: DuelIntent, now = 1000): strin
 
 const player = (s: DuelState, id: string) => s.players.find((p) => p.id === id)!;
 
-// Two players in a started match, the shoe stacked to deal `cards` next (after the reshuffle check).
-function duel(cards: Rank[] = []): DuelState {
+const START_CHIPS = MAX_BUY_IN;
+// Both players sat down and bought in for the max.
+function seated(): DuelState {
   let s = createDuelGame();
   s = addDuelPlayer(s, { id: "a", name: "A" });
   s = addDuelPlayer(s, { id: "b", name: "B" });
+  for (const id of ["a", "b"]) s = act(s, id, { type: "buyin", amount: START_CHIPS });
+  return s;
+}
+
+// Two players in a started match, the shoe stacked to deal `cards` next (after the reshuffle check).
+function duel(cards: Rank[] = []): DuelState {
+  const s = seated();
   return { ...s, shoe: [...cards.map(c), ...newShoeForTest()] };
 }
 
@@ -64,8 +73,31 @@ test("the match starts when the second player sits down", () => {
   assert.equal(s.phase, "lobby");
   s = addDuelPlayer(s, { id: "b", name: "B" });
   assert.equal(s.phase, "betting");
-  assert.deepEqual(s.players.map((p) => [p.id, p.seat, p.chips]), [["a", 0, START_CHIPS], ["b", 1, START_CHIPS]]);
+  assert.deepEqual(s.players.map((p) => [p.id, p.seat, p.chips]), [["a", 0, 0], ["b", 1, 0]]);
   assert.equal(addDuelPlayer(s, { id: "c", name: "C" }).players.length, 2);
+});
+
+test("each player picks a buy-in of $20 to $100 at a time, and nothing deals until both have", () => {
+  let s = createDuelGame();
+  s = addDuelPlayer(s, { id: "a", name: "A" });
+  s = addDuelPlayer(s, { id: "b", name: "B" });
+  assert.match(err(s, "a", { type: "buyin", amount: MIN_BUY_IN - 1 }), /\$20 to \$100/);
+  assert.match(err(s, "a", { type: "buyin", amount: MAX_BUY_IN + 1 }), /\$20 to \$100/);
+  assert.match(err(s, "a", { type: "chip", value: 1 }), /Not enough/);
+  s = act(s, "a", { type: "buyin", amount: 40 });
+  s = act(s, "a", { type: "chip", value: 5 });
+  s = act(s, "a", { type: "lock" }, 1000);
+  assert.equal(serverDeadline(s), null); // b hasn't bought in: no clock on them yet
+  assert.equal(onDeadline(s, 1000 + BET_MS).phase, "betting");
+  s = act(s, "b", { type: "buyin", amount: 100 }, 2000);
+  assert.equal(serverDeadline(s), 2000 + BET_MS);
+  // A top-up adds to what you have; each one is capped, the total isn't.
+  s = act(s, "b", { type: "buyin", amount: 100 }, 2000);
+  assert.deepEqual([player(s, "b").chips, player(s, "b").bought], [200, 200]);
+  s = onDeadline(s, 2000 + BET_MS);
+  assert.equal(s.phase, "playing");
+  assert.deepEqual(player(s, "a").stack, [5]);
+  assert.deepEqual(player(s, "b").stack, [1]);
 });
 
 test("bets are built from $1, $2 and $5 chips with no table max, and All In pushes the rest", () => {
@@ -107,9 +139,7 @@ test("deals once both lock in; the first lock starts the other's clock", () => {
 });
 
 test("a fresh shoe is shuffled on the felt before the first deal", () => {
-  let s = createDuelGame();
-  s = addDuelPlayer(s, { id: "a", name: "A" });
-  s = addDuelPlayer(s, { id: "b", name: "B" });
+  let s = seated();
   s = bothBet(s, 5, 1000);
   assert.equal(s.shuffled, true);
   assert.equal(s.turnAt, 1000 + SHUFFLE_MS + dealAnimMs(2));
@@ -184,7 +214,7 @@ test("only the matched part of a bigger bet is at risk", () => {
   assert.deepEqual(chips(s), [0, START_CHIPS * 2]);
   assert.equal(player(s, "a").result?.net, -START_CHIPS);
   s = onDeadline(s, s.settleAt!);
-  assert.equal(s.phase, "over");
+  assert.equal(s.phase, "betting");
 });
 
 test("both bust: a push between the players", () => {
@@ -246,7 +276,7 @@ test("the hole card stays hidden while hands are played", () => {
   assert.equal(view.shoeLeft, s.shoe.length);
 });
 
-test("the match runs until someone is broke, and a rematch needs both", () => {
+test("going broke means buying back in before the next deal", () => {
   let s = duel(["10", "10", "10", "9", "7", "7"]);
   s = { ...s, hand: 1 };
   s = { ...s, players: s.players.map((p) => (p.id === "a" ? { ...p, chips: 5 } : p)) };
@@ -255,15 +285,16 @@ test("the match runs until someone is broke, and a rematch needs both", () => {
   s = act(s, "b", { type: "stand" }, s.turnAt!);
   s = act(s, "a", { type: "stand" }, s.turnAt!);
   s = onDeadline(s, s.settleAt!);
-  assert.equal(s.phase, "over");
-  assert.deepEqual(s.players.map((p) => p.chips), [0, START_CHIPS + 5]);
-  s = act(s, "a", { type: "rematch" });
-  assert.equal(s.phase, "over");
-  s = act(s, "b", { type: "rematch" });
   assert.equal(s.phase, "betting");
-  assert.equal(s.hand, 0);
-  assert.equal(s.matches, 2);
-  assert.ok(s.players.every((p) => p.chips === START_CHIPS && p.stack.length === 0));
+  assert.deepEqual(s.players.map((p) => p.chips), [0, START_CHIPS + 5]);
+  s = act(s, "b", { type: "lock" }, 5000);
+  assert.equal(serverDeadline(s), null);
+  s = act(s, "a", { type: "buyin", amount: 20 }, 6000);
+  s = act(s, "a", { type: "chip", value: 2 }, 6000);
+  s = act(s, "a", { type: "lock" }, 6000);
+  assert.equal(s.phase, "playing");
+  assert.equal(s.hand, 3);
+  assert.equal(player(s, "a").bought, START_CHIPS + 20);
 });
 
 test("a hand that leaves both with chips carries on", () => {
@@ -278,7 +309,7 @@ test("a player leaving sends the other back to wait for a new challenger", () =>
   s = bothBet(s);
   s = removeDuelPlayer(s, "a");
   assert.equal(s.phase, "lobby");
-  assert.deepEqual(s.players.map((p) => [p.id, p.chips, p.cards.length]), [["b", START_CHIPS, 0]]);
+  assert.deepEqual(s.players.map((p) => [p.id, p.chips, p.cards.length]), [["b", 0, 0]]);
   s = addDuelPlayer(s, { id: "c", name: "C" });
   assert.equal(s.phase, "betting");
   assert.equal(player(s, "c").seat, 0);
@@ -290,9 +321,7 @@ test("the two hands are dealt independently from a crypto-shuffled shoe", () => 
   let same = 0;
   let identical = 0;
   for (let k = 0; k < n; k++) {
-    let s = createDuelGame();
-    s = addDuelPlayer(s, { id: "a", name: "A" });
-    s = addDuelPlayer(s, { id: "b", name: "B" });
+    let s = seated();
     for (const id of ["a", "b"]) {
       s = act(s, id, { type: "chip", value: 1 });
       s = act(s, id, { type: "lock" });

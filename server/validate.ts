@@ -200,8 +200,9 @@ function parseDuelIntent(v: unknown): DuelIntent | null {
     case "hit":
     case "stand":
     case "double":
-    case "rematch":
       return { type: v.type };
+    case "buyin":
+      return typeof v.amount === "number" && Number.isInteger(v.amount) ? { type: "buyin", amount: v.amount } : null;
     default:
       return null;
   }

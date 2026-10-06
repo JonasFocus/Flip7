@@ -3,7 +3,8 @@ import type { BjCard, Denom, DuelIntent, DuelPlayer, DuelState, Outcome, Versus 
 
 export const MAX_DUEL_PLAYERS = 2;
 export const DENOMS: readonly Denom[] = [1, 2, 5];
-export const START_CHIPS = 100;
+export const MIN_BUY_IN = 20; // each buy-in, chosen by the player: to sit down, when broke, or to top up
+export const MAX_BUY_IN = 100;
 export const MIN_BET = 1;
 export const BET_MS = 15_000; // after the first lock-in, the other player has this long (then they play $1, or the bet left in their circle)
 export const TURN_MS = 20_000; // then the server stands for you
@@ -46,7 +47,9 @@ export const inHand = (s: DuelState): DuelPlayer[] =>
   s.players.filter((p) => p.cards.length > 0).sort((a, b) => turnOrder(s)(a) - turnOrder(s)(b));
 const real = (cards: (BjCard | null)[]): BjCard[] => cards.filter((c): c is BjCard => c !== null);
 
-const fresh = (p: DuelPlayer): DuelPlayer => ({ ...p, stack: [], ready: false, cards: [], done: false, doubled: false, result: null, rematch: false });
+// Back to an empty seat: no chips until they buy in.
+const fresh = (p: DuelPlayer): DuelPlayer => ({ ...p, chips: 0, bought: 0, stack: [], ready: false, cards: [], done: false, doubled: false, result: null });
+const funded = (p: DuelPlayer) => p.chips >= MIN_BET;
 
 export function createDuelGame(rng: Rng = cryptoRng): DuelState {
   return {
@@ -73,7 +76,7 @@ function startMatch(s: DuelState, rng: Rng): DuelState {
   return {
     ...s,
     phase: "betting",
-    players: s.players.map((p) => ({ ...fresh(p), chips: START_CHIPS })),
+    players: s.players.map(fresh),
     dealer: [],
     shoe: newShoe(rng),
     turnId: null,
@@ -93,14 +96,14 @@ export function addDuelPlayer(s: DuelState, p: { id: string; name: string }, rng
     name: p.name,
     connected: true,
     seat,
-    chips: START_CHIPS,
+    chips: 0,
+    bought: 0,
     stack: [],
     ready: false,
     cards: [],
     done: false,
     doubled: false,
     result: null,
-    rematch: false,
   };
   const next = { ...s, players: [...s.players, player].sort((a, b) => a.seat - b.seat), seq: s.seq + 1 };
   // The challenger's friend sat down: the match starts straight away.
@@ -116,7 +119,7 @@ export function setDuelConnected(s: DuelState, id: string, connected: boolean): 
 // A head-to-head needs two: when one walks away the other waits at a clean table for a new challenger.
 export function removeDuelPlayer(s: DuelState, id: string): DuelState {
   if (!s.players.some((p) => p.id === id)) return s;
-  const players = s.players.filter((p) => p.id !== id).map((p) => ({ ...fresh(p), chips: START_CHIPS }));
+  const players = s.players.filter((p) => p.id !== id).map(fresh);
   return { ...s, phase: "lobby", players, dealer: [], turnId: null, turnAt: null, dealAt: null, settleAt: null, hand: 0, seq: s.seq + 1 };
 }
 
@@ -162,6 +165,8 @@ function nextTurn(s: DuelState, now: number, rng: Rng): DuelState {
 }
 
 function deal(s: DuelState, now: number, rng: Rng): DuelState {
+  // Head to head needs both: wait for whoever is buying in.
+  if (!s.players.every(funded)) return { ...s, dealAt: null };
   // Both always play: whoever let the clock run out with an empty circle is in for the minimum.
   s = { ...s, players: s.players.map((p) => (p.stack.length === 0 && p.chips >= MIN_BET ? { ...p, stack: [MIN_BET as Denom] } : p)) };
   const bettors = s.players.filter((p) => betOf(p) >= MIN_BET && betOf(p) <= p.chips);
@@ -201,20 +206,20 @@ const inHandOrder = (s: DuelState, ps: DuelPlayer[]) => [...ps].sort((a, b) => t
 // Deal as soon as both locked in; the first lock-in starts the clock for the other.
 function syncBetting(s: DuelState, now: number, rng: Rng): DuelState {
   const ready = s.players.filter((p) => p.ready);
+  if (!s.players.every(funded)) return { ...s, dealAt: null };
   if (ready.length === s.players.length) return deal(s, now, rng);
   if (ready.length === 0) return { ...s, dealAt: null };
   return { ...s, dealAt: s.dealAt ?? now + BET_MS };
 }
 
-// After the results: the same bet rides again (a double comes back off, an unaffordable bet comes down), until someone is broke.
+// After the results: the same bet rides again (a double comes back off, an unaffordable bet comes down). Whoever went broke
+// buys back in before the next deal.
 function nextHand(s: DuelState): DuelState {
   const players = s.players.map((p) => {
     const stack = p.doubled ? p.stack.slice(0, p.stack.length / 2) : p.stack;
     return { ...p, stack: betOf({ stack }) <= p.chips ? stack : [], ready: false, cards: [], done: false, doubled: false, result: null };
   });
-  const over = players.some((p) => p.chips < MIN_BET);
-  // At the final whistle everyone's chips come off the felt.
-  return { ...s, phase: over ? "over" : "betting", players: over ? players.map((p) => ({ ...p, stack: [] })) : players, dealer: [], turnId: null, turnAt: null, settleAt: null, dealAt: null };
+  return { ...s, phase: "betting", players, dealer: [], turnId: null, turnAt: null, settleAt: null, dealAt: null };
 }
 
 function act(s: DuelState, id: string, move: "hit" | "stand" | "double", now: number, rng: Rng): DuelState {
@@ -274,12 +279,12 @@ export function applyDuelIntent(s: DuelState, actorId: string, intent: DuelInten
       if (intent.type === "double" && me.cards.length !== 2) return fail("Double only on your first two cards");
       if (intent.type === "double" && me.chips < bet) return fail("Not enough chips to double");
       return done(act(s, actorId, intent.type, now, rng));
-    case "rematch": {
-      if (s.phase !== "over") return fail("The match isn't over");
-      if (me.rematch) return fail("Waiting on your opponent");
-      const next = patch(s, actorId, (p) => ({ ...p, rematch: true }));
-      const all = next.players.length === MAX_DUEL_PLAYERS && next.players.every((p) => p.rematch);
-      return done(all ? startMatch(next, rng) : next);
+    case "buyin": {
+      if (s.phase !== "betting") return fail("Buy in between hands");
+      if (me.ready) return fail("You've locked in");
+      const { amount } = intent;
+      if (!Number.isInteger(amount) || amount < MIN_BUY_IN || amount > MAX_BUY_IN) return fail(`Buy in for $${MIN_BUY_IN} to $${MAX_BUY_IN}`);
+      return done(syncBetting(patch(s, actorId, (p) => ({ ...p, chips: p.chips + amount, bought: p.bought + amount })), now, rng));
     }
   }
   return fail("Unknown action");

@@ -15,6 +15,8 @@ import {
   DEALER_CARD_MS,
   DEAL_STAGGER_MS,
   DENOMS,
+  MAX_BUY_IN,
+  MIN_BUY_IN,
   HOLE_LEAD_MS,
   SETTLE_MS,
   SHOE_SIZE,
@@ -191,7 +193,8 @@ export function BlackjackDuel({ conn }: { conn: DuelConnection }) {
 }
 
 function Lead({ me, opp, phase, revealed }: { me: DuelPlayer; opp: DuelPlayer; phase: DuelState["phase"]; revealed: boolean }) {
-  const diff = worthOf(me, phase, revealed) - worthOf(opp, phase, revealed);
+  // Up or down on what each bought in for, so different buy-ins compare fairly.
+  const diff = worthOf(me, phase, revealed) - me.bought - (worthOf(opp, phase, revealed) - opp.bought);
   const shown = useTween(Math.abs(diff));
   return (
     <p aria-live="polite" className="pb-1 text-center text-[11px] font-bold tracking-[0.18em] text-muted uppercase">
@@ -798,11 +801,9 @@ function Panel({
         <Status>{me.cards.length === 0 ? "Sitting this one out." : me.done ? "You're set. Waiting on the table…" : "You're up next…"}</Status>
       </>
     );
-  } else if (game.phase === "settle") {
+  } else {
     view = `settle-${revealed}`;
     body = revealed && me.result ? <MyResult me={me} opp={opp} secs={secs} /> : <Status>Dealer&apos;s turn…</Status>;
-  } else {
-    body = <MatchOver conn={conn} me={me} opp={opp} />;
   }
 
   // Re-keyed per state so each change (betting, your move, result) eases in instead of snapping.
@@ -840,6 +841,66 @@ function Status({ children }: { children: ReactNode }) {
 }
 
 function Betting({ conn, me, opp, secs }: { conn: DuelConnection; me: DuelPlayer; opp: DuelPlayer; secs: number | null }) {
+  const [topUp, setTopUp] = useState(false);
+  // No chips (just sat down, or went broke): buy in before anything else.
+  if (me.chips < 1 || topUp) return <BuyIn conn={conn} me={me} opp={opp} onCancel={me.chips < 1 ? undefined : () => setTopUp(false)} onDone={() => setTopUp(false)} />;
+  return <BetChips conn={conn} me={me} opp={opp} secs={secs} onTopUp={() => (tap(), setTopUp(true))} />;
+}
+
+const BUY_IN_PRESETS = [MIN_BUY_IN, 50, MAX_BUY_IN] as const;
+
+// Pick how much to bring to the table: $20 to $100 a time.
+function BuyIn({ conn, me, opp, onCancel, onDone }: { conn: DuelConnection; me: DuelPlayer; opp: DuelPlayer; onCancel?: () => void; onDone: () => void }) {
+  const [amount, setAmount] = useState<number>(MAX_BUY_IN);
+  const first = me.bought === 0;
+  return (
+    <>
+      <div className="flex items-baseline justify-between">
+        <p className="font-display text-sm tracking-wide">{first ? "Choose your buy-in" : me.chips < 1 ? "You're out of chips. Buy back in" : "Top up your chips"}</p>
+        {onCancel ? (
+          <button type="button" onClick={onCancel} className="min-h-11 text-xs font-bold tracking-[0.16em] text-muted uppercase active:text-fg">
+            Back
+          </button>
+        ) : (
+          <p className="text-[10px] tracking-[0.1em] text-muted uppercase">{opp.chips < 1 ? `${opp.name} is buying in…` : `${opp.name} has ${money(opp.chips)}`}</p>
+        )}
+      </div>
+      <div className="flex items-center gap-3 rounded-2xl border border-line bg-surface px-4 py-3">
+        <p className="w-20 font-display text-3xl text-accent tabular-nums">{money(amount)}</p>
+        <input
+          type="range"
+          min={MIN_BUY_IN}
+          max={MAX_BUY_IN}
+          step={5}
+          value={amount}
+          onChange={(e) => setAmount(Number(e.target.value))}
+          aria-label="Buy-in amount"
+          className="h-11 min-w-0 flex-1 accent-[var(--color-accent)]"
+        />
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        {BUY_IN_PRESETS.map((v) => (
+          <button
+            key={v}
+            type="button"
+            onClick={() => (tap(), setAmount(v))}
+            className={cx(
+              "min-h-11 rounded-xl border font-display text-sm tabular-nums transition-colors",
+              amount === v ? "border-accent bg-accent/15 text-accent" : "border-line text-muted active:bg-surface-2",
+            )}
+          >
+            {money(v)}
+          </button>
+        ))}
+      </div>
+      <Button size="lg" block onClick={() => (success(), conn.send({ type: "buyin", amount }), onDone())}>
+        Buy in for {money(amount)}
+      </Button>
+    </>
+  );
+}
+
+function BetChips({ conn, me, opp, secs, onTopUp }: { conn: DuelConnection; me: DuelPlayer; opp: DuelPlayer; secs: number | null; onTopUp: () => void }) {
   const bet = betOf(me);
   const room = me.chips - bet;
   const allIn = bet > 0 && room === 0;
@@ -869,7 +930,7 @@ function Betting({ conn, me, opp, secs }: { conn: DuelConnection; me: DuelPlayer
           <span className="text-accent">{money(bet)}</span>
           {allIn && <span className="ml-1.5 rounded-sm bg-danger px-1 text-[10px] tracking-[0.1em] text-ink">ALL IN</span>}
           <span className="block text-[10px] tracking-[0.1em] text-muted">
-            {opp.ready ? `${opp.name} locked ${money(oppBet)}` : `${opp.name} is betting…`}
+            {opp.ready ? `${opp.name} locked ${money(oppBet)}` : opp.chips < 1 ? `${opp.name} is buying in…` : `${opp.name} is betting…`}
             {stake > 0 && bet !== oppBet && ` · ${money(stake)} at stake`}
           </span>
         </p>
@@ -917,6 +978,11 @@ function Betting({ conn, me, opp, secs }: { conn: DuelConnection; me: DuelPlayer
             ? `Set down a chip${secs !== null ? ` · $1 in ${secs}s` : ""}`
             : `${allIn ? "Go all in" : "Lock in"} ${money(bet)}${secs !== null ? ` · ${secs}s` : ""}`}
       </Button>
+      {!me.ready && (
+        <button type="button" onClick={onTopUp} className="-mt-1 min-h-9 text-xs font-bold tracking-[0.16em] text-muted uppercase active:text-fg">
+          + Buy more chips
+        </button>
+      )}
     </>
   );
 }
@@ -971,35 +1037,5 @@ function MyResult({ me, opp, secs }: { me: DuelPlayer; opp: DuelPlayer; secs: nu
       </p>
       {secs !== null && <p className="text-xs text-muted tabular-nums">Next hand in {secs}s</p>}
     </div>
-  );
-}
-
-function MatchOver({ conn, me, opp }: { conn: DuelConnection; me: DuelPlayer; opp: DuelPlayer }) {
-  const diff = me.chips - opp.chips;
-  useEffect(() => {
-    if (diff > 0) success();
-    else if (diff < 0) fail();
-  }, [diff]);
-  return (
-    <>
-      <div className="dc-in flex flex-col items-center gap-1 rounded-2xl border border-line bg-surface py-3.5">
-        <p className={cx("font-display text-3xl", diff > 0 ? "text-active" : diff < 0 ? "text-danger" : "text-stayed")}>
-          {diff > 0 ? "YOU WIN!" : diff < 0 ? `${opp.name} wins` : "DEAD HEAT"}
-        </p>
-        <p className="font-display text-base tabular-nums">
-          <span className={diff >= 0 ? "text-fg" : "text-muted"}>You {money(me.chips)}</span>
-          <span className="mx-2 text-muted">·</span>
-          <span className={diff <= 0 ? "text-fg" : "text-muted"}>
-            {opp.name} {money(opp.chips)}
-          </span>
-        </p>
-        <p className="text-xs text-muted">
-          {opp.rematch ? `${opp.name} wants a rematch` : `${diff > 0 ? `${opp.name} is` : "You're"} out of chips after ${conn.game.hand} ${conn.game.hand === 1 ? "hand" : "hands"}`}
-        </p>
-      </div>
-      <Button size="lg" block disabled={me.rematch} onClick={() => (success(), conn.send({ type: "rematch" }))}>
-        {me.rematch ? `Waiting on ${opp.name}…` : "Rematch"}
-      </Button>
-    </>
   );
 }
