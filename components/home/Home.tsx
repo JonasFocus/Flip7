@@ -23,7 +23,7 @@ const MODES: { id: Mode; title: string; blurb: string; cta: string; icon: ReactN
   { id: "online", title: "Flip 7", blurb: "One phone each, with family", cta: "Create table", icon: <PeopleIcon /> },
   { id: "imposter", title: "Imposter", blurb: "Find the faker · 3–10 players", cta: "Create room", icon: <MaskIcon /> },
   { id: "blackjack", title: "Blackjack", blurb: "Beat the dealer · 5 seats", cta: "Open table", icon: <ChipIcon /> },
-  { id: "bjduel", title: "Head-to-Head 21", blurb: "Challenge a friend · 2 players", cta: "Open duel", icon: <DuelIcon /> },
+  { id: "bjduel", title: "Head-to-Head 21", blurb: "Take a friend's chips · 2 players", cta: "Open duel", icon: <DuelIcon /> },
   { id: "baccarat", title: "Baccarat", blurb: "Punto banco · 5 seats", cta: "Open table", icon: <BaccaratIcon /> },
   { id: "roulette", title: "Roulette", blurb: "Spin the wheel · 8 seats", cta: "Open table", icon: <RouletteIcon /> },
   { id: "texasholdem", title: "Texas Hold'em", blurb: "No-limit · 2–8 seats", cta: "Open table", icon: <HoldemIcon /> },

@@ -15,29 +15,32 @@ import {
   DEALER_CARD_MS,
   DEAL_STAGGER_MS,
   DENOMS,
-  HANDS,
   HOLE_LEAD_MS,
-  MAX_BET,
   SETTLE_MS,
   SHOE_SIZE,
   SHUFFLE_MS,
   TURN_MS,
   betOf,
+  chipsFor,
   dealAnimMs,
   handValue,
   inHand,
   isBlackjack,
   isBust,
 } from "@/lib/bjduel";
-import type { BjCard, Denom, DuelConnection, DuelPlayer, DuelState, Outcome } from "@/lib/bjduel/types";
+import type { BjCard, Denom, DuelConnection, DuelPlayer, DuelState, Outcome, Versus } from "@/lib/bjduel/types";
 
 const FAN = 0.42; // each card in a hand shows this much (in card widths) of the one beneath: its corner index
 const SWEEP_MS = 700; // end of settle: cards sweep to the discard tray, winnings go to the rack
 const RESULT_BEAT_MS = 700; // results wait for the dealer's last card to land
-const CHIP_FLY_MS = 950; // dealer pays out or takes a stake
+const CHIP_FLY_MS = 950; // a lost stake crosses the table to the winner
 const CHIP_SET_MS = 560; // a chip set down from your hand
 const PAY_DELAY_MS = 450; // after the results show, a beat before chips move
 const CHIP_STEP = 0.11; // pile height per chip, in chip diameters
+const PILE_MAX = 0.6; // a tall pile (all in) squeezes its chips together to stay this high, clear of the cards
+
+// Height per chip in a pile of `n`: real spacing, squeezed for big piles so an all-in doesn't tower over the table.
+const stepOf = (n: number) => Math.min(CHIP_STEP, PILE_MAX / Math.max(1, n));
 
 const CHIP_SIZE = "calc(var(--spot) * 0.64)";
 // Side-on chip edges for the dealer's tray: body colour broken by the white edge inserts.
@@ -46,19 +49,6 @@ const CHIP_EDGE: Record<Denom, string> = {
   2: "repeating-linear-gradient(90deg, oklch(0.84 0.15 88) 0 3px, oklch(0.98 0 0) 3px 4px)",
   5: "repeating-linear-gradient(90deg, oklch(0.56 0.2 27) 0 3px, oklch(0.97 0.01 90) 3px 4px)",
 };
-
-// Winnings in the fewest chips, biggest first, the way a dealer cuts them out of the tray.
-function payStack(n: number): Denom[] {
-  const out: Denom[] = [];
-  let rest = n;
-  for (const d of [5, 2, 1] as const) {
-    while (rest >= d) {
-      out.push(d);
-      rest -= d;
-    }
-  }
-  return out;
-}
 
 function totalLabel(cards: readonly (BjCard | null)[]): string {
   if (isBlackjack(cards)) return "BJ";
@@ -123,14 +113,16 @@ function useTween(value: number, ms = 650): number {
   return shown;
 }
 
+// Lost the whole stake to the other player: the pile goes across the table (and comes back from the rack if it rides again).
+const lostAll = (p: DuelPlayer) => !!p.result && p.result.net < 0 && -p.result.net >= betOf(p);
+
 // Chips a player holds in their rack right now (not on the felt), following the chips as they move.
 function rackOf(p: DuelPlayer, phase: DuelState["phase"], revealed: boolean, clearing: boolean): number {
   const bet = betOf(p);
   if (phase === "betting") return p.chips - bet;
   if (phase !== "settle" || !p.result) return p.chips;
-  const won = p.result.net + bet; // what came back from the dealer, stake included
-  if (!revealed || !clearing) return p.chips - won;
-  return p.result.outcome === "lose" ? p.chips : p.chips - bet; // the stake rides again
+  if (!revealed || !clearing) return p.chips - bet - p.result.net; // stake and winnings still on the felt
+  return lostAll(p) ? p.chips : p.chips - bet; // the stake rides again
 }
 
 // What a player is worth: rack plus whatever of theirs is on the felt.
@@ -181,7 +173,7 @@ export function BlackjackDuel({ conn }: { conn: DuelConnection }) {
         <p className="flex min-h-11 items-center rounded-full bg-surface px-3 font-display text-xs tracking-[0.12em] whitespace-nowrap text-muted tabular-nums">
           {game.phase !== "lobby" ? (
             <>
-              HAND <span className="ml-1.5 text-fg">{Math.min(game.hand + (game.phase === "betting" ? 1 : 0), HANDS)}</span>/{HANDS}
+              HAND <span className="ml-1.5 text-fg">{Math.max(1, game.hand + (game.phase === "betting" ? 1 : 0))}</span>
             </>
           ) : (
             "1 VS 1"
@@ -350,7 +342,12 @@ function Side({
   const cards = player.cards;
   const badgeDelay = slotDelay((n + 1) + order);
   const rackSel = mine ? '[data-rack="me"]' : '[data-rack="opp"]';
+  const theirPay = mine ? '[data-pay="opp"]' : '[data-pay="me"]';
+  const theirSpot = mine ? '[data-spot="opp"]' : '[data-spot="me"]';
   const won = result && result.net > 0 ? result.net : 0;
+  // A whole stake flies across and lands as the winnings; a partial one is cut from the loser's pile.
+  const opponent = game.players.find((p) => p.id !== player.id);
+  const takenWhole = !!opponent && lostAll(opponent);
 
   return (
     <>
@@ -359,8 +356,9 @@ function Side({
       <div className={cx(rows.spot, "relative my-1")}>
         <span
           className="dc-spot relative grid size-[var(--spot)] place-items-center"
+          data-spot={mine ? "me" : "opp"}
           data-turn={turn || undefined}
-          data-win={(result && result.net > 0) || undefined}
+          data-win={result?.vs === "win" || undefined}
           aria-label={`${mine ? "Your" : `${player.name}'s`} bet ${money(betOf(player))}`}
         >
           {player.stack.length === 0 && game.phase === "betting" && (
@@ -368,7 +366,8 @@ function Side({
           )}
           <BetPile
             stack={player.stack}
-            away={result?.outcome === "lose"}
+            away={result ? lostAll(player) : false}
+            winner={theirPay}
             from={(v) => (mine && game.phase === "betting" ? `[data-chip-button="${v}"]` : rackSel)}
             rack={rackSel}
           />
@@ -378,7 +377,9 @@ function Side({
             </span>
           )}
         </span>
-        {won > 0 && <PayPile key={game.round} amount={won} rack={rackSel} clearing={clearing} />}
+        <span data-pay={mine ? "me" : "opp"} className="absolute top-1/2 left-full ml-1 block -translate-y-1/2" style={{ fontSize: CHIP_SIZE }}>
+          {won > 0 && <PayPile key={game.round} amount={won} from={takenWhole ? null : theirSpot} rack={rackSel} clearing={clearing} />}
+        </span>
       </div>
 
       <div className={cx(rows.hand, "relative my-1 flex h-[calc(var(--cw)*1.4)] items-center justify-center")}>
@@ -412,7 +413,7 @@ function Side({
                 {bust ? "BUST" : totalLabel(cards)}
               </span>
             )}
-            {result && !clearing && <ResultTag outcome={result.outcome} net={result.net} />}
+            {result && !clearing && <ResultTag result={result} bust={bust} />}
           </div>
         )}
       </div>
@@ -467,11 +468,12 @@ function fly(el: HTMLElement, selector: string, dir: FlyDir, delay: number, dura
   return el.animate(frames, { duration, delay, easing: "cubic-bezier(0.45, 0, 0.25, 1)", fill: dir === "out" ? "forwards" : "backwards" });
 }
 
-// The chips in a betting circle, as set down. New chips fly in; taken-back ones fly home to the rack; a lost stake goes
-// to the dealer's tray and comes back from the rack when the bet rides again.
-function BetPile({ stack, away, from, rack }: { stack: Denom[]; away: boolean; from: (v: Denom) => string; rack: string }) {
+// The chips in a betting circle, as set down. New chips fly in; taken-back ones fly home to the rack; a stake lost
+// outright crosses the table to the winner and comes back from the rack when the bet rides again.
+function BetPile({ stack, away, from, rack, winner }: { stack: Denom[]; away: boolean; from: (v: Denom) => string; rack: string; winner: string }) {
   const [initial] = useState(stack.length);
-  const [prev, setPrev] = useState({ key: stack.join(), stack, away, gen: 0 });
+  // base: how many chips were down before the latest change, so a handful set at once (all in) lands one after another.
+  const [prev, setPrev] = useState({ key: stack.join(), stack, away, gen: 0, base: stack.length });
   const [ghosts, setGhosts] = useState<{ id: string; v: Denom; i: number }[]>([]);
   const key = stack.join();
   if (key !== prev.key || away !== prev.away) {
@@ -480,54 +482,69 @@ function BetPile({ stack, away, from, rack }: { stack: Denom[]; away: boolean; f
       const gone = prev.stack.slice(stack.length).map((v, k) => ({ id: `${prev.gen}-${k}`, v, i: stack.length + k }));
       setGhosts((g) => [...g, ...gone]);
     }
-    setPrev({ key, stack, away, gen: prev.gen + 1 });
+    setPrev({ key, stack, away, gen: prev.gen + 1, base: prev.stack.length });
   }
+  const step = stepOf(stack.length);
+  const gap = Math.min(70, 900 / Math.max(1, stack.length)); // between chips leaving together
 
   return (
     <span className="absolute inset-0 grid place-items-center" style={{ fontSize: CHIP_SIZE }}>
       <span className="relative block size-[1em]">
         {stack.map((v, i) => (
-          <PileChip key={i} v={v} i={i} from={i >= initial ? from(v) : null} away={away} rack={rack} />
+          <PileChip
+            key={i}
+            v={v}
+            i={i}
+            step={step}
+            gap={gap}
+            from={i >= initial ? from(v) : null}
+            delay={Math.max(0, i - prev.base) * 45}
+            away={away}
+            rack={rack}
+            winner={winner}
+          />
         ))}
         {ghosts.map((g) => (
-          <GhostChip key={g.id} v={g.v} i={g.i} to={rack} onDone={() => setGhosts((all) => all.filter((x) => x.id !== g.id))} />
+          <GhostChip key={g.id} v={g.v} i={g.i} step={step} to={rack} onDone={() => setGhosts((all) => all.filter((x) => x.id !== g.id))} />
         ))}
       </span>
     </span>
   );
 }
 
-function PileChip({ v, i, from, away, rack }: { v: Denom; i: number; from: string | null; away: boolean; rack: string }) {
+type PileChipProps = { v: Denom; i: number; step: number; gap: number; from: string | null; delay: number; away: boolean; rack: string; winner: string };
+
+function PileChip({ v, i, step, gap, from, delay, away, rack, winner }: PileChipProps) {
   const ref = useRef<HTMLSpanElement>(null);
-  const [mountFrom] = useState(from);
+  const [mount] = useState({ from, delay });
   const wasAway = useRef(away);
 
   useLayoutEffect(() => {
     const el = ref.current;
-    if (!el || !mountFrom) return;
-    const a = fly(el, mountFrom, "in", 0, CHIP_SET_MS);
+    if (!el || !mount.from) return;
+    const a = fly(el, mount.from, "in", mount.delay, CHIP_SET_MS);
     return () => a?.cancel();
-  }, [mountFrom]);
+  }, [mount]);
 
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
     if (away) {
       wasAway.current = true;
-      const a = fly(el, "[data-tray]", "out", PAY_DELAY_MS + i * 70, CHIP_FLY_MS);
+      const a = fly(el, winner, "out", PAY_DELAY_MS + i * gap, CHIP_FLY_MS);
       return () => a?.cancel();
     }
     if (wasAway.current) {
       wasAway.current = false;
-      const a = fly(el, rack, "in", i * 90, CHIP_SET_MS + 120);
+      const a = fly(el, rack, "in", i * gap, CHIP_SET_MS + 120);
       return () => a?.cancel();
     }
-  }, [away, i, rack]);
+  }, [away, i, gap, rack, winner]);
 
-  return <ChipFace ref={ref} v={v} size="1em" className="absolute left-0" style={{ bottom: `${i * CHIP_STEP}em`, zIndex: i }} />;
+  return <ChipFace ref={ref} v={v} size="1em" className="absolute left-0 transition-[bottom] duration-300" style={{ bottom: `${i * step}em`, zIndex: i }} />;
 }
 
-function GhostChip({ v, i, to, onDone }: { v: Denom; i: number; to: string; onDone: () => void }) {
+function GhostChip({ v, i, step, to, onDone }: { v: Denom; i: number; step: number; to: string; onDone: () => void }) {
   const ref = useRef<HTMLSpanElement>(null);
   const done = useRef(onDone);
   useLayoutEffect(() => {
@@ -543,48 +560,66 @@ function GhostChip({ v, i, to, onDone }: { v: Denom; i: number; to: string; onDo
     a.onfinish = () => done.current();
     return () => a.cancel();
   }, [to]);
-  return <ChipFace ref={ref} v={v} size="1em" className="pointer-events-none absolute left-0" style={{ bottom: `${i * CHIP_STEP}em`, zIndex: 50 + i }} />;
+  return <ChipFace ref={ref} v={v} size="1em" className="pointer-events-none absolute left-0" style={{ bottom: `${i * step}em`, zIndex: 50 + i }} />;
 }
 
-// The dealer cuts the winnings out of the tray and sets them beside the bet; at the end of the hand they go to the rack.
-function PayPile({ amount, rack, clearing }: { amount: number; rack: string; clearing: boolean }) {
-  const chips = payStack(amount);
+// What you took off your opponent, set beside your bet; at the end of the hand it goes to your rack.
+// from: their circle, when the dealer cuts your share out of a bigger pile; null when their whole pile flew over
+// (it lands here as their chips arrive).
+function PayPile({ amount, from, rack, clearing }: { amount: number; from: string | null; rack: string; clearing: boolean }) {
+  const chips = chipsFor(amount);
+  const step = stepOf(chips.length);
+  const gap = Math.min(120, 900 / chips.length);
   return (
-    <span className="absolute top-1/2 left-full ml-1 -translate-y-1/2" style={{ fontSize: CHIP_SIZE }} aria-label={`Paid ${money(amount)}`}>
-      <span className="relative block size-[1em]">
-        {chips.map((v, i) => (
-          <PayChip key={i} v={v} i={i} rack={rack} clearing={clearing} />
-        ))}
-      </span>
+    <span className="relative block size-[1em]" aria-label={`Took ${money(amount)}`}>
+      {chips.map((v, i) => (
+        <PayChip key={i} v={v} i={i} step={step} gap={gap} from={from} rack={rack} clearing={clearing} />
+      ))}
     </span>
   );
 }
 
-function PayChip({ v, i, rack, clearing }: { v: Denom; i: number; rack: string; clearing: boolean }) {
+function PayChip({ v, i, step, gap, from, rack, clearing }: { v: Denom; i: number; step: number; gap: number; from: string | null; rack: string; clearing: boolean }) {
   const ref = useRef<HTMLSpanElement>(null);
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const a = clearing ? fly(el, rack, "out", i * 60, CHIP_SET_MS) : fly(el, "[data-tray]", "in", PAY_DELAY_MS + i * 120, CHIP_FLY_MS);
-    return () => a?.cancel();
-  }, [clearing, i, rack]);
-  return <ChipFace ref={ref} v={v} size="1em" className="absolute left-0" style={{ bottom: `${i * CHIP_STEP}em`, zIndex: i }} />;
+    if (clearing) {
+      const a = fly(el, rack, "out", i * Math.min(60, gap), CHIP_SET_MS);
+      return () => a?.cancel();
+    }
+    if (from) {
+      const a = fly(el, from, "in", PAY_DELAY_MS + i * gap, CHIP_FLY_MS);
+      return () => a?.cancel();
+    }
+    if (reducedMotion()) return;
+    // Hidden until the other player's chips land on top of it.
+    const a = el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 120, delay: PAY_DELAY_MS + CHIP_FLY_MS * 0.82 + i * gap, fill: "backwards" });
+    return () => a.cancel();
+  }, [clearing, i, gap, from, rack]);
+  return <ChipFace ref={ref} v={v} size="1em" className="absolute left-0" style={{ bottom: `${i * step}em`, zIndex: i }} />;
 }
 
-const OUTCOME: Record<Outcome, { label: string; tone: string }> = {
-  blackjack: { label: "BLACKJACK", tone: "bg-accent text-ink" },
-  win: { label: "WIN", tone: "bg-active text-ink" },
-  push: { label: "PUSH", tone: "bg-stayed text-ink" },
-  lose: { label: "LOSE", tone: "bg-danger text-ink" },
-};
+// How a hand did against the dealer (the dealer only referees: this decides who beat whom).
+const AGAINST: Record<Outcome, string> = { blackjack: "blackjack", win: "beat the dealer", push: "tied the dealer", lose: "lost to the dealer" };
+const VS_TONE: Record<Versus, string> = { win: "bg-active text-ink", push: "bg-stayed text-ink", lose: "bg-danger text-ink" };
+const signed = (net: number) => (net > 0 ? `+${money(net)}` : net < 0 ? `−${money(-net)}` : "EVEN");
 
-function ResultTag({ outcome, net }: { outcome: Outcome; net: number }) {
+function ResultTag({ result, bust }: { result: NonNullable<DuelPlayer["result"]>; bust: boolean }) {
   return (
-    <span className={cx("dc-in absolute top-1/2 left-1/2 z-20 -translate-x-1/2 -translate-y-1/2 rounded-md px-1.5 py-0.5 text-center font-display text-[11px] leading-tight whitespace-nowrap shadow-hard", OUTCOME[outcome].tone)}>
-      {OUTCOME[outcome].label}
-      {net !== 0 && <span className="block tabular-nums">{net > 0 ? `+$${net}` : `−$${-net}`}</span>}
+    <span className={cx("dc-in absolute top-1/2 left-1/2 z-20 -translate-x-1/2 -translate-y-1/2 rounded-md px-1.5 py-0.5 text-center font-display text-[11px] leading-tight whitespace-nowrap shadow-hard", VS_TONE[result.vs])}>
+      {bust ? "BUST" : result.outcome === "blackjack" ? "BLACKJACK" : result.vs === "win" ? "TAKES IT" : result.vs === "lose" ? "BEATEN" : "STANDOFF"}
+      <span className="block tabular-nums">{signed(result.net)}</span>
     </span>
   );
+}
+
+// "20, beat the dealer" / "bust": one side of why the chips moved.
+function handNote(p: DuelPlayer): string {
+  if (!p.result) return "sat out";
+  if (isBust(p.cards)) return "bust";
+  if (p.result.outcome === "blackjack") return "blackjack";
+  return `${handValue(p.cards).total}, ${AGAINST[p.result.outcome]}`;
 }
 
 function FeltPrint() {
@@ -592,9 +627,9 @@ function FeltPrint() {
     <svg aria-hidden viewBox="0 0 100 46" className="pointer-events-none absolute top-1/2 left-1/2 w-[min(80cqw,330px)] -translate-x-1/2 -translate-y-1/2 font-sans font-semibold">
       <path id="dc-arc-top" d="M 8 14 Q 50 -4 92 14" fill="none" />
       <path id="dc-arc-bottom" d="M 14 36 Q 50 50 86 36" fill="none" />
-      <text fontSize="3.4" fill="oklch(0.82 0.11 85 / 0.55)" letterSpacing="1">
+      <text fontSize="3" fill="oklch(0.82 0.11 85 / 0.55)" letterSpacing="0.7">
         <textPath href="#dc-arc-top" startOffset="50%" textAnchor="middle">
-          BLACKJACK PAYS 3 TO 2
+          BEAT YOUR RIVAL · TAKE THEIR CHIPS
         </textPath>
       </text>
       <text fontSize="2.4" fill="oklch(0.82 0.11 85 / 0.38)" letterSpacing="0.8">
@@ -806,7 +841,11 @@ function Status({ children }: { children: ReactNode }) {
 
 function Betting({ conn, me, opp, secs }: { conn: DuelConnection; me: DuelPlayer; opp: DuelPlayer; secs: number | null }) {
   const bet = betOf(me);
-  const room = Math.min(me.chips, MAX_BET) - bet;
+  const room = me.chips - bet;
+  const allIn = bet > 0 && room === 0;
+  const oppBet = betOf(opp);
+  // Only the smaller bet is at risk: you can't win more than the other player put up.
+  const stake = bet > 0 && oppBet > 0 ? Math.min(bet, oppBet) : 0;
 
   function add(v: Denom) {
     if (v > room) return fail();
@@ -828,8 +867,10 @@ function Betting({ conn, me, opp, secs }: { conn: DuelConnection; me: DuelPlayer
         <p className="text-center font-display text-sm tabular-nums">
           <span className="text-muted">BET </span>
           <span className="text-accent">{money(bet)}</span>
+          {allIn && <span className="ml-1.5 rounded-sm bg-danger px-1 text-[10px] tracking-[0.1em] text-ink">ALL IN</span>}
           <span className="block text-[10px] tracking-[0.1em] text-muted">
-            {opp.ready ? `${opp.name} locked ${money(betOf(opp))}` : `${opp.name} is betting…`}
+            {opp.ready ? `${opp.name} locked ${money(oppBet)}` : `${opp.name} is betting…`}
+            {stake > 0 && bet !== oppBet && ` · ${money(stake)} at stake`}
           </span>
         </p>
         <button
@@ -841,7 +882,7 @@ function Betting({ conn, me, opp, secs }: { conn: DuelConnection; me: DuelPlayer
           Clear
         </button>
       </div>
-      <div className="grid grid-cols-3 justify-items-center gap-2">
+      <div className="grid grid-cols-4 items-center justify-items-center gap-2">
         {DENOMS.map((v) => (
           <button
             key={v}
@@ -852,12 +893,29 @@ function Betting({ conn, me, opp, secs }: { conn: DuelConnection; me: DuelPlayer
             aria-label={`Add $${v}`}
             className="rounded-full transition-[transform,opacity] duration-150 active:translate-y-0.5 active:scale-95 disabled:opacity-30"
           >
-            <ChipFace v={v} size="clamp(58px,17vw,68px)" />
+            <ChipFace v={v} size="clamp(54px,15vw,64px)" />
           </button>
         ))}
+        <button
+          type="button"
+          disabled={me.ready || room <= 0}
+          onClick={() => (tap(), conn.send({ type: "allin" }))}
+          aria-label={`All in, ${money(me.chips)}`}
+          className="grid size-[clamp(54px,15vw,64px)] place-items-center rounded-full border-2 border-[oklch(0.82_0.11_85)] bg-[radial-gradient(circle_at_40%_35%,oklch(0.3_0.02_45),oklch(0.16_0.01_45))] font-display text-[13px] leading-none tracking-[0.06em] text-[oklch(0.9_0.08_85)] shadow-[0_3px_0_oklch(0.1_0_0),0_6px_12px_oklch(0_0_0/0.45)] transition-[transform,opacity] duration-150 active:translate-y-0.5 active:scale-95 disabled:opacity-30"
+        >
+          <span>
+            ALL
+            <br />
+            IN
+          </span>
+        </button>
       </div>
       <Button size="lg" block disabled={me.ready || bet < 1} onClick={() => (success(), conn.send({ type: "lock" }))}>
-        {me.ready ? `Waiting on ${opp.name}${secs !== null ? ` · ${secs}s` : "…"}` : bet < 1 ? "Set down a chip" : `Lock in ${money(bet)}${secs !== null ? ` · ${secs}s` : ""}`}
+        {me.ready
+          ? `Waiting on ${opp.name}${secs !== null ? ` · ${secs}s` : "…"}`
+          : bet < 1
+            ? `Set down a chip${secs !== null ? ` · $1 in ${secs}s` : ""}`
+            : `${allIn ? "Go all in" : "Lock in"} ${money(bet)}${secs !== null ? ` · ${secs}s` : ""}`}
       </Button>
     </>
   );
@@ -897,20 +955,21 @@ function Actions({ conn, me, secs }: { conn: DuelConnection; me: DuelPlayer; sec
 
 function MyResult({ me, opp, secs }: { me: DuelPlayer; opp: DuelPlayer; secs: number | null }) {
   const net = me.result?.net ?? 0;
-  const outcome = me.result?.outcome;
+  const vs = me.result?.vs;
   useEffect(() => {
     if (net > 0) success();
     else if (net < 0) fail();
   }, [net]);
-  if (!outcome) return <Status>Sat this one out.</Status>;
+  if (!vs) return <Status>Sat this one out.</Status>;
   return (
-    <div className="dc-in flex flex-col items-center gap-1 rounded-2xl border border-line bg-surface py-3.5">
-      <p className={cx("font-display text-3xl", net > 0 ? "text-active" : net < 0 ? "text-danger" : "text-stayed")}>{outcome === "blackjack" ? "BLACKJACK!" : OUTCOME[outcome].label}</p>
-      <p className="font-display text-lg tabular-nums">{net > 0 ? `+${money(net)}` : net < 0 ? `−${money(-net)}` : "Bet stays up"}</p>
-      <p className="text-xs text-muted">
-        {opp.result ? `${opp.name}: ${OUTCOME[opp.result.outcome].label.toLowerCase()} ${opp.result.net > 0 ? `+${money(opp.result.net)}` : opp.result.net < 0 ? `−${money(-opp.result.net)}` : ""}` : `${opp.name} sat out`}
-        {secs !== null && <span className="tabular-nums"> · next hand in {secs}s</span>}
+    <div className="dc-in flex flex-col items-center gap-1 rounded-2xl border border-line bg-surface px-3 py-3.5">
+      <p className={cx("max-w-full truncate font-display text-2xl", net > 0 ? "text-active" : net < 0 ? "text-danger" : "text-stayed")}>
+        {vs === "win" ? `YOU TAKE ${money(net)}` : vs === "lose" ? `${opp.name} takes ${money(-net)}` : "STANDOFF"}
       </p>
+      <p className="text-center text-xs text-muted">
+        You: {handNote(me)} · {opp.name}: {handNote(opp)}
+      </p>
+      {secs !== null && <p className="text-xs text-muted tabular-nums">Next hand in {secs}s</p>}
     </div>
   );
 }
@@ -934,7 +993,9 @@ function MatchOver({ conn, me, opp }: { conn: DuelConnection; me: DuelPlayer; op
             {opp.name} {money(opp.chips)}
           </span>
         </p>
-        <p className="text-xs text-muted">{opp.rematch ? `${opp.name} wants a rematch` : `After ${conn.game.hand} hands`}</p>
+        <p className="text-xs text-muted">
+          {opp.rematch ? `${opp.name} wants a rematch` : `${diff > 0 ? `${opp.name} is` : "You're"} out of chips after ${conn.game.hand} ${conn.game.hand === 1 ? "hand" : "hands"}`}
+        </p>
       </div>
       <Button size="lg" block disabled={me.rematch} onClick={() => (success(), conn.send({ type: "rematch" }))}>
         {me.rematch ? `Waiting on ${opp.name}…` : "Rematch"}
