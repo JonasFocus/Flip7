@@ -15,6 +15,7 @@ import {
   redactDuel,
   removeDuelPlayer,
   serverDeadline,
+  handValue,
   type BjCard,
   type DuelIntent,
   type DuelState,
@@ -281,4 +282,25 @@ test("a player leaving sends the other back to wait for a new challenger", () =>
   s = addDuelPlayer(s, { id: "c", name: "C" });
   assert.equal(s.phase, "betting");
   assert.equal(player(s, "c").seat, 0);
+});
+
+test("the two hands are dealt independently from a crypto-shuffled shoe", () => {
+  // Matching totals happen by chance about 7% of the time (lots of tens in a shoe); correlated hands would show far more.
+  const n = 1000;
+  let same = 0;
+  let identical = 0;
+  for (let k = 0; k < n; k++) {
+    let s = createDuelGame();
+    s = addDuelPlayer(s, { id: "a", name: "A" });
+    s = addDuelPlayer(s, { id: "b", name: "B" });
+    for (const id of ["a", "b"]) {
+      s = act(s, id, { type: "chip", value: 1 });
+      s = act(s, id, { type: "lock" });
+    }
+    const [a, b] = s.players.map((p) => p.cards);
+    if (handValue(a!).total === handValue(b!).total) same++;
+    if (a!.every((x, i) => x.rank === b![i]!.rank && x.suit === b![i]!.suit)) identical++;
+  }
+  assert.ok(same / n < 0.11, `same total in ${((same / n) * 100).toFixed(1)}% of deals`);
+  assert.ok(identical / n < 0.01, `identical hands in ${identical} deals`);
 });
