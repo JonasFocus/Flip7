@@ -27,6 +27,8 @@ Checks: `pnpm exec tsc --noEmit -p .`, `pnpm lint`, `pnpm test`, `pnpm build`.
 
 **Game server (Railway).** Create a service from this repo. `railway.json` sets the start command (`node server/index.ts`), the `/health` check and restart policy. Railway provides `PORT`. Rooms live in memory, so run a single instance.
 
+After CI passes on `main`, the `deploy-server` job in `.github/workflows/ci.yml` runs `railway up` whenever `server/`, `lib/`, `package.json`, `pnpm-lock.yaml` or `railway.json` changed. It needs a Railway project token (production environment) saved as the `RAILWAY_TOKEN` repository secret. If the Railway service is not named `server`, set its name in the `RAILWAY_SERVICE` repository variable. Keep Railway's own GitHub autodeploy off so the server doesn't deploy twice.
+
 **Frontend (Vercel).** Import the repo as a Next.js project and set `NEXT_PUBLIC_WS_URL` to the Railway public URL with the `wss://` scheme, e.g. `wss://flip7-server.up.railway.app`. Redeploy after changing it, since it is inlined at build time.
 
 ## Rules
