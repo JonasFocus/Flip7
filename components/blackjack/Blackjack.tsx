@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ComponentProps, type CSSProperties, type ReactNode } from "react";
 import "./blackjack.css";
 import { shareInvite } from "@/components/lobby/Lobby";
 import { useSecondsLeft } from "@/components/table/ActionBar";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { cx } from "@/components/ui/cx";
-import { CardFace } from "@/components/casino/CardFace";
+import { DealtCard, gapTo, reducedMotion } from "@/components/casino/motion";
 import { Chip as ChipFace, CHIPS, shortAmount as short } from "@/components/casino/Chip";
 import { Toast } from "@/components/ui/Toast";
 import { fail, success, tap } from "@/lib/client/haptics";
@@ -40,17 +40,6 @@ const SWEEP_MS = 700; // end of settle: cards sweep to the discard tray before t
 const CHIP_FLY_MS = 1100;
 // Chips move once the results have had a beat to read, one seat after another round the table.
 const chipDelay = (order: number) => 700 + Math.max(0, order) * 220;
-
-const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-// Distance from el's centre to the centre of a landmark on the felt ([data-shoe], [data-dealer], [data-discard]).
-function gapTo(el: Element, selector: string): { dx: number; dy: number } | null {
-  const target = el.closest("[data-table]")?.querySelector(selector);
-  if (!target) return null;
-  const a = el.getBoundingClientRect();
-  const b = target.getBoundingClientRect();
-  return { dx: b.left + b.width / 2 - (a.left + a.width / 2), dy: b.top + b.height / 2 - (a.top + a.height / 2) };
-}
 
 const inHand = (g: BjState) => g.players.filter((p) => p.cards.length > 0).sort((a, b) => (a.seat ?? 0) - (b.seat ?? 0));
 
@@ -419,63 +408,8 @@ function Chip({
   return <ChipFace ref={ref} amount={amount} size={small ? "sm" : "md"} className={className} />;
 }
 
-// Deals out of the shoe face down, spinning onto its spot, and turns over as it lands (a hidden hole card stays down).
-// Later changes (the hole card revealed) turn it over in place via the .bj-inner transition.
-function Card({
-  card,
-  slide = true,
-  delay = 0,
-  sweep = false,
-  className,
-  style,
-}: {
-  card: BjCard | null;
-  slide?: boolean;
-  delay?: number;
-  sweep?: boolean; // end of the hand: slide off to the discard tray
-  className?: string;
-  style?: CSSProperties;
-}) {
-  const ref = useRef<HTMLSpanElement>(null);
-  const [onMount] = useState(() => ({ slide, delay, faceUp: card !== null }));
-
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el || !onMount.slide || reducedMotion()) return;
-    const gap = gapTo(el, "[data-shoe]");
-    if (!gap) return;
-    const { dx, dy } = gap;
-    const timing: KeyframeAnimationOptions = { duration: CARD_SLIDE_MS, delay: onMount.delay, easing: "cubic-bezier(0.22, 0.9, 0.3, 1)", fill: "backwards" };
-    const moves = [
-      el.animate(
-        [
-          { transform: `translate(${dx}px, ${dy}px) rotate(-55deg) scale(0.75)` },
-          { transform: "translate(0, -6%) rotate(4deg) scale(1.06)", offset: 0.75 },
-          { transform: "none" },
-        ],
-        timing,
-      ),
-    ];
-    const inner = el.firstElementChild;
-    if (onMount.faceUp && inner instanceof HTMLElement) {
-      moves.push(inner.animate([{ transform: "rotateY(180deg)" }, { transform: "rotateY(180deg)", offset: 0.55 }, { transform: "rotateY(0deg)" }], timing));
-    }
-    return () => moves.forEach((m) => m.cancel());
-  }, [onMount]);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el || !sweep || reducedMotion()) return;
-    const gap = gapTo(el, "[data-discard]");
-    if (!gap) return;
-    const away = el.animate(
-      [{ transform: "none" }, { transform: `translate(${gap.dx}px, ${gap.dy}px) rotate(30deg) scale(0.6)`, opacity: 0 }],
-      { duration: SWEEP_MS - 100, easing: "cubic-bezier(0.5, 0, 0.75, 0)", fill: "forwards" },
-    );
-    return () => away.cancel();
-  }, [sweep]);
-
-  return <CardFace ref={ref} card={card} className={className} style={style} />;
+function Card(props: Omit<ComponentProps<typeof DealtCard>, "slideMs" | "sweepMs">) {
+  return <DealtCard {...props} slideMs={CARD_SLIDE_MS} sweepMs={SWEEP_MS} />;
 }
 
 function Panel({

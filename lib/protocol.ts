@@ -5,6 +5,7 @@ import type { DiceIntent, DiceState } from "./liarsdice/types.ts";
 import type { PotatoIntent, PotatoState } from "./hotpotato/types.ts";
 import type { SpyIntent, SpyState } from "./spyfall/types.ts";
 import type { BjIntent, BjState } from "./blackjack/types.ts";
+import type { DuelIntent, DuelState } from "./bjduel/types.ts";
 import type { BacIntent, BacState } from "./baccarat/types.ts";
 import type { RlIntent, RlState } from "./roulette/types.ts";
 import type { TxIntent, TxState } from "./texasholdem/types.ts";
@@ -15,6 +16,7 @@ export interface PartyGames {
   hotpotato: { state: PotatoState; intent: PotatoIntent };
   spyfall: { state: SpyState; intent: SpyIntent };
   blackjack: { state: BjState; intent: BjIntent };
+  bjduel: { state: DuelState; intent: DuelIntent };
   baccarat: { state: BacState; intent: BacIntent };
   roulette: { state: RlState; intent: RlIntent };
   texasholdem: { state: TxState; intent: TxIntent };
@@ -26,10 +28,10 @@ export type PartyRoom<M extends PartyMode = PartyMode> = {
 }[M];
 export type PartyMessage<M extends PartyMode = PartyMode> = { [K in M]: { t: K; intent: PartyGames[K]["intent"] } }[M];
 
-export const ROOM_MODES = ["virtual", "physical", "imposter", "liarsdice", "hotpotato", "spyfall", "blackjack", "baccarat", "roulette", "texasholdem"] as const;
+export const ROOM_MODES = ["virtual", "physical", "imposter", "liarsdice", "hotpotato", "spyfall", "blackjack", "baccarat", "roulette", "texasholdem", "bjduel"] as const;
 export type RoomMode = (typeof ROOM_MODES)[number];
 export const isRoomMode = (v: unknown): v is RoomMode => ROOM_MODES.some((m) => m === v);
-export const isPartyMode = (v: RoomMode): v is PartyMode => v === "liarsdice" || v === "hotpotato" || v === "spyfall" || v === "blackjack" || v === "baccarat" || v === "roulette" || v === "texasholdem";
+export const isPartyMode = (v: RoomMode): v is PartyMode => v === "liarsdice" || v === "hotpotato" || v === "spyfall" || v === "blackjack" || v === "baccarat" || v === "roulette" || v === "texasholdem" || v === "bjduel";
 
 export type Room =
   // autoPlay: the awaited player is disconnected; the server acts for them in `inMs`.

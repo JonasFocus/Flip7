@@ -405,7 +405,7 @@ test("imposter: each phone sees only its own secret, votes resolve", async () =>
   phones.forEach((c) => c.ws.close());
 });
 
-async function partyTable(mode: "liarsdice" | "hotpotato" | "spyfall", n: number): Promise<TestClient[]> {
+async function partyTable(mode: "liarsdice" | "hotpotato" | "spyfall" | "bjduel", n: number): Promise<TestClient[]> {
   const phones = await Promise.all(Array.from({ length: n }, () => connect()));
   const [host, ...others] = phones;
   assert.ok(host);
@@ -458,4 +458,22 @@ test("where are we: the spy sees no location, everyone else sees no spy", async 
     else assert.ok(v.room.game.location && v.room.game.spyId === null);
   }
   phones.forEach((c) => c.ws.close());
+});
+
+test("head-to-head 21: two seats, the match starts on the second join, a third is turned away", async () => {
+  const phones = await partyTable("bjduel", 2);
+  const views = await Promise.all(phones.map((c) => c.waitRoom((m) => m.room.game.phase === "betting")));
+  for (const v of views) {
+    assert.ok(v.room.mode === "bjduel");
+    assert.deepEqual(v.room.game.shoe, []);
+    assert.equal(v.room.game.shoeLeft, 364);
+  }
+  phones[0]?.send({ t: "bjduel", intent: { type: "chip", value: 5 } });
+  await phones[1]?.waitRoom((m) => m.room.mode === "bjduel" && m.room.game.players.some((p) => p.stack.length === 1));
+  phones[0]?.send({ t: "bjduel", intent: { type: "chip", value: 10 } as never });
+  assert.equal(await phones[0]?.waitError(), "Invalid message");
+  const late = await connect();
+  late.send({ t: "join", code: views[0]?.room.code ?? "", name: "Late", clientId: "bjduel-late" });
+  assert.equal(await late.waitError(), "Room is full");
+  [...phones, late].forEach((c) => c.ws.close());
 });
