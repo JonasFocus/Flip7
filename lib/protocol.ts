@@ -74,6 +74,8 @@ export const ROOM_TTL_MS = 2 * 60 * 60 * 1000;
 export const KICKED_MESSAGE = "You were removed from the room";
 export const REPLACED_CLOSE_CODE = 4001; // same clientId joined from another tab
 export const REPLACED_MESSAGE = "Opened in another tab";
+// The website can ship a new game before the game server redeploys; say so instead of "Invalid message".
+export const UNKNOWN_GAME_MESSAGE = "This game was just added and the game server is still updating. Try again in a minute.";
 
 // Round over → next round deals itself: the final beats reveal, ~6s to read the summary, then a 3-2-1.
 export const ROUND_READ_MS = 6000;
