@@ -1,10 +1,12 @@
-// Shared contract for Head-to-Head Blackjack: two players, one dealer, one 7-deck shoe. Cards and settling come from lib/blackjack.
+// Shared contract for Head-to-Head Blackjack: two players, one dealer, one 7-deck shoe. Cards come from lib/blackjack.
+// The dealer is the referee, not the bank: whoever does better against the dealer takes the other's chips.
 import type { ConnectionStatus } from "../client/types.ts";
 import type { BjCard, Outcome } from "../blackjack/types.ts";
 
 export type { BjCard, Outcome, Rank, Suit } from "../blackjack/types.ts";
 
 export type Denom = 1 | 2 | 5;
+export type Versus = "win" | "lose" | "push";
 
 export interface DuelPlayer {
   id: string;
@@ -17,7 +19,8 @@ export interface DuelPlayer {
   cards: BjCard[]; // empty = not in this hand
   done: boolean; // stood, busted, doubled or dealt 21
   doubled: boolean; // the second half of `stack` is the double
-  result: { outcome: Outcome; net: number } | null; // settle only
+  // settle only: how you did against the dealer, whether that beat your opponent, and the chips that changed hands
+  result: { outcome: Outcome; vs: Versus; net: number } | null;
   rematch: boolean; // over: tapped Rematch
 }
 
@@ -26,7 +29,7 @@ export type DuelPhase =
   | "betting" // both stack chips and lock in
   | "playing" // first to act alternates each hand; dealer's hole card hidden
   | "settle" // dealer played out, results shown until settleAt
-  | "over"; // the match is decided; both tap Rematch for a fresh one
+  | "over"; // someone is broke; both tap Rematch for a fresh one
 
 export interface DuelState {
   phase: DuelPhase;
@@ -50,6 +53,7 @@ export type DuelIntent =
   | { type: "chip"; value: Denom } // betting: set a chip in your circle
   | { type: "undo" } // betting: take the last chip back
   | { type: "clear" } // betting: take them all back
+  | { type: "allin" } // betting: push every chip you have into the circle
   | { type: "lock" } // betting: done betting
   | { type: "hit" }
   | { type: "stand" }

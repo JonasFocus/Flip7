@@ -2,8 +2,6 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   BET_MS,
-  HANDS,
-  MAX_BET,
   SETTLE_MS,
   SHUFFLE_MS,
   START_CHIPS,
@@ -17,6 +15,7 @@ import {
   redactDuel,
   removeDuelPlayer,
   serverDeadline,
+  handValue,
   type BjCard,
   type DuelIntent,
   type DuelState,
@@ -69,7 +68,7 @@ test("the match starts when the second player sits down", () => {
   assert.equal(addDuelPlayer(s, { id: "c", name: "C" }).players.length, 2);
 });
 
-test("bets are built from $1, $2 and $5 chips up to the table max", () => {
+test("bets are built from $1, $2 and $5 chips with no table max, and All In pushes the rest", () => {
   let s = duel();
   s = act(s, "a", { type: "chip", value: 5 });
   s = act(s, "a", { type: "chip", value: 2 });
@@ -80,9 +79,15 @@ test("bets are built from $1, $2 and $5 chips up to the table max", () => {
   assert.deepEqual(player(s, "a").stack, [5, 2]);
   s = act(s, "a", { type: "clear" });
   assert.deepEqual(player(s, "a").stack, []);
-  for (let i = 0; i < MAX_BET / 5; i++) s = act(s, "a", { type: "chip", value: 5 });
-  assert.match(err(s, "a", { type: "chip", value: 1 }), /max/);
+  for (let i = 0; i < 10; i++) s = act(s, "a", { type: "chip", value: 5 });
+  assert.equal(betOf(player(s, "a")), 50);
   assert.match(err(s, "a", { type: "chip", value: 10 as 5 }), /No such chip/);
+  s = act(s, "a", { type: "chip", value: 2 });
+  s = act(s, "a", { type: "allin" });
+  assert.equal(betOf(player(s, "a")), START_CHIPS);
+  assert.deepEqual(player(s, "a").stack.slice(10), [2, 5, 5, 5, 5, 5, 5, 5, 5, 5, 2, 1]);
+  assert.match(err(s, "a", { type: "allin" }), /already all in/);
+  assert.match(err(s, "a", { type: "chip", value: 1 }), /Not enough/);
 });
 
 test("deals once both lock in; the first lock starts the other's clock", () => {
@@ -139,17 +144,66 @@ test("cards go round from the first seat, dealer last, and seats alternate who s
   assert.deepEqual(player(s, "b").cards.map((x) => x.rank), ["2", "5"]);
 });
 
-test("dealer stands on 17 and pays wins, 3:2 blackjacks and pushes", () => {
-  // a: A, K (blackjack) · b: 10, 7 · dealer: 10, 7
-  let s = duel(["A", "10", "10", "K", "7", "7"]);
-  s = bothBet(s, 10);
-  assert.equal(s.turnId, "b");
-  s = act(s, "b", { type: "stand" }, s.turnAt!);
+// Plays one hand: a and b bet, both stand, returns the settled state. Cards: a1, b1, d1, a2, b2, d2, then dealer draws.
+function hand(cards: Rank[], bets: [number, number]): DuelState {
+  let s = duel(cards);
+  for (const [id, bet] of [["a", bets[0]], ["b", bets[1]]] as const) {
+    for (let i = 0; i < bet; i++) s = act(s, id, { type: "chip", value: 1 });
+    s = act(s, id, { type: "lock" });
+  }
+  while (s.phase === "playing") s = act(s, s.turnId!, { type: "stand" }, s.turnAt!);
   assert.equal(s.phase, "settle");
-  assert.deepEqual(player(s, "a").result, { outcome: "blackjack", net: 15 });
-  assert.deepEqual(player(s, "b").result, { outcome: "push", net: 0 });
-  assert.equal(player(s, "a").chips, START_CHIPS + 15);
-  assert.equal(player(s, "b").chips, START_CHIPS);
+  return s;
+}
+const chips = (s: DuelState) => s.players.map((p) => p.chips);
+
+test("the better hand against the dealer takes the other's bet, not the house's money", () => {
+  // a: blackjack, b: 17 pushes the dealer's 17. Blackjack beats a push; no 3:2, a takes b's $10.
+  let s = hand(["A", "10", "10", "K", "7", "7"], [10, 10]);
+  assert.deepEqual(player(s, "a").result, { outcome: "blackjack", vs: "win", net: 10 });
+  assert.deepEqual(player(s, "b").result, { outcome: "push", vs: "lose", net: -10 });
+  assert.deepEqual(chips(s), [START_CHIPS + 10, START_CHIPS - 10]);
+  // Both beat a busting dealer: the higher total takes it.
+  s = hand(["10", "10", "10", "9", "8", "6", "10"], [5, 5]);
+  assert.deepEqual([player(s, "a").result?.outcome, player(s, "b").result?.outcome], ["win", "win"]);
+  assert.deepEqual(chips(s), [START_CHIPS + 5, START_CHIPS - 5]);
+  // Both lose to the dealer's 20: the closer hand still takes it.
+  s = hand(["10", "10", "10", "8", "7", "K"], [5, 5]);
+  assert.deepEqual(chips(s), [START_CHIPS + 5, START_CHIPS - 5]);
+  // Same total: nobody moves.
+  s = hand(["10", "10", "10", "8", "8", "7"], [5, 5]);
+  assert.deepEqual(player(s, "a").result, { outcome: "win", vs: "push", net: 0 });
+  assert.deepEqual(chips(s), [START_CHIPS, START_CHIPS]);
+});
+
+test("only the matched part of a bigger bet is at risk", () => {
+  // a all in for $100 against b's $3, and a wins: a takes $3. Both all in: the winner takes everything.
+  let s = hand(["10", "10", "10", "9", "7", "7"], [START_CHIPS, 3]);
+  assert.deepEqual(chips(s), [START_CHIPS + 3, START_CHIPS - 3]);
+  s = hand(["10", "10", "10", "7", "9", "7"], [START_CHIPS, START_CHIPS]);
+  assert.deepEqual(chips(s), [0, START_CHIPS * 2]);
+  assert.equal(player(s, "a").result?.net, -START_CHIPS);
+  s = onDeadline(s, s.settleAt!);
+  assert.equal(s.phase, "over");
+});
+
+test("both bust: a push between the players", () => {
+  let s = duel(["10", "10", "10", "6", "6", "7", "K", "K"]);
+  s = bothBet(s, 5);
+  s = act(s, "a", { type: "hit" }, s.turnAt!);
+  s = act(s, "b", { type: "hit" }, s.turnAt!);
+  assert.equal(s.phase, "settle");
+  assert.deepEqual(chips(s), [START_CHIPS, START_CHIPS]);
+});
+
+test("someone who lets the clock run out with no bet plays $1", () => {
+  let s = duel(["10", "10", "10", "9", "7", "7"]);
+  s = act(s, "a", { type: "chip", value: 5 });
+  s = act(s, "a", { type: "lock" }, 1000);
+  s = onDeadline(s, 1000 + BET_MS);
+  assert.equal(s.phase, "playing");
+  assert.deepEqual(player(s, "b").stack, [1]);
+  assert.equal(player(s, "b").chips, START_CHIPS - 1);
 });
 
 test("double stacks the bet again, takes one card and rides back to single next hand", () => {
@@ -161,8 +215,9 @@ test("double stacks the bet again, takes one card and rides back to single next 
   assert.equal(player(s, "a").cards.length, 3);
   assert.equal(s.turnId, "b");
   s = act(s, "b", { type: "stand" }, s.turnAt!);
-  assert.deepEqual(player(s, "a").result, { outcome: "win", net: 10 });
-  assert.deepEqual(player(s, "b").result, { outcome: "win", net: 5 });
+  // a's doubled 21 beats b's 19: a's $10 is matched by b's $5.
+  assert.deepEqual(player(s, "a").result, { outcome: "win", vs: "win", net: 5 });
+  assert.deepEqual(player(s, "b").result, { outcome: "win", vs: "lose", net: -5 });
   s = onDeadline(s, s.settleAt!);
   assert.deepEqual(player(s, "a").stack, [5]);
 });
@@ -191,17 +246,17 @@ test("the hole card stays hidden while hands are played", () => {
   assert.equal(view.shoeLeft, s.shoe.length);
 });
 
-test("after the last hand the match is over and a rematch needs both", () => {
-  let s = duel();
-  s = { ...s, hand: HANDS - 1 };
-  s = { ...s, shoe: [...["10", "9", "10", "7", "8", "7"].map((r) => c(r as Rank)), ...s.shoe] };
+test("the match runs until someone is broke, and a rematch needs both", () => {
+  let s = duel(["10", "10", "10", "9", "7", "7"]);
+  s = { ...s, hand: 1 };
+  s = { ...s, players: s.players.map((p) => (p.id === "a" ? { ...p, chips: 5 } : p)) };
   s = bothBet(s);
-  assert.equal(s.turnId, "b"); // hand 10: seat 1 starts
+  assert.equal(s.turnId, "b"); // hand 2: seat 1 starts
   s = act(s, "b", { type: "stand" }, s.turnAt!);
   s = act(s, "a", { type: "stand" }, s.turnAt!);
   s = onDeadline(s, s.settleAt!);
   assert.equal(s.phase, "over");
-  assert.deepEqual(s.players.map((p) => p.chips), [START_CHIPS, START_CHIPS]); // both pushed
+  assert.deepEqual(s.players.map((p) => p.chips), [0, START_CHIPS + 5]);
   s = act(s, "a", { type: "rematch" });
   assert.equal(s.phase, "over");
   s = act(s, "b", { type: "rematch" });
@@ -211,15 +266,11 @@ test("after the last hand the match is over and a rematch needs both", () => {
   assert.ok(s.players.every((p) => p.chips === START_CHIPS && p.stack.length === 0));
 });
 
-test("going broke ends the match early", () => {
-  let s = duel(["10", "10", "10", "6", "8", "9"]);
-  s = { ...s, players: s.players.map((p) => (p.id === "a" ? { ...p, chips: 5 } : p)) };
-  s = bothBet(s);
-  s = act(s, "a", { type: "stand" }, s.turnAt!);
-  s = act(s, "b", { type: "stand" }, s.turnAt!);
-  assert.equal(player(s, "a").chips, 0);
+test("a hand that leaves both with chips carries on", () => {
+  let s = hand(["10", "10", "10", "9", "7", "7"], [5, 5]);
   s = onDeadline(s, s.settleAt!);
-  assert.equal(s.phase, "over");
+  assert.equal(s.phase, "betting");
+  assert.equal(s.hand, 1);
 });
 
 test("a player leaving sends the other back to wait for a new challenger", () => {
@@ -231,4 +282,25 @@ test("a player leaving sends the other back to wait for a new challenger", () =>
   s = addDuelPlayer(s, { id: "c", name: "C" });
   assert.equal(s.phase, "betting");
   assert.equal(player(s, "c").seat, 0);
+});
+
+test("the two hands are dealt independently from a crypto-shuffled shoe", () => {
+  // Matching totals happen by chance about 7% of the time (lots of tens in a shoe); correlated hands would show far more.
+  const n = 1000;
+  let same = 0;
+  let identical = 0;
+  for (let k = 0; k < n; k++) {
+    let s = createDuelGame();
+    s = addDuelPlayer(s, { id: "a", name: "A" });
+    s = addDuelPlayer(s, { id: "b", name: "B" });
+    for (const id of ["a", "b"]) {
+      s = act(s, id, { type: "chip", value: 1 });
+      s = act(s, id, { type: "lock" });
+    }
+    const [a, b] = s.players.map((p) => p.cards);
+    if (handValue(a!).total === handValue(b!).total) same++;
+    if (a!.every((x, i) => x.rank === b![i]!.rank && x.suit === b![i]!.suit)) identical++;
+  }
+  assert.ok(same / n < 0.11, `same total in ${((same / n) * 100).toFixed(1)}% of deals`);
+  assert.ok(identical / n < 0.01, `identical hands in ${identical} deals`);
 });

@@ -1,13 +1,11 @@
-import { SHOE_SIZE, cryptoRng, handValue, isBlackjack, isBust, newShoe, outcomeOf, payout } from "../blackjack/rules.ts";
-import type { BjCard, Denom, DuelIntent, DuelPlayer, DuelState } from "./types.ts";
+import { SHOE_SIZE, cryptoRng, handValue, isBlackjack, isBust, newShoe, outcomeOf } from "../blackjack/rules.ts";
+import type { BjCard, Denom, DuelIntent, DuelPlayer, DuelState, Outcome, Versus } from "./types.ts";
 
 export const MAX_DUEL_PLAYERS = 2;
 export const DENOMS: readonly Denom[] = [1, 2, 5];
 export const START_CHIPS = 100;
 export const MIN_BET = 1;
-export const MAX_BET = 25;
-export const HANDS = 10; // a match: whoever holds more chips after this many hands wins
-export const BET_MS = 15_000; // after the first lock-in, the other player has this long
+export const BET_MS = 15_000; // after the first lock-in, the other player has this long (then they play $1, or the bet left in their circle)
 export const TURN_MS = 20_000; // then the server stands for you
 export const SETTLE_MS = 6500; // results, chips paid and swept, then the cards clear to the discard tray
 export const HOLE_LEAD_MS = 900; // after the last player acts, a beat before the dealer turns the hole card
@@ -24,6 +22,18 @@ type Rng = () => number;
 export type DuelResult = { ok: true; state: DuelState } | { ok: false; error: string };
 
 export const betOf = (p: Pick<DuelPlayer, "stack">): number => p.stack.reduce((a, b) => a + b, 0);
+
+// An amount in as few chips as possible, biggest first (how All In lands in the circle).
+export function chipsFor(amount: number): Denom[] {
+  const out: Denom[] = [];
+  for (const d of [5, 2, 1] as const) for (; amount >= d; amount -= d) out.push(d);
+  return out;
+}
+
+// How well a hand did against the dealer, for comparing the two players: the better outcome wins, then the higher total;
+// a bust is worst of all.
+const RANK: Record<Outcome, number> = { blackjack: 3, win: 2, push: 1, lose: 0 };
+const scoreOf = (cards: BjCard[], outcome: Outcome) => RANK[outcome] * 100 + (isBust(cards) ? 0 : handValue(cards).total);
 
 const bump = (s: DuelState, prev: DuelState): DuelState => ({ ...s, seq: prev.seq + 1 });
 const patch = (s: DuelState, id: string, fn: (p: DuelPlayer) => DuelPlayer): DuelState => ({
@@ -130,12 +140,17 @@ function settle(s: DuelState, now: number, rng: Rng): DuelState {
     dealer = [...dealer, d.card];
     next = { ...next, shoe: d.shoe };
   }
+  // Head to head: the better showing takes the other's bet, matched up to the smaller of the two stakes.
+  const scored = hands.map((p) => ({ p, outcome: outcomeOf(p.cards, dealer), score: 0 })).map((h) => ({ ...h, score: scoreOf(h.p.cards, h.outcome) }));
+  const [a, b] = scored;
+  const stake = a && b ? Math.min(betOf(a.p), betOf(b.p)) : 0;
   const players = next.players.map((p) => {
-    if (p.cards.length === 0) return p;
-    const bet = betOf(p);
-    const outcome = outcomeOf(p.cards, dealer);
-    const won = payout(outcome, bet);
-    return { ...p, chips: p.chips + won, done: true, result: { outcome, net: won - bet } };
+    const me = scored.find((h) => h.p.id === p.id);
+    if (!me) return p;
+    const them = scored.find((h) => h.p.id !== p.id);
+    const vs: Versus = !them || me.score === them.score ? "push" : me.score > them.score ? "win" : "lose";
+    const net = vs === "win" ? stake : vs === "lose" ? -stake : 0;
+    return { ...p, chips: p.chips + betOf(p) + net, done: true, result: { outcome: me.outcome, vs, net } };
   });
   const draws = Math.max(0, dealer.length - 2);
   return { ...next, players, dealer, phase: "settle", turnId: null, turnAt: null, settleAt: now + HOLE_LEAD_MS + draws * DEALER_CARD_MS + SETTLE_MS };
@@ -147,6 +162,8 @@ function nextTurn(s: DuelState, now: number, rng: Rng): DuelState {
 }
 
 function deal(s: DuelState, now: number, rng: Rng): DuelState {
+  // Both always play: whoever let the clock run out with an empty circle is in for the minimum.
+  s = { ...s, players: s.players.map((p) => (p.stack.length === 0 && p.chips >= MIN_BET ? { ...p, stack: [MIN_BET as Denom] } : p)) };
   const bettors = s.players.filter((p) => betOf(p) >= MIN_BET && betOf(p) <= p.chips);
   if (bettors.length === 0) return { ...s, dealAt: null };
   const reshuffle = s.shoe.length === SHOE_SIZE || s.shoe.length < RESHUFFLE_AT;
@@ -189,13 +206,13 @@ function syncBetting(s: DuelState, now: number, rng: Rng): DuelState {
   return { ...s, dealAt: s.dealAt ?? now + BET_MS };
 }
 
-// After the results: the same bet rides again (a double comes back off), unless the match is decided.
+// After the results: the same bet rides again (a double comes back off, an unaffordable bet comes down), until someone is broke.
 function nextHand(s: DuelState): DuelState {
   const players = s.players.map((p) => {
     const stack = p.doubled ? p.stack.slice(0, p.stack.length / 2) : p.stack;
     return { ...p, stack: betOf({ stack }) <= p.chips ? stack : [], ready: false, cards: [], done: false, doubled: false, result: null };
   });
-  const over = s.hand >= HANDS || players.some((p) => p.chips < MIN_BET);
+  const over = players.some((p) => p.chips < MIN_BET);
   // At the final whistle everyone's chips come off the felt.
   return { ...s, phase: over ? "over" : "betting", players: over ? players.map((p) => ({ ...p, stack: [] })) : players, dealer: [], turnId: null, turnAt: null, settleAt: null, dealAt: null };
 }
@@ -233,12 +250,16 @@ export function applyDuelIntent(s: DuelState, actorId: string, intent: DuelInten
       if (intent.type === "chip") {
         if (!DENOMS.includes(intent.value)) return fail("No such chip");
         if (bet + intent.value > me.chips) return fail("Not enough chips");
-        if (bet + intent.value > MAX_BET) return fail(`Table max is $${MAX_BET}`);
         return done(patch(s, actorId, (p) => ({ ...p, stack: [...p.stack, intent.value] })));
       }
       if (me.stack.length === 0) return fail("No chips to take back");
       return done(patch(s, actorId, (p) => ({ ...p, stack: intent.type === "undo" ? p.stack.slice(0, -1) : [] })));
     }
+    case "allin":
+      if (s.phase !== "betting") return fail("Bets are closed");
+      if (me.ready) return fail("You've locked in");
+      if (bet >= me.chips) return fail("You're already all in");
+      return done(patch(s, actorId, (p) => ({ ...p, stack: [...p.stack, ...chipsFor(p.chips - bet)] })));
     case "lock":
       if (s.phase !== "betting") return fail("Bets are closed");
       if (me.ready) return fail("You've locked in");

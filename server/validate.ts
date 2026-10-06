@@ -195,6 +195,7 @@ function parseDuelIntent(v: unknown): DuelIntent | null {
       return v.value === 1 || v.value === 2 || v.value === 5 ? { type: "chip", value: v.value } : null;
     case "undo":
     case "clear":
+    case "allin":
     case "lock":
     case "hit":
     case "stand":
