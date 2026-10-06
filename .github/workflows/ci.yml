@@ -24,3 +24,41 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
+
+  # Deploy the Railway game server once checks pass on main, so a new game never
+  # reaches the site (Vercel) before the server knows it. Rooms live in memory and
+  # a deploy restarts the server, so only deploy when server-side code changed.
+  deploy-server:
+    needs: check
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: deploy-server
+      cancel-in-progress: false
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      RAILWAY_SERVICE: ${{ vars.RAILWAY_SERVICE || 'server' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check for server changes
+        id: changes
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ -z "$RAILWAY_TOKEN" ]; then
+            echo "::warning::RAILWAY_TOKEN secret is not set, so the game server was not deployed."
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+          elif ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          elif git diff --quiet "$BEFORE" HEAD -- server lib package.json pnpm-lock.yaml railway.json; then
+            echo "No server-side changes, skipping deploy."
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Deploy to Railway
+        if: steps.changes.outputs.deploy == 'true'
+        run: npx --yes @railway/cli@latest up --ci --service "$RAILWAY_SERVICE"
