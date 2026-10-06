@@ -31,6 +31,7 @@ import * as dice from "../lib/liarsdice/index.ts";
 import * as potato from "../lib/hotpotato/index.ts";
 import * as spy from "../lib/spyfall/index.ts";
 import * as bj from "../lib/blackjack/index.ts";
+import * as duel from "../lib/bjduel/index.ts";
 import * as bac from "../lib/baccarat/index.ts";
 import * as rl from "../lib/roulette/index.ts";
 import * as tx from "../lib/texasholdem/index.ts";
@@ -124,6 +125,19 @@ const PARTY: { [M in PartyMode]: PartyEngine<PartyGames[M]["state"], PartyGames[
     onDeadline: bj.onDeadline,
     intentOf: (m) => (m.t === "blackjack" ? m.intent : null),
   },
+  bjduel: {
+    maxPlayers: duel.MAX_DUEL_PLAYERS,
+    create: duel.createDuelGame,
+    add: duel.addDuelPlayer,
+    remove: duel.removeDuelPlayer,
+    setConnected: duel.setDuelConnected,
+    apply: duel.applyDuelIntent,
+    redact: duel.redactDuel,
+    serverDeadline: duel.serverDeadline,
+    visibleDeadline: duel.visibleDeadline,
+    onDeadline: duel.onDeadline,
+    intentOf: (m) => (m.t === "bjduel" ? m.intent : null),
+  },
   baccarat: {
     maxPlayers: bac.MAX_BAC_PLAYERS,
     openJoin: true,
@@ -196,6 +210,10 @@ function withParty<R>(room: PartyRoom, fn: <S, I>(p: Party<S, I>) => R): R {
       const r = room;
       return fn({ e: PARTY.blackjack, game: r.game, set: (g) => void (r.game = g), view: (game, deadlineInMs) => ({ ...r, game, deadlineInMs }) });
     }
+    case "bjduel": {
+      const r = room;
+      return fn({ e: PARTY.bjduel, game: r.game, set: (g) => void (r.game = g), view: (game, deadlineInMs) => ({ ...r, game, deadlineInMs }) });
+    }
     case "baccarat": {
       const r = room;
       return fn({ e: PARTY.baccarat, game: r.game, set: (g) => void (r.game = g), view: (game, deadlineInMs) => ({ ...r, game, deadlineInMs }) });
@@ -222,6 +240,8 @@ function newPartyRoom(mode: PartyMode, code: string, player: { id: string; name:
       return { ...base, mode, game: PARTY.spyfall.add(PARTY.spyfall.create(), player) };
     case "blackjack":
       return { ...base, mode, game: PARTY.blackjack.add(PARTY.blackjack.create(), player) };
+    case "bjduel":
+      return { ...base, mode, game: PARTY.bjduel.add(PARTY.bjduel.create(), player) };
     case "baccarat":
       return { ...base, mode, game: PARTY.baccarat.add(PARTY.baccarat.create(), player) };
     case "roulette":
@@ -627,8 +647,8 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
     } else if (isParty(room)) {
       const seated = room.game.players.some((p) => p.id === clientId);
       if (!seated && live.kicked.has(clientId)) return fail(c, KICKED_MESSAGE);
-      if (!seated && room.game.phase !== "lobby" && !PARTY[room.mode].openJoin) return fail(c, "Game already started");
       if (!seated && room.game.players.length >= PARTY[room.mode].maxPlayers) return fail(c, "Room is full");
+      if (!seated && room.game.phase !== "lobby" && !PARTY[room.mode].openJoin) return fail(c, "Game already started");
       if (!seated && !allow(joinsByIp, c.ip, joinsPerIpPerMin)) return fail(c, TOO_MANY_JOINS);
       const now = Date.now();
       withParty(room, (p) => p.set(seated ? p.e.setConnected(p.game, clientId, true, now) : p.e.add(p.game, { id: clientId, name })));
@@ -733,6 +753,7 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
       case "hotpotato":
       case "spyfall":
       case "blackjack":
+      case "bjduel":
       case "baccarat":
       case "roulette":
       case "texasholdem": {
