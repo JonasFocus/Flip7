@@ -135,7 +135,7 @@ export function TexasHoldem({ conn }: { conn: TxConnection }) {
   }
 
   return (
-    <main className="mx-auto flex h-dvh w-full max-w-md flex-col overflow-hidden px-safe pt-safe select-none">
+    <main className="tx-room mx-auto flex h-dvh w-full max-w-md flex-col overflow-hidden px-safe pt-safe select-none">
       <Toast message={toast ?? conn.error} tone={toast ? "accent" : "danger"} onDismiss={() => setToast(null)} />
       <header className="flex items-center justify-between gap-2 px-3 py-1.5">
         <Button variant="ghost" size="sm" className="-ml-2 px-3" onClick={conn.leave}>
@@ -205,7 +205,7 @@ function Felt({ conn, me, revealed, clearing, secs }: { conn: TxConnection; me: 
   }
 
   return (
-    <section aria-label="Table" data-table className="relative mx-2 min-h-0 flex-1">
+    <section aria-label="Table" data-table className="tx-table relative mx-2 min-h-0 flex-1">
       <div aria-hidden className="tx-felt absolute inset-x-0 top-[3%] bottom-[3%]" />
 
       <div aria-hidden data-deck className="absolute top-[1%] left-[2%] h-[38px] w-[27px]">
@@ -238,14 +238,14 @@ function Felt({ conn, me, revealed, clearing, secs }: { conn: TxConnection; me: 
               className={cx(winning(c) && "tx-lift ring-2 ring-active", "rounded-[0.12em]")}
             />
           ) : (
-            <span key={i} aria-hidden className="rounded-[0.12em] border border-white/10 bg-black/15" style={{ fontSize: BOARD_SIZE, width: "1em", aspectRatio: "5 / 7" }} />
+            <span key={i} aria-hidden className="rounded-[0.075em] border border-white/10 bg-black/20 shadow-[inset_0_1px_4px_oklch(0_0_0/0.35)]" style={{ fontSize: BOARD_SIZE, width: "1em", aspectRatio: "5 / 7" }} />
           );
         })}
       </div>
 
       <div className="absolute left-1/2 flex w-[84%] -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1" style={{ top: "62%" }}>
         {banner ? (
-          <p key={`${game.round}-banner`} role="status" className="tx-pop flex max-w-full flex-col items-center rounded-2xl border border-active/50 bg-ink/90 px-4 py-1.5 text-center shadow-[0_8px_24px_-8px_oklch(0_0_0/0.8)]">
+          <p key={`${game.round}-banner`} role="status" className="tx-pop flex max-w-full flex-col items-center rounded-2xl border border-active/50 bg-[oklch(0.15_0.003_260/0.92)] px-4 py-1.5 text-center shadow-[0_8px_24px_-8px_oklch(0_0_0/0.8)]">
             <span className="max-w-full truncate font-display text-sm tracking-wide text-active">{banner.title}</span>
             {banner.hand && <span className="max-w-full truncate text-[11px] text-fg/70">{banner.hand}</span>}
           </p>
@@ -460,7 +460,7 @@ function Seat({
       <span
         data-seat={player.seat}
         className={cx(
-          "relative z-[1] grid place-items-center rounded-full bg-surface shadow-[0_6px_14px_-4px_oklch(0_0_0/0.7)] ring-2 ring-offset-2 ring-offset-[oklch(0.255_0.008_260)]",
+          "relative z-[1] grid place-items-center rounded-full bg-surface shadow-[0_6px_14px_-4px_oklch(0_0_0/0.7)] ring-2 ring-offset-2 ring-offset-[oklch(0.35_0.004_260)]",
           mine ? "size-[clamp(44px,12.5vw,50px)]" : "size-[clamp(38px,11vw,44px)]",
           turn ? "tx-glow ring-accent" : mine ? "ring-accent/60" : "ring-white/15",
           won && "tx-win ring-active",
@@ -484,14 +484,14 @@ function Seat({
       <span
         className={cx(
           "-mt-2 w-[clamp(58px,17vw,66px)] rounded-lg border px-1 pt-2.5 pb-[3px] text-center leading-tight shadow-[0_6px_14px_-6px_oklch(0_0_0/0.8)]",
-          mine ? "border-accent/80 bg-accent" : "border-white/10 bg-ink/90",
+          mine ? "border-accent/80 bg-accent" : "border-white/10 bg-[oklch(0.15_0.003_260/0.92)]",
         )}
       >
         <span className={cx("block truncate text-[10.5px] font-semibold", mine ? "text-ink" : "text-fg/85")}>{mine ? "You" : player.name}</span>
         <span className={cx("block truncate font-display text-[11px] tabular-nums", mine ? "text-ink/80" : line.tone)}>{line.text}</span>
       </span>
       {result?.hand && !mine && (
-        <span className={cx("tx-in absolute top-full mt-1 max-w-[96px] truncate rounded-full bg-ink/90 px-2 py-0.5 text-[10px] font-semibold", won ? "text-active" : "text-fg/65")}>{result.hand}</span>
+        <span className={cx("tx-in absolute top-full mt-1 max-w-[96px] truncate rounded-full bg-[oklch(0.15_0.003_260/0.92)] px-2 py-0.5 text-[10px] font-semibold", won ? "text-active" : "text-fg/65")}>{result.hand}</span>
       )}
     </div>
   );
