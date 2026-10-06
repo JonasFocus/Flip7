@@ -1,5 +1,5 @@
 export * from "./types.ts";
-export { buildPots, evaluate } from "./eval.ts";
+export { buildPots, evaluate, madeHand } from "./eval.ts";
 export {
   BIG_BLIND,
   CARD_SLIDE_MS,

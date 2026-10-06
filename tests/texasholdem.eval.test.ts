@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Rank, Suit } from "../lib/blackjack/types.ts";
-import { buildPots, evaluate, handCategory } from "../lib/texasholdem/eval.ts";
+import { buildPots, evaluate, handCategory, madeHand } from "../lib/texasholdem/eval.ts";
 
 type Card = { rank: Rank; suit: Suit };
 
@@ -250,4 +250,12 @@ test("pot totals always equal contributions on random scenarios", () => {
 test("empty and zero contributions", () => {
   assert.deepEqual(buildPots([]), []);
   assert.deepEqual(buildPots([c("a", 0), c("b", 0)]), []);
+});
+
+test("madeHand names the hole cards before the flop and the best hand after", () => {
+  assert.equal(madeHand(parse("Kd Kh")), "Pair of Kings");
+  assert.equal(madeHand(parse("4c Qh")), "Queen high");
+  assert.equal(madeHand(parse("Kd 9h Ks 9c 2d")), "Two pair, Kings and Nines");
+  assert.equal(madeHand(parse("9d 8c 7h 6s 5d 2c")), "Straight, Nine high");
+  assert.equal(madeHand(parse("Ad Kd 4d 8d 9d 3c 2h")), "Flush, Ace high");
 });

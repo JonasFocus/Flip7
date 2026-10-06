@@ -146,6 +146,13 @@ export function evaluate<C extends EvalCard>(cards: C[]): HandResult<C> {
   return result(0, best, best.map(rv));
 }
 
+// What a player holds right now, for the hand helper: the full evaluation from the flop on, a pair or high card before it.
+export function madeHand(cards: EvalCard[]): string {
+  if (cards.length >= 5) return evaluate(cards).name;
+  const [a = 0, b = 0] = cards.map(rv).sort((x, y) => y - x);
+  return a === b ? `Pair of ${PLURAL[a]}` : `${SINGULAR[a]} high`;
+}
+
 export function handCategory(value: number): string {
   return HAND_CATEGORIES[Math.floor(value / BASE ** 5)] ?? HAND_CATEGORIES[0];
 }

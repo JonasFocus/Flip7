@@ -21,6 +21,9 @@ import {
   SMALL_BLIND,
   TURN_MS,
   buildPots,
+  dealAnimMs,
+  madeHand,
+  streetAnimMs,
 } from "@/lib/texasholdem";
 import type { TxCard, TxConnection, TxPlayer, TxState } from "@/lib/texasholdem/types";
 import { Panel } from "./Panel";
@@ -429,6 +432,11 @@ function Seat({
   const faceUp = !mine && player.cards.some((c) => c !== null); // an opponent's hand only arrives face up at showdown
   const size = mine ? "clamp(44px,13vw,54px)" : faceUp ? "clamp(30px,9vw,36px)" : "clamp(22px,6.4vw,28px)";
 
+  // Hand helper over your own cards while the hand is live; it waits for the cards that change it to land.
+  const known = player.cards.filter((c): c is TxCard => c !== null);
+  const helper = mine && street && !player.folded && known.length === 2 ? madeHand([...known, ...game.board]) : null;
+  const helperDelay = game.board.length === 0 ? dealAnimMs(handSize) : streetAnimMs(game.board.length === 3 ? 3 : 1);
+
   let line: { text: string; tone: string };
   if (result && result.net !== 0 && player.cards.length > 0) line = { text: `${result.net > 0 ? "+" : "−"}${Math.abs(result.net).toLocaleString()}`, tone: won ? "text-active" : "text-fg/60" };
   else if (won) line = { text: "WINS", tone: "text-active" };
@@ -443,6 +451,19 @@ function Seat({
     <div className={cx("relative flex flex-col items-center", !player.connected && "opacity-50")}>
       {showCards && (
         <div className={cx("absolute left-1/2 flex -translate-x-1/2", mine ? "bottom-full z-10 mb-0.5 gap-1" : faceUp ? cx("z-10 gap-0.5", below ? "top-full mt-6" : "bottom-full mb-1") : "bottom-[58%]")}>
+          {helper && (
+            <span className="pointer-events-none absolute bottom-full left-1/2 mb-2 -translate-x-1/2">
+              <span
+                key={helper}
+                role="status"
+                aria-label={`You have ${helper}`}
+                className="tx-pop block rounded-full bg-accent px-2.5 py-0.5 text-[11px] font-bold whitespace-nowrap text-ink shadow-[0_4px_12px_-2px_oklch(0_0_0/0.6)]"
+                style={{ animationDelay: `${helperDelay}ms` }}
+              >
+                {helper}
+              </span>
+            </span>
+          )}
           {player.cards.map((c, i) => (
             <Dealt
               key={`${game.round}-${i}`}
