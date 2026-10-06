@@ -1,29 +1,132 @@
-/* Texas Hold'em table. Cards and chips come from components/casino; this is the oval felt and the table's motion. */
+/* Texas Hold'em table. Cards and chips come from components/casino and are restyled here under .tx-table; plus the oval table and its motion. */
 @layer components {
-/* Graphite oval under a soft overhead light: a bevelled rim, a fine woven grain and a thin inlay line, closed all round. */
+/* The room behind the table: a dim neutral backdrop so the grey table reads as the lit object. */
+.tx-room::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(90% 60% at 50% 42%, oklch(0.2 0.004 260), transparent 70%),
+    oklch(0.11 0.003 260);
+}
+
+/* Dark grey speed cloth under an overhead light, inside a padded black leather rail with a brushed metal trim. */
 .tx-felt {
-  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-  border: 11px solid transparent;
+  --felt: oklch(0.35 0.004 260);
+  --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .08 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  border: 16px solid transparent;
   border-radius: 50% / 40%;
   background:
-    radial-gradient(62% 46% at 50% 36%, oklch(0.42 0.01 260 / 0.9), transparent 75%) padding-box,
+    radial-gradient(70% 52% at 50% 42%, oklch(0.47 0.004 260 / 0.95), transparent 78%) padding-box,
     var(--grain) padding-box,
-    oklch(0.255 0.008 260) padding-box,
-    linear-gradient(165deg, oklch(0.46 0.006 260), oklch(0.16 0.005 260) 45%, oklch(0.3 0.006 260)) border-box;
+    var(--felt) padding-box,
+    linear-gradient(170deg, oklch(0.3 0.004 260), oklch(0.12 0.003 260) 30%, oklch(0.08 0.003 260) 65%, oklch(0.18 0.004 260)) border-box;
   box-shadow:
-    inset 0 0 0 1px oklch(1 0 0 / 0.08),
-    inset 0 -34px 70px oklch(0 0 0 / 0.5),
-    inset 0 18px 40px -20px oklch(1 0 0 / 0.07),
-    0 0 0 1px oklch(0.08 0.004 260),
-    0 30px 60px -26px oklch(0 0 0 / 0.9);
+    inset 0 0 0 2px oklch(0.7 0.08 80 / 0.65),
+    inset 0 0 0 3.5px oklch(0.1 0.003 260 / 0.9),
+    inset 0 -40px 70px oklch(0 0 0 / 0.45),
+    inset 0 20px 40px -18px oklch(1 0 0 / 0.08),
+    0 0 0 1px oklch(0.4 0.004 260 / 0.6),
+    0 2px 0 1px oklch(0.06 0.002 260),
+    0 34px 60px -24px oklch(0 0 0 / 0.95);
 }
+/* The rail's padding: a soft highlight along its top edge. */
+.tx-felt::before {
+  content: "";
+  position: absolute;
+  inset: -16px;
+  border-radius: inherit;
+  padding: 16px;
+  background: radial-gradient(60% 30% at 50% 0%, oklch(1 0 0 / 0.2), transparent 70%), linear-gradient(to bottom, oklch(1 0 0 / 0.05), transparent 30%);
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  pointer-events: none;
+}
+/* Betting line printed on the cloth. */
 .tx-felt::after {
   content: "";
   position: absolute;
   inset: 7% 6%;
   border-radius: 50% / 41%;
-  border: 1px solid oklch(1 0 0 / 0.07);
+  border: 1px solid oklch(0.85 0.01 80 / 0.1);
+  box-shadow: 0 0 0 4px oklch(1 0 0 / 0.015);
 }
+
+/* Hold'em's own deck: a classic red-backed casino deck with crisp white faces and a lacquer finish. */
+/* Scoped here so other tables keep their cards. */
+.tx-table .cc-face {
+  border-radius: 0.07em;
+  box-shadow:
+    0 0.012em 0 oklch(0.72 0.005 90),
+    0 0.05em 0.1em oklch(0 0 0 / 0.4),
+    0 0.16em 0.3em -0.1em oklch(0 0 0 / 0.55);
+}
+.tx-table .cc-front {
+  background: oklch(0.99 0.003 90);
+  color: oklch(0.17 0.005 260);
+}
+.tx-table .cc-front[data-red] { color: oklch(0.55 0.22 27); }
+.tx-table .cc-idx { background: oklch(0.99 0.003 90); }
+/* Lacquer: a soft sheen across the face and a hairline edge, drawn over the print. */
+.tx-table .cc-front::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border-radius: inherit;
+  background: linear-gradient(140deg, oklch(1 0 0 / 0.5), oklch(1 0 0 / 0) 32%, oklch(1 0 0 / 0) 68%, oklch(0.3 0.01 90 / 0.05));
+  box-shadow: inset 0 0 0 max(1px, 0.01em) oklch(0.55 0.005 90 / 0.3);
+  pointer-events: none;
+}
+.tx-table .cc-court {
+  border: max(1px, 0.018em) solid currentColor;
+  box-shadow: inset 0 0 0 max(1px, 0.02em) oklch(0.99 0.003 90), inset 0 0 0 max(2px, 0.03em) oklch(0.72 0.12 80);
+  background: linear-gradient(160deg, oklch(0.97 0.03 90), oklch(0.92 0.05 85));
+}
+/* Red back: a white border round a fine red lattice, with a thin white rule inside the border. */
+.tx-table .cc-back {
+  background:
+    repeating-linear-gradient(60deg, oklch(1 0 0 / 0.32) 0 0.008em, transparent 0.008em 0.05em),
+    repeating-linear-gradient(-60deg, oklch(1 0 0 / 0.32) 0 0.008em, transparent 0.008em 0.05em),
+    repeating-linear-gradient(0deg, oklch(0.35 0.14 25 / 0.35) 0 0.008em, transparent 0.008em 0.05em),
+    radial-gradient(120% 90% at 35% 25%, oklch(0.56 0.21 27), oklch(0.44 0.18 25));
+  box-shadow:
+    inset 0 0 0 0.07em oklch(0.99 0.003 90),
+    inset 0 0 0 0.085em oklch(0.5 0.2 27),
+    inset 0 0 0 0.1em oklch(0.99 0.003 90 / 0.9),
+    0 0.012em 0 oklch(0.72 0.005 90),
+    0 0.05em 0.1em oklch(0 0 0 / 0.4),
+    0 0.16em 0.3em -0.1em oklch(0 0 0 / 0.55);
+}
+
+/* Clay casino chips: edge inserts round the rim, a printed inlay for the value, a little thickness underneath. */
+/* Colours are set per denomination (!important beats the inline default); chips given an explicit colour keep it. */
+.tx-table .cc-chip {
+  --edge: oklch(0.96 0.005 90);
+  --inlay: color-mix(in oklch, var(--chip) 18%, oklch(0.97 0.005 90));
+  border: 0;
+  color: oklch(0.2 0.01 260);
+  font-size: 0.9em;
+  background:
+    radial-gradient(circle at 34% 26%, oklch(1 0 0 / 0.32), transparent 48%),
+    radial-gradient(circle closest-side, var(--inlay) 0 58%, color-mix(in oklch, var(--chip) 70%, black) 60% 62%, transparent 63%),
+    radial-gradient(circle closest-side, transparent 0 69%, oklch(1 0 0 / 0.55) 70% 72%, transparent 73%),
+    radial-gradient(circle closest-side, var(--chip) 0 80%, transparent 81%),
+    repeating-conic-gradient(from 10deg, var(--edge) 0 20deg, var(--chip) 20deg 60deg);
+  box-shadow:
+    inset 0 0 0 max(1px, 0.06em) oklch(0 0 0 / 0.25),
+    0 0.1em 0 color-mix(in oklch, var(--chip) 55%, black),
+    0 0.2em 0 color-mix(in oklch, var(--chip) 40%, black),
+    0 0.3em 0.45em oklch(0 0 0 / 0.55);
+}
+.tx-table .cc-chip[data-v="1"] { --chip: oklch(0.92 0.006 90) !important; --edge: oklch(0.5 0.15 255); }
+.tx-table .cc-chip[data-v="5"] { --chip: oklch(0.55 0.2 25) !important; }
+.tx-table .cc-chip[data-v="10"] { --chip: oklch(0.5 0.15 255) !important; }
+.tx-table .cc-chip[data-v="25"] { --chip: oklch(0.56 0.13 155) !important; }
+.tx-table .cc-chip[data-v="100"] { --chip: oklch(0.24 0.006 260) !important; --edge: oklch(0.8 0.11 80); }
+.tx-table .cc-chip[data-v="500"] { --chip: oklch(0.47 0.17 305) !important; }
+.tx-table .cc-chip[data-v="1000"] { --chip: oklch(0.74 0.13 78) !important; --edge: oklch(0.24 0.006 260); }
+
 .tx-glow { animation: tx-glow 1.4s ease-in-out infinite; }
 .tx-win { animation: tx-win 900ms ease-out 3 both; }
 .tx-pop { animation: tx-pop 480ms var(--ease-spring) both; }

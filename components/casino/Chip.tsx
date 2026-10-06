@@ -12,7 +12,9 @@ export const CHIPS = [
   { value: 1000, color: "var(--color-card-9)" },
 ] as const;
 
-export const chipColor = (amount: number) => [...CHIPS].reverse().find((c) => amount >= c.value)?.color ?? CHIPS[0].color;
+const denomination = (amount: number) => [...CHIPS].reverse().find((c) => amount >= c.value) ?? CHIPS[0];
+
+export const chipColor = (amount: number) => denomination(amount).color;
 
 export const shortAmount = (n: number) => (n >= 10_000 ? `${Math.round(n / 1000)}k` : n >= 1000 ? `${(n / 1000).toFixed(1).replace(/\.0$/, "")}k` : `${n}`);
 
@@ -39,6 +41,7 @@ export function stackOf(amount: number): number[] {
 }
 
 // One chip labelled with `label` (default: the amount), coloured by denomination unless `color` overrides.
+// Denomination chips carry `data-v` so a table can restyle its own chip set in CSS.
 // `stack` draws the amount as a short pile of denomination chips with the total on top; `ref` is for WAAPI fly animations.
 export function Chip({
   amount,
@@ -61,7 +64,12 @@ export function Chip({
 }) {
   if (!stack) {
     return (
-      <span ref={ref} className={cx("cc-chip grid place-items-center font-display tabular-nums", SIZE[size], className)} style={{ "--chip": color ?? chipColor(amount), ...style } as CSSProperties}>
+      <span
+        ref={ref}
+        data-v={color ? undefined : denomination(amount).value}
+        className={cx("cc-chip grid place-items-center font-display tabular-nums", SIZE[size], className)}
+        style={{ "--chip": color ?? chipColor(amount), ...style } as CSSProperties}
+      >
         {label ?? shortAmount(amount)}
       </span>
     );
@@ -73,6 +81,7 @@ export function Chip({
       {pile.map((v, i) => (
         <span
           key={i}
+          data-v={color ? undefined : v}
           className={cx("cc-chip col-start-1 row-start-1 grid place-items-center font-display tabular-nums", SIZE[size])}
           style={{ "--chip": color ?? chipColor(v), transform: `translateY(${(pile.length - 1 - i) * 12}%)` } as CSSProperties}
         >
