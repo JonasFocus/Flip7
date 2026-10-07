@@ -1,23 +1,38 @@
 /* Blackjack table. Colors come from the globals.css theme tokens; card size = font-size (width), insides in em. */
 /* Layered so Tailwind utilities like `absolute` still override these. */
 @layer components {
-/* Graphite felt under a soft overhead light, with a fine light-grey inlay and a slate rail. */
+/* Deep bottle-green felt under a warm overhead light, a brass inlay line and a near-black leather rail. */
 .bj-felt {
+  --brass: oklch(0.78 0.1 82);
   background:
-    radial-gradient(85% 60% at 50% 22%, oklch(0.34 0.006 260 / 0.9), transparent 72%),
-    repeating-linear-gradient(45deg, oklch(1 0 0 / 0.012) 0 1px, transparent 1px 4px),
-    oklch(0.215 0.006 260);
+    radial-gradient(80% 58% at 50% 20%, oklch(0.4 0.07 160 / 0.85), transparent 72%),
+    repeating-linear-gradient(45deg, oklch(1 0 0 / 0.014) 0 1px, transparent 1px 4px),
+    oklch(0.26 0.05 160);
   border-radius: 0 0 50% 50% / 0 0 46% 46%;
-  border: 9px solid oklch(0.15 0.005 260);
+  border: 9px solid oklch(0.14 0.01 60);
   border-top: 0;
   box-shadow:
-    inset 0 0 0 1.5px oklch(0.8 0.005 260 / 0.35),
-    inset 0 0 0 7px oklch(0.215 0.006 260),
-    inset 0 0 0 8px oklch(0.8 0.005 260 / 0.12),
-    inset 0 -30px 70px oklch(0 0 0 / 0.45),
-    0 0 0 1px oklch(0.42 0.005 260 / 0.6),
+    inset 0 0 0 1.5px oklch(0.78 0.1 82 / 0.55),
+    inset 0 0 0 7px oklch(0.26 0.05 160),
+    inset 0 0 0 8px oklch(0.78 0.1 82 / 0.18),
+    inset 0 -30px 70px oklch(0 0 0 / 0.5),
+    0 0 0 1px oklch(0.4 0.04 80 / 0.5),
     0 28px 60px -24px oklch(0 0 0 / 0.9);
 }
+
+/* One-shot light on the felt when your hand resolves: warm for a win, a dim red for a bust. */
+.bj-flash { animation: bj-flash 1400ms ease-out both; }
+.bj-flash-win { background: radial-gradient(60% 50% at 50% 60%, oklch(0.85 0.12 85 / 0.38), transparent 70%); }
+.bj-flash-lose { background: radial-gradient(70% 60% at 50% 60%, transparent 40%, oklch(0.4 0.15 25 / 0.35)); }
+
+/* A slow highlight across the BJ badge: the only shimmer on the table. */
+.bj-shimmer {
+  background-image: linear-gradient(105deg, transparent 35%, oklch(1 0 0 / 0.55) 50%, transparent 65%);
+  background-size: 250% 100%;
+  animation: bj-shimmer 2200ms ease-in-out 600ms infinite;
+}
+
+.bj-delta { animation: bj-delta 1600ms var(--ease-out) both; }
 
 .bj-glow { animation: bj-glow 1.4s ease-in-out infinite; }
 .bj-in { animation: bj-in 420ms var(--ease-spring) both; }
@@ -27,6 +42,24 @@
 
 @keyframes bj-glow {
   50% { box-shadow: 0 0 0 3px var(--color-accent), 0 0 22px 2px oklch(0.89 0.18 98 / 0.6); }
+}
+
+@keyframes bj-flash {
+  0% { opacity: 0; }
+  25% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes bj-shimmer {
+  from { background-position: 150% 0; }
+  to { background-position: -50% 0; }
+}
+
+@keyframes bj-delta {
+  0% { opacity: 0; transform: translateY(6px); }
+  20% { opacity: 1; transform: translateY(0); }
+  80% { opacity: 1; }
+  100% { opacity: 0; transform: translateY(-8px); }
 }
 
 @keyframes bj-in {
@@ -42,5 +75,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .bj-glow, .bj-in, .bj-win, .bj-rise { animation: none; }
+  .bj-glow, .bj-in, .bj-win, .bj-rise, .bj-flash, .bj-shimmer, .bj-delta { animation: none; }
+  .bj-flash { opacity: 0; }
 }
