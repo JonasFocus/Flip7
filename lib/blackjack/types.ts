@@ -21,7 +21,8 @@ export interface BjPlayer {
   cards: BjCard[]; // empty = not in this hand
   done: boolean; // stood, busted, doubled or dealt 21
   doubled: boolean;
-  result: { outcome: Outcome; net: number } | null; // settle only
+  streak: number; // consecutive winning hands; a push keeps it, a loss resets it
+  result: { outcome: Outcome; net: number; bonus: number } | null; // settle only; net includes the streak bonus
 }
 
 export type BjPhase =
