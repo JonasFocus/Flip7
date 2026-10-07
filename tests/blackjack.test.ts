@@ -185,3 +185,17 @@ test("a push keeps the streak, a loss resets it", () => {
   assert.deepEqual(player(s, "a").result, { outcome: "lose", net: -100, bonus: 0 });
   assert.equal(player(s, "a").streak, 0);
 });
+
+test("stats count hands, wins, pushes, best streak, biggest win and net", () => {
+  const stats = (s: BjState) => player(s, "a").stats;
+  // win 100 (20 v 17), then push (17 v 17), then lose 100 (16 v 20)
+  let s = table(["a"], ["10", "10", "10", "7", "10", "10", "7", "7", "10", "10", "6", "K"]);
+  s = act(act(s, "a", { type: "deal" }), "a", { type: "stand" });
+  assert.deepEqual(stats(s), { hands: 1, wins: 1, pushes: 0, bestStreak: 1, biggestWin: 100, net: 100 });
+  s = { ...onDeadline(s, s.settleAt!), shoe: s.shoe };
+  s = act(act(s, "a", { type: "deal" }), "a", { type: "stand" });
+  assert.deepEqual(stats(s), { hands: 2, wins: 1, pushes: 1, bestStreak: 1, biggestWin: 100, net: 100 });
+  s = { ...onDeadline(s, s.settleAt!), shoe: s.shoe };
+  s = act(act(s, "a", { type: "deal" }), "a", { type: "stand" });
+  assert.deepEqual(stats(s), { hands: 3, wins: 1, pushes: 1, bestStreak: 1, biggestWin: 100, net: 0 });
+});
