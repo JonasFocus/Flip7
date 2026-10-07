@@ -5,19 +5,19 @@ import "./globals.css";
 const bungee = Bungee({ variable: "--font-bungee", weight: "400", subsets: ["latin"] });
 const outfit = Outfit({ variable: "--font-outfit", subsets: ["latin"] });
 
-const description = "Play Flip 7 online with the family, plus party games like Imposter.";
+const description = "Game night on your phones: Flip 7, Blackjack, Hold'em, Roulette, Imposter and more.";
 const productionHost = process.env.VERCEL_PROJECT_PRODUCTION_URL;
 
 export const metadata: Metadata = {
   metadataBase: new URL(
     process.env.NEXT_PUBLIC_SITE_URL ?? (productionHost ? `https://${productionHost}` : "http://localhost:3000"),
   ),
-  title: { default: "Flip 7 · Family Game Night", template: "%s · Flip 7" },
+  title: { default: "Game Time · Family Game Night", template: "%s · Game Time" },
   description,
-  openGraph: { title: "Flip 7", description, siteName: "Flip 7", type: "website", images: [{ url: "/og", width: 1200, height: 630, alt: "Game Time!" }] },
-  twitter: { card: "summary_large_image", title: "Flip 7", description, images: ["/og"] },
-  applicationName: "Flip 7",
-  appleWebApp: { capable: true, title: "Flip 7", statusBarStyle: "black-translucent" },
+  openGraph: { title: "Game Time", description, siteName: "Game Time", type: "website", images: [{ url: "/og", width: 1200, height: 630, alt: "Game Time!" }] },
+  twitter: { card: "summary_large_image", title: "Game Time", description, images: ["/og"] },
+  applicationName: "Game Time",
+  appleWebApp: { capable: true, title: "Game Time", statusBarStyle: "black-translucent" },
   formatDetection: { telephone: false },
 };
 

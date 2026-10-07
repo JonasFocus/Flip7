@@ -1,6 +1,6 @@
-# Flip 7 · Family Game Night
+# Game Time · Family Game Night
 
-A mobile-first web app for playing the Flip 7 card game with family:
+A mobile-first web app for family game night: Flip 7, casino tables, Texas Hold'em and party games.
 
 - **Play online**: one phone per player, realtime rooms joined by a 6-digit code (up to 10 players, bots optional).
 - **Imposter**: party game for 3-10 players; one secret imposter, timed clues, majority vote.

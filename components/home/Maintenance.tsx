@@ -1,16 +1,9 @@
-import type { Card } from "@/lib/engine/types";
-import { PlayingCard } from "@/components/cards/PlayingCard";
-
-const HERO_CARD: Card = { id: "hero-7", kind: "number", value: 7 };
-
 export function Maintenance() {
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col items-center justify-center gap-10 px-6 pt-safe-8 pb-safe-8 text-center">
-      <h1 className="flex items-center gap-2" aria-label="Flip 7">
-        <span className="font-display text-[56px] leading-none tracking-tight text-fg [text-shadow:0_4px_0_var(--color-ink)]">
-          FLIP
-        </span>
-        <PlayingCard card={HERO_CARD} size="md" className="animate-hero origin-bottom rotate-[-8deg]" />
+      <h1 className="font-display text-[44px] leading-[0.9] tracking-tight [text-shadow:0_4px_0_var(--color-ink)]" aria-label="Game Time">
+        <span className="block text-fg">GAME</span>
+        <span className="block text-accent">TIME</span>
       </h1>
 
       <div className="flex flex-col items-center gap-4">

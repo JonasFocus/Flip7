@@ -2,11 +2,9 @@
 
 import { useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import type { Card } from "@/lib/engine/types";
 import { createRoom, roomCodeFrom } from "@/lib/client/rooms";
 import { getLastRoom, getSavedName, saveName } from "@/lib/client/identity";
 import { fail, tap } from "@/lib/client/haptics";
-import { PlayingCard } from "@/components/cards/PlayingCard";
 import { Button } from "@/components/ui/Button";
 import { Toast } from "@/components/ui/Toast";
 import { cx } from "@/components/ui/cx";
@@ -32,8 +30,6 @@ const MODES: { id: Mode; title: string; blurb: string; cta: string; icon: ReactN
 const ROOM_MODE = { online: "virtual", imposter: "imposter", liarsdice: "liarsdice", hotpotato: "hotpotato", spyfall: "spyfall", blackjack: "blackjack", bjduel: "bjduel", baccarat: "baccarat", roulette: "roulette", texasholdem: "texasholdem" } as const;
 
 const noopSubscribe = () => () => {};
-
-const HERO_CARD: Card = { id: "hero-7", kind: "number", value: 7 };
 
 const urlCode = () => roomCodeFrom(new URLSearchParams(location.search).get("code") ?? "");
 const serverEmpty = () => "";
@@ -99,11 +95,9 @@ export function Home() {
       <div className="grid flex-1 gap-x-10 px-4 landscape:grid-cols-2">
         <div className="flex flex-col gap-6 pt-safe-6 [@media(max-height:500px)]:gap-3 [@media(max-height:500px)]:pt-safe-4">
           <header className="flex items-center justify-between">
-            <h1 className="flex items-center gap-2" aria-label="Flip 7">
-              <span className="font-display text-[56px] leading-none tracking-tight text-fg [@media(max-height:500px)]:text-[36px] [text-shadow:0_4px_0_var(--color-ink)]">
-                FLIP
-              </span>
-              <PlayingCard card={HERO_CARD} size="md" className="animate-hero origin-bottom rotate-[-8deg] [@media(max-height:500px)]:text-[40px]" />
+            <h1 className="font-display text-[44px] leading-[0.9] tracking-tight [@media(max-height:500px)]:text-[30px] [text-shadow:0_4px_0_var(--color-ink)]" aria-label="Game Time">
+              <span className="block text-fg">GAME</span>
+              <span className="block text-accent">TIME</span>
             </h1>
             <p className={cx(LABEL, "text-right leading-relaxed [@media(max-height:500px)]:hidden")}>
               Family
