@@ -22,6 +22,7 @@ import {
   SHOE_SIZE,
   STREAK_CAP,
   STREAK_STEP,
+  INSURANCE_MS,
   TURN_MS,
   activeHand,
   canSplit,
@@ -92,7 +93,7 @@ function useDealerShown(conn: BjConnection): { shown: number; holeUp: boolean; d
     const t = setInterval(() => setNow(Date.now()), 100);
     return () => clearInterval(t);
   }, [settling]);
-  if (!settling) return { shown: len, holeUp: game.phase !== "playing", done: true, clearing: false };
+  if (!settling) return { shown: len, holeUp: game.phase !== "playing" && game.phase !== "insurance", done: true, clearing: false };
   // On a dealer blackjack the hand settles mid-deal, so `t` starts negative while the cards are still landing.
   const draws = Math.max(0, len - 2);
   const t = now - (deadlineAt - SETTLE_MS - draws * DEALER_CARD_MS - HOLE_LEAD_MS) - HOLE_LEAD_MS; // ms since the hole card turned
@@ -109,7 +110,7 @@ export function Blackjack({ conn }: { conn: BjConnection }) {
   const myTurn = game.phase === "playing" && game.turnId === conn.you;
   const left = useSecondsLeft(conn.deadlineAt);
   // While the opening deal is still landing, the turn clock hasn't started: hold the buttons and the countdown.
-  const dealing = game.phase === "playing" && left !== null && left > TURN_MS / 1000;
+  const dealing = (game.phase === "playing" && left !== null && left > TURN_MS / 1000) || (game.phase === "insurance" && left !== null && left > INSURANCE_MS / 1000);
   const secs = dealing ? null : left;
 
   useEffect(() => {
@@ -117,7 +118,7 @@ export function Blackjack({ conn }: { conn: BjConnection }) {
   }, [myTurn]);
 
   // Chips already include this hand's payout on settle; hold it back until the dealer finishes.
-  const chips = me ? me.chips - (game.phase === "settle" && !revealed && me.result ? me.result.net + me.bet + (me.hand2?.bet ?? 0) : 0) : 0;
+  const chips = me ? me.chips - (game.phase === "settle" && !revealed && me.result ? me.result.net + me.bet + (me.hand2?.bet ?? 0) + (me.insurance ?? 0) : 0) : 0;
 
   const holdStats = game.phase === "settle" && !revealed;
   const shownChips = useTween(chips);
@@ -540,8 +541,10 @@ function Panel({
     body = <Betting conn={conn} me={me} secs={secs} />;
   } else if (me.cards.length === 0) {
     body = <Status>Sitting this one out. You&apos;re in next hand.</Status>;
-  } else if (game.phase === "playing" && dealing) {
+  } else if (dealing) {
     body = <Status>Dealing…</Status>;
+  } else if (game.phase === "insurance") {
+    body = me.insurance === null ? <Insurance conn={conn} me={me} secs={secs} /> : <Status>{me.insurance > 0 ? `Insured for ${me.insurance.toLocaleString()}.` : "No insurance."} Waiting on the table…</Status>;
   } else if (game.phase === "playing") {
     body = myTurn ? (
       <Actions conn={conn} me={me} secs={secs} />
@@ -552,11 +555,11 @@ function Panel({
       </>
     );
   } else {
-    body = revealed && me.result ? <MyResult me={me} result={me.result} secs={secs} /> : <Status>Dealer&apos;s turn…</Status>;
+    body = revealed && me.result ? <MyResult me={me} dealer={game.dealer} result={me.result} secs={secs} /> : <Status>Dealer&apos;s turn…</Status>;
   }
 
   // Re-keyed per state so each change (betting, your move, result) eases in instead of snapping.
-  const view = !me || me.seat === null ? "rail" : game.phase === "playing" ? (dealing ? "dealing" : myTurn ? "turn" : "wait") : game.phase === "settle" ? `settle-${revealed}` : "bet";
+  const view = !me || me.seat === null ? "rail" : game.phase === "insurance" ? (dealing ? "dealing" : me?.insurance === null ? "insure" : "wait") : game.phase === "playing" ? (dealing ? "dealing" : myTurn ? "turn" : "wait") : game.phase === "settle" ? `settle-${revealed}` : "bet";
   return (
     <footer className="flex min-h-[188px] flex-col justify-end px-4 pt-2 pb-safe-3">
       <div key={view} className="bj-rise flex flex-col gap-2.5">
@@ -567,8 +570,8 @@ function Panel({
 }
 
 // The only turn countdown: kept down here in the panel, away from the cards and chips on the felt.
-function TurnClock({ label, secs }: { label: ReactNode; secs: number | null }) {
-  const total = TURN_MS / 1000;
+function TurnClock({ label, secs, ms = TURN_MS }: { label: ReactNode; secs: number | null; ms?: number }) {
+  const total = ms / 1000;
   const pct = secs === null ? 100 : Math.min(100, (secs / total) * 100);
   return (
     <div className="flex flex-col gap-1.5" role="timer" aria-label={secs === null ? undefined : `${secs} seconds left`}>
@@ -659,6 +662,28 @@ function Betting({ conn, me, secs }: { conn: BjConnection; me: BjPlayer; secs: n
   );
 }
 
+function Insurance({ conn, me, secs }: { conn: BjConnection; me: BjPlayer; secs: number | null }) {
+  const stake = Math.floor(me.bet / 2);
+  const go = (type: "insure" | "decline") => {
+    tap();
+    conn.send({ type });
+  };
+  return (
+    <>
+      <TurnClock label="Insurance?" secs={secs} ms={INSURANCE_MS} />
+      <p className="text-center text-sm text-muted">Dealer shows an ace. Insurance pays 2 to 1.</p>
+      <div className="grid grid-cols-2 gap-2.5">
+        <Button size="lg" className="px-2 whitespace-nowrap" onClick={() => go("insure")}>
+          Insure <span className="tabular-nums opacity-70">+{short(stake)}</span>
+        </Button>
+        <Button size="lg" variant="secondary" className="px-2 whitespace-nowrap" onClick={() => go("decline")}>
+          No thanks
+        </Button>
+      </div>
+    </>
+  );
+}
+
 function Actions({ conn, me, secs }: { conn: BjConnection; me: BjPlayer; secs: number | null }) {
   const hand = activeHand(me);
   const onSecond = hand !== me;
@@ -699,7 +724,7 @@ function Actions({ conn, me, secs }: { conn: BjConnection; me: BjPlayer; secs: n
   );
 }
 
-function MyResult({ me, result: { outcome, net, bonus, split }, secs }: { me: BjPlayer; result: NonNullable<BjPlayer["result"]>; secs: number | null }) {
+function MyResult({ me, dealer, result: { outcome, net, bonus, split }, secs }: { me: BjPlayer; dealer: (BjCard | null)[]; result: NonNullable<BjPlayer["result"]>; secs: number | null }) {
   useEffect(() => {
     if (net > 0) success();
     else if (net < 0) fail();
@@ -707,6 +732,8 @@ function MyResult({ me, result: { outcome, net, bonus, split }, secs }: { me: Bj
   // Mirrors the server: the next hand starts with the same stake (not the doubled one) if you can still cover it.
   const stake = me.doubled ? me.bet / 2 : me.bet;
   const nextBet = stake <= me.chips ? stake : 0;
+  const insured = me.insurance ?? 0;
+  const dealerBj = isBlackjack(dealer);
   return (
     <div className="bj-in flex flex-col items-center gap-1 rounded-2xl border border-accent/30 bg-surface py-4 shadow-[inset_0_1px_0_oklch(1_0_0/0.06)]">
       <p className={cx("font-display text-3xl", net > 0 ? "text-active" : net < 0 ? "text-danger" : "text-stayed")}>{outcome === "blackjack" ? "BLACKJACK!" : OUTCOME[outcome].label}</p>
@@ -729,6 +756,11 @@ function MyResult({ me, result: { outcome, net, bonus, split }, secs }: { me: Bj
       {bonus > 0 && (
         <p className="text-sm font-semibold text-accent tabular-nums">
           Streak ×{me.streak} · +{bonus.toLocaleString()} bonus
+        </p>
+      )}
+      {insured > 0 && (
+        <p className={cx("text-sm font-semibold tabular-nums", dealerBj ? "text-active" : "text-muted")}>
+          Insurance {insured.toLocaleString()} · {dealerBj ? `paid +${(insured * 2).toLocaleString()}` : "lost"}
         </p>
       )}
       <p className="text-sm text-muted tabular-nums">

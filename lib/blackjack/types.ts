@@ -40,15 +40,17 @@ export interface BjPlayer {
   done: boolean; // stood, busted, doubled or dealt 21
   doubled: boolean;
   hand2: BjHand | null; // set by a split; hand 2 is played after hand 1
+  insurance: number | null; // side bet already taken out of chips (half the bet, once per seat); null = still deciding in the insurance phase
   stats: BjStats;
   streak: number; // consecutive winning hands; a push keeps it, a loss resets it
-  // settle only; net includes the streak bonus. After a split, outcome is the round's aggregate (win if net > 0, push if 0, else lose)
+  // settle only; net includes the streak bonus and insurance. After a split, outcome is the round's aggregate (win if net > 0, push if 0, else lose)
   // and `split` holds each hand's own result, hand 1 first.
   result: { outcome: Outcome; net: number; bonus: number; split?: { outcome: Outcome; net: number }[] } | null;
 }
 
 export type BjPhase =
   | "lobby" // betting between hands; anyone may sit, bet and tap Deal
+  | "insurance" // dealer shows an ace: each player takes or declines insurance until the deadline, then the dealer peeks
   | "playing" // seats act in order; dealer's hole card hidden
   | "settle"; // dealer played out, results shown until settleAt
 
@@ -59,7 +61,7 @@ export interface BjState {
   shoe: BjCard[]; // REDACTED to []
   shoeLeft: number; // set by redact: cards left in the shoe (jumps back to 364 on a shuffle), for counters
   turnId: string | null;
-  turnAt: number | null; // server ms the current turn began
+  turnAt: number | null; // server ms the current turn (or the insurance offer) began
   dealAt: number | null; // lobby: server ms the hand auto-deals once someone tapped Deal
   settleAt: number | null; // settle: server ms the table resets for betting
   round: number;
@@ -75,6 +77,8 @@ export type BjIntent =
   | { type: "stand" }
   | { type: "double" }
   | { type: "split" } // first two cards of equal value, one split per round
+  | { type: "insure" } // insurance phase: stake half the bet, pays 2:1 if the dealer has blackjack
+  | { type: "decline" } // insurance phase: no thanks
   | { type: "rebuy" }; // lobby, broke
 
 export interface BjConnection {
