@@ -5,6 +5,8 @@ export const MAX_BJ_PLAYERS = 10; // 5 seats plus rail watchers
 export const START_CHIPS = 1000;
 export const MIN_BET = 10;
 export const DECKS = 7;
+export const STREAK_STEP = 0.1; // each win already in the streak adds this share of the stake to the next win...
+export const STREAK_CAP = 5; // ...up to five wins deep (+50%)
 export const SHOE_SIZE = 52 * DECKS;
 export const DEAL_MS = 10_000; // after the first Deal tap, the rest of the table has this long to bet
 export const TURN_MS = 20_000; // then the server stands for you
@@ -97,6 +99,7 @@ export function addBjPlayer(s: BjState, p: { id: string; name: string }): BjStat
     cards: [],
     done: false,
     doubled: false,
+    streak: 0,
     result: null,
   };
   return { ...s, players: [...s.players, player], seq: s.seq + 1 };
@@ -121,6 +124,11 @@ export function payout(outcome: Outcome, bet: number): number {
   if (outcome === "win") return bet * 2;
   if (outcome === "push") return bet;
   return 0;
+}
+
+// A winning hand pays extra for each win already in the streak, on top of the normal payout.
+export function streakBonus(streak: number, bet: number): number {
+  return Math.floor(bet * STREAK_STEP * Math.min(streak, STREAK_CAP));
 }
 
 export function outcomeOf(cards: BjCard[], dealer: BjCard[]): Outcome {
@@ -151,8 +159,11 @@ function settle(s: BjState, now: number, rng: Rng): BjState {
   const players = next.players.map((p) => {
     if (p.cards.length === 0) return p;
     const outcome = outcomeOf(p.cards, dealer);
-    const won = payout(outcome, p.bet);
-    return { ...p, chips: p.chips + won, done: true, result: { outcome, net: won - p.bet } };
+    const wins = outcome === "win" || outcome === "blackjack";
+    const bonus = wins ? streakBonus(p.streak, p.bet) : 0;
+    const won = payout(outcome, p.bet) + bonus;
+    const streak = wins ? p.streak + 1 : outcome === "push" ? p.streak : 0;
+    return { ...p, chips: p.chips + won, streak, done: true, result: { outcome, net: won - p.bet, bonus } };
   });
   const draws = Math.max(0, dealer.length - 2);
   return { ...next, players, dealer, phase: "settle", turnId: null, turnAt: null, settleAt: now + HOLE_LEAD_MS + draws * DEALER_CARD_MS + SETTLE_MS };

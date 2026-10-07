@@ -13,6 +13,8 @@ export {
   SETTLE_MS,
   SHOE_SIZE,
   START_CHIPS,
+  STREAK_CAP,
+  STREAK_STEP,
   TURN_MS,
   addBjPlayer,
   applyBjIntent,
@@ -29,6 +31,7 @@ export {
   removeBjPlayer,
   serverDeadline,
   setBjConnected,
+  streakBonus,
   visibleDeadline,
   type BjResult,
 } from "./rules.ts";

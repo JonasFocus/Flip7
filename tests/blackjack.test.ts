@@ -15,6 +15,7 @@ import {
   onDeadline,
   redactBj,
   removeBjPlayer,
+  streakBonus,
   type BjCard,
   type BjIntent,
   type BjState,
@@ -88,9 +89,9 @@ test("dealer stands on 17, pays wins, takes losses, pushes ties", () => {
   s = act(s, "a", { type: "stand" });
   s = act(s, "b", { type: "hit" }); // 21 ends the turn by itself
   assert.equal(s.phase, "settle");
-  assert.deepEqual(player(s, "a").result, { outcome: "push", net: 0 });
+  assert.deepEqual(player(s, "a").result, { outcome: "push", net: 0, bonus: 0 });
   assert.equal(s.settleAt, 1000 + HOLE_LEAD_MS + SETTLE_MS); // no dealer draws: a beat, the hole card, then the read time
-  assert.deepEqual(player(s, "b").result, { outcome: "win", net: 100 });
+  assert.deepEqual(player(s, "b").result, { outcome: "win", net: 100, bonus: 0 });
   assert.equal(player(s, "b").chips, START_CHIPS + 100);
   const reset = onDeadline(s, s.settleAt!);
   assert.equal(reset.phase, "lobby");
@@ -102,7 +103,7 @@ test("blackjack pays 3:2, dealer blackjack ends the hand at once", () => {
   let s = table(["a"], ["A", "9", "K", "7"]);
   s = act(s, "a", { type: "deal" });
   assert.equal(s.phase, "settle");
-  assert.deepEqual(player(s, "a").result, { outcome: "blackjack", net: 150 });
+  assert.deepEqual(player(s, "a").result, { outcome: "blackjack", net: 150, bonus: 0 });
 
   s = table(["a"], ["10", "A", "9", "K"]);
   s = act(s, "a", { type: "deal" });
@@ -117,7 +118,7 @@ test("double takes one card and doubles the stake; bust loses", () => {
   s = act(s, "a", { type: "double" });
   assert.equal(s.phase, "settle");
   assert.equal(player(s, "a").bet, 200);
-  assert.deepEqual(player(s, "a").result, { outcome: "win", net: 200 });
+  assert.deepEqual(player(s, "a").result, { outcome: "win", net: 200, bonus: 0 });
   assert.equal(onDeadline(s, s.settleAt!).players[0]?.bet, 100); // rebet the original stake
 
   s = table(["a"], ["10", "10", "6", "7", "K"]);
@@ -152,4 +153,35 @@ test("seats, bets and turns are guarded", () => {
   assert.equal(err(s, "a", { type: "standUp" }), "Finish your hand first");
   s = act(s, "c", { type: "sit", seat: 4 }); // walk up mid-hand, play next one
   assert.equal(player(s, "c").cards.length, 0);
+});
+
+test("win streak adds 10% per win already in the streak, capped, and a loss resets it", () => {
+  // two winning hands in a row: 20 vs dealer 17 (no bonus the first time, +10 the second)
+  let s = table(["a"], ["10", "10", "K", "7", "10", "10", "K", "7"]);
+  s = act(s, "a", { type: "deal" });
+  s = act(s, "a", { type: "stand" });
+  assert.deepEqual(player(s, "a").result, { outcome: "win", net: 100, bonus: 0 });
+  assert.equal(player(s, "a").streak, 1);
+  s = { ...onDeadline(s, s.settleAt!), shoe: s.shoe };
+  s = act(s, "a", { type: "deal" });
+  s = act(s, "a", { type: "stand" });
+  assert.deepEqual(player(s, "a").result, { outcome: "win", net: 110, bonus: 10 });
+  assert.equal(player(s, "a").streak, 2);
+  assert.equal(player(s, "a").chips, START_CHIPS + 210);
+
+  assert.equal(streakBonus(9, 100), 50); // capped at +50%
+  assert.equal(streakBonus(0, 100), 0);
+});
+
+test("a push keeps the streak, a loss resets it", () => {
+  const withStreak = (s: BjState): BjState => ({ ...s, players: s.players.map((p) => ({ ...p, streak: 3 })) });
+  let s = withStreak(table(["a"], ["10", "10", "7", "7"])); // 17 vs 17
+  s = act(act(s, "a", { type: "deal" }), "a", { type: "stand" });
+  assert.deepEqual(player(s, "a").result, { outcome: "push", net: 0, bonus: 0 });
+  assert.equal(player(s, "a").streak, 3);
+
+  s = withStreak(table(["a"], ["10", "10", "6", "K"])); // 16 vs 20
+  s = act(act(s, "a", { type: "deal" }), "a", { type: "stand" });
+  assert.deepEqual(player(s, "a").result, { outcome: "lose", net: -100, bonus: 0 });
+  assert.equal(player(s, "a").streak, 0);
 });

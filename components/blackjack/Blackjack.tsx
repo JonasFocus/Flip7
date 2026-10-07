@@ -20,6 +20,8 @@ import {
   SEATS,
   SETTLE_MS,
   SHOE_SIZE,
+  STREAK_CAP,
+  STREAK_STEP,
   TURN_MS,
   handValue,
   isBlackjack,
@@ -366,6 +368,11 @@ function Seat({
         {result && result.net > 0 && (
           <Chip amount={result.net} small flyFrom="[data-dealer]" delay={chipDelay(order)} className="absolute -top-2 -right-3 z-10" />
         )}
+        {player.streak >= 2 && (
+          <span aria-label={`${player.streak} wins in a row`} className="bj-in absolute -top-2 -left-3 z-10 rounded-full bg-accent px-1.5 py-px font-display text-[10px] leading-tight text-ink tabular-nums shadow-[0_2px_6px_oklch(0_0_0/0.5)]">
+            ×{player.streak}
+          </span>
+        )}
         {player.ready && game.phase === "lobby" && (
           <span className="absolute -right-1 -bottom-1 grid size-5 place-items-center rounded-full bg-active text-[11px] text-ink" aria-label="Ready">
             ✓
@@ -577,6 +584,11 @@ function Betting({ conn, me, secs }: { conn: BjConnection; me: BjPlayer; secs: n
           Clear
         </button>
       </div>
+      {me.streak >= 1 && (
+        <p className="-mb-1 text-center text-xs text-muted">
+          <span className="font-semibold text-accent">{me.streak} {me.streak === 1 ? "win" : "wins"} in a row</span> · next win pays +{Math.round(Math.min(me.streak, STREAK_CAP) * STREAK_STEP * 100)}%
+        </p>
+      )}
       <div className="grid grid-cols-4 justify-items-center gap-2">
         {BET_CHIPS.map((c) => (
           <button
@@ -629,7 +641,7 @@ function Actions({ conn, me, secs }: { conn: BjConnection; me: BjPlayer; secs: n
   );
 }
 
-function MyResult({ me, result: { outcome, net }, secs }: { me: BjPlayer; result: { outcome: Outcome; net: number }; secs: number | null }) {
+function MyResult({ me, result: { outcome, net, bonus }, secs }: { me: BjPlayer; result: { outcome: Outcome; net: number; bonus: number }; secs: number | null }) {
   useEffect(() => {
     if (net > 0) success();
     else if (net < 0) fail();
@@ -644,6 +656,11 @@ function MyResult({ me, result: { outcome, net }, secs }: { me: BjPlayer; result
         <span className="text-muted">Bet {me.bet.toLocaleString()} · </span>
         {net > 0 ? `won ${net.toLocaleString()}` : net < 0 ? `lost ${(-net).toLocaleString()}` : "returned"}
       </p>
+      {bonus > 0 && (
+        <p className="text-sm font-semibold text-accent tabular-nums">
+          Streak ×{me.streak} · +{bonus.toLocaleString()} bonus
+        </p>
+      )}
       <p className="text-sm text-muted tabular-nums">
         Chips {me.chips.toLocaleString()} · {nextBet > 0 ? `next bet ${nextBet.toLocaleString()}` : "place a new bet"}
       </p>
