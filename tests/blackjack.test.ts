@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   HOLE_LEAD_MS,
+  INSURANCE_MS,
   SETTLE_MS,
   SHOE_SIZE,
   START_CHIPS,
@@ -106,7 +107,7 @@ test("blackjack pays 3:2, dealer blackjack ends the hand at once", () => {
   assert.deepEqual(player(s, "a").result, { outcome: "blackjack", net: 150, bonus: 0 });
 
   s = table(["a"], ["10", "A", "9", "K"]);
-  s = act(s, "a", { type: "deal" });
+  s = act(act(s, "a", { type: "deal" }), "a", { type: "decline" });
   assert.equal(s.phase, "settle");
   assert.equal(player(s, "a").result?.outcome, "lose");
 });
@@ -321,4 +322,106 @@ test("the turn clock stands the active split hand and moves on", () => {
   s = onDeadline(s, s.turnAt! + TURN_MS);
   assert.equal(s.phase, "settle");
   assert.equal(player(s, "a").hand2?.done, true);
+});
+
+// deal order: a, dealer (ace up), a, dealer (hole)
+const aceUp = (hole: Rank, mine: [Rank, Rank] = ["10", "9"]) => table(["a"], [mine[0], "A", mine[1], hole, "5"]);
+
+test("ace up opens insurance with the hole card hidden", () => {
+  let s = act(aceUp("K"), "a", { type: "deal" });
+  assert.equal(s.phase, "insurance");
+  assert.equal(player(s, "a").insurance, null);
+  assert.equal(s.turnId, null);
+  assert.equal(redactBj(s).dealer[1], null);
+  assert.equal(s.turnAt, 1000 + dealAnimMs(1));
+  assert.equal(err(s, "a", { type: "hit" }), "No hand in play");
+  s = act(s, "a", { type: "decline" });
+  assert.equal(err(s, "a", { type: "insure" }), "Insurance is closed");
+});
+
+test("insurance pays 2:1 when the dealer has blackjack and the hand settles", () => {
+  let s = act(aceUp("K"), "a", { type: "deal" });
+  s = act(s, "a", { type: "insure" });
+  assert.equal(s.phase, "settle");
+  assert.equal(player(s, "a").insurance, 50);
+  // hand loses 100, insurance wins 100
+  assert.deepEqual(player(s, "a").result, { outcome: "lose", net: 0, bonus: 0 });
+  assert.equal(player(s, "a").chips, START_CHIPS);
+  assert.equal(player(s, "a").stats.net, 0);
+  assert.equal(player(s, "a").stats.biggestWin, 0);
+  assert.equal(redactBj(s).dealer[1]?.rank, "K");
+  assert.equal(onDeadline(s, s.settleAt!).players[0]?.insurance, 0);
+});
+
+test("insurance is lost when the dealer has no blackjack and play continues", () => {
+  let s = act(aceUp("6", ["10", "10"]), "a", { type: "deal" });
+  s = act(s, "a", { type: "insure" });
+  assert.equal(s.phase, "playing");
+  assert.equal(s.turnId, "a");
+  assert.equal(player(s, "a").chips, START_CHIPS - 150);
+  s = act(s, "a", { type: "stand" }); // 20 vs A+6 = 17
+  assert.deepEqual(player(s, "a").result, { outcome: "win", net: 50, bonus: 0 });
+  assert.equal(player(s, "a").chips, START_CHIPS + 50);
+  assert.equal(player(s, "a").stats.net, 50);
+  assert.equal(player(s, "a").stats.biggestWin, 50);
+});
+
+test("declining insurance changes nothing about the hand", () => {
+  let s = act(aceUp("K"), "a", { type: "deal" });
+  s = act(s, "a", { type: "decline" });
+  assert.equal(s.phase, "settle");
+  assert.deepEqual(player(s, "a").result, { outcome: "lose", net: -100, bonus: 0 });
+  assert.equal(player(s, "a").chips, START_CHIPS - 100);
+});
+
+test("the table auto-declines insurance on timeout and the dealer peeks", () => {
+  let s = table(["a", "b"], ["10", "10", "A", "9", "9", "K"]);
+  s = act(act(s, "a", { type: "deal" }), "b", { type: "deal" });
+  assert.equal(s.phase, "insurance");
+  s = act(s, "a", { type: "insure" });
+  assert.equal(s.phase, "insurance"); // still waiting on b
+  assert.equal(onDeadline(s, s.turnAt! + INSURANCE_MS - 1).phase, "insurance");
+  s = onDeadline(s, s.turnAt! + INSURANCE_MS);
+  assert.equal(s.phase, "settle"); // hole is a K: dealer blackjack
+  assert.equal(player(s, "a").result?.net, 0);
+  assert.equal(player(s, "b").result?.net, -100);
+  assert.equal(player(s, "b").insurance, 0);
+});
+
+test("insurance is only offered to players who can afford half their bet", () => {
+  let s = table(["a", "b"], ["10", "10", "A", "9", "9", "6"]);
+  s = { ...s, players: s.players.map((p) => (p.id === "b" ? { ...p, chips: 120 } : p)) }; // 120 - 100 bet = 20 left, needs 50
+  s = act(act(s, "a", { type: "deal" }), "b", { type: "deal" });
+  assert.equal(s.phase, "insurance");
+  assert.equal(player(s, "b").insurance, 0);
+  assert.equal(err(s, "b", { type: "insure" }), "No insurance offered");
+  s = act(s, "a", { type: "decline" });
+  assert.equal(s.phase, "playing");
+  assert.equal(player(s, "b").chips, 20);
+
+  // nobody can afford it: straight to play
+  let t = table(["a"], ["10", "A", "9", "6"]);
+  t = { ...t, players: t.players.map((p) => ({ ...p, chips: 100 })) };
+  t = act(t, "a", { type: "deal" });
+  assert.equal(t.phase, "playing");
+});
+
+test("insurance and a split share one round: the stake is taken once and both hands settle into result.net", () => {
+  // 8,8 vs ace up with a 6 in the hole; split cards are 10 and 10
+  let s = table(["a"], ["8", "A", "8", "6", "10", "10"]);
+  s = act(act(s, "a", { type: "deal" }), "a", { type: "insure" });
+  assert.equal(s.phase, "playing");
+  assert.equal(player(s, "a").chips, START_CHIPS - 150);
+  s = act(s, "a", { type: "split" });
+  assert.equal(player(s, "a").chips, START_CHIPS - 250);
+  assert.equal(player(s, "a").insurance, 50);
+  s = act(act(s, "a", { type: "stand" }), "a", { type: "stand" });
+  assert.equal(s.phase, "settle");
+  // two 100 wins, insurance stake lost
+  assert.equal(player(s, "a").result?.net, 150);
+  assert.equal(player(s, "a").chips, START_CHIPS + 150);
+  assert.equal(player(s, "a").stats.net, 150);
+  const reset = onDeadline(s, s.settleAt!);
+  assert.equal(player(reset, "a").insurance, 0);
+  assert.equal(player(reset, "a").hand2, null);
 });

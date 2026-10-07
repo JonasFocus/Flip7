@@ -10,6 +10,7 @@ export const STREAK_CAP = 5; // ...up to five wins deep (+50%)
 export const SHOE_SIZE = 52 * DECKS;
 export const DEAL_MS = 10_000; // after the first Deal tap, the rest of the table has this long to bet
 export const TURN_MS = 20_000; // then the server stands for you
+export const INSURANCE_MS = 8000; // dealer shows an ace: this long to take insurance before the table auto-declines
 export const SETTLE_MS = 6000; // results, chip sweeps, then the cards clear to the discard tray
 export const HOLE_LEAD_MS = 800; // after the last player acts, a beat before the dealer turns the hole card
 export const DEALER_CARD_MS = 1300; // per dealer draw, so the reveal finishes before the read time starts
@@ -100,6 +101,7 @@ export function addBjPlayer(s: BjState, p: { id: string; name: string }): BjStat
     done: false,
     doubled: false,
     hand2: null,
+    insurance: 0,
     streak: 0,
     stats: { hands: 0, wins: 0, pushes: 0, bestStreak: 0, biggestWin: 0, net: 0 },
     result: null,
@@ -181,11 +183,14 @@ function settle(s: BjState, now: number, rng: Rng): BjState {
     });
     const won = parts.reduce((n, x) => n + x.won, 0);
     const bonus = parts.reduce((n, x) => n + x.bonus, 0);
-    const net = parts.reduce((n, x) => n + x.net, 0);
-    // A split round counts once for streak and stats, judged by its combined net.
-    const outcome: Outcome = !split ? (parts[0]?.outcome ?? "lose") : net > 0 ? "win" : net < 0 ? "lose" : "push";
+    const handNet = parts.reduce((n, x) => n + x.net, 0);
+    // A split round counts once for streak and stats, judged by its combined hand net (insurance doesn't turn a loss into a push).
+    const outcome: Outcome = !split ? (parts[0]?.outcome ?? "lose") : handNet > 0 ? "win" : handNet < 0 ? "lose" : "push";
     const wins = outcome === "win" || outcome === "blackjack";
     const streak = wins ? p.streak + 1 : outcome === "push" ? p.streak : 0;
+    const stake = p.insurance ?? 0;
+    const insured = dealerBj ? stake * 3 : 0; // insurance pays 2:1 and returns the stake
+    const net = handNet + insured - stake;
     const stats = {
       hands: p.stats.hands + 1,
       wins: p.stats.wins + (wins ? 1 : 0),
@@ -195,7 +200,7 @@ function settle(s: BjState, now: number, rng: Rng): BjState {
       net: p.stats.net + net,
     };
     const result = { outcome, net, bonus, ...(split && { split: parts.map((x) => ({ outcome: x.outcome, net: x.net })) }) };
-    return { ...p, chips: p.chips + won, streak, stats, done: true, hand2: p.hand2 && { ...p.hand2, done: true }, result };
+    return { ...p, chips: p.chips + won + insured, streak, stats, done: true, hand2: p.hand2 && { ...p.hand2, done: true }, result };
   });
   const draws = Math.max(0, dealer.length - 2);
   return { ...next, players, dealer, phase: "settle", turnId: null, turnAt: null, settleAt: now + HOLE_LEAD_MS + draws * DEALER_CARD_MS + SETTLE_MS };
@@ -226,11 +231,28 @@ function deal(s: BjState, now: number, rng: Rng): BjState {
     const d = draw(next, rng);
     next = { ...next, dealer: [...next.dealer, d.card], shoe: d.shoe };
   }
-  next = { ...next, phase: "playing", players: next.players.map((p) => (isBlackjack(p.cards) ? { ...p, done: true } : p)) };
-  // Dealer peeks under a ten or ace: a dealer blackjack ends the hand before anyone acts.
+  next = { ...next, phase: "playing", players: next.players.map((p) => ({ ...p, insurance: 0, done: isBlackjack(p.cards) })) };
   const landed = now + dealAnimMs(bettors.length);
-  if (isBlackjack(real(next.dealer))) return settle(next, landed, rng);
-  return nextTurn(next, landed, rng);
+  // Ace up: offer insurance to everyone who can cover half their bet before the dealer peeks.
+  if (next.dealer[0]?.rank === "A") {
+    const offered = next.players.map((p) => (p.cards.length > 0 && canInsure(p) ? { ...p, insurance: null } : p));
+    if (offered.some((p) => p.insurance === null)) return { ...next, phase: "insurance", players: offered, turnAt: landed };
+  }
+  return peek(next, landed, rng);
+}
+
+const insuranceStake = (p: BjPlayer): number => Math.floor(p.bet / 2);
+const canInsure = (p: BjPlayer): boolean => insuranceStake(p) > 0 && p.chips >= insuranceStake(p);
+
+// Dealer peeks under a ten or ace: a dealer blackjack ends the hand before anyone acts.
+function peek(s: BjState, now: number, rng: Rng): BjState {
+  return isBlackjack(real(s.dealer)) ? settle(s, now, rng) : nextTurn({ ...s, phase: "playing" }, now, rng);
+}
+
+// Once everyone has answered (or time ran out and the rest declined), the dealer peeks.
+function closeInsurance(s: BjState, now: number, rng: Rng, force: boolean): BjState {
+  if (!force && s.players.some((p) => p.insurance === null)) return s;
+  return peek({ ...s, players: s.players.map((p) => (p.insurance === null ? { ...p, insurance: 0 } : p)) }, now, rng);
 }
 
 // Deal as soon as every seated player tapped Deal; the first tap starts the clock for the rest.
@@ -246,7 +268,7 @@ function resetTable(s: BjState): BjState {
   const players = s.players.map((p) => {
     const stake = p.doubled ? p.bet / 2 : p.bet;
     const bet = p.seat !== null && stake <= p.chips ? stake : 0;
-    return { ...p, bet, ready: false, cards: [], done: false, doubled: false, hand2: null, result: null };
+    return { ...p, bet, ready: false, cards: [], done: false, doubled: false, hand2: null, insurance: 0, result: null };
   });
   return { ...s, phase: "lobby", players, dealer: [], turnId: null, turnAt: null, settleAt: null, dealAt: null };
 }
@@ -296,6 +318,7 @@ export function removeBjPlayer(s: BjState, id: string, opts: { now: number; rng?
   const rng = opts.rng ?? cryptoRng;
   const next: BjState = { ...s, players: s.players.filter((p) => p.id !== id), seq: s.seq + 1 };
   if (s.phase === "lobby") return syncLobby(next, opts.now, rng);
+  if (s.phase === "insurance") return closeInsurance(next, opts.now, rng, false);
   if (s.phase === "playing" && s.turnId === id) return nextTurn(next, opts.now, rng);
   return next;
 }
@@ -341,6 +364,14 @@ export function applyBjIntent(s: BjState, actorId: string, intent: BjIntent, opt
       if (s.phase !== "lobby") return fail("Wait for the hand to finish");
       if (me.chips >= MIN_BET) return fail("You still have chips");
       return done(patch(s, actorId, (p) => ({ ...p, chips: START_CHIPS, bet: 0 })));
+    case "insure":
+    case "decline": {
+      if (s.phase !== "insurance") return fail("Insurance is closed");
+      if (me.insurance !== null) return fail("No insurance offered");
+      const stake = intent.type === "insure" ? insuranceStake(me) : 0;
+      const next = patch(s, actorId, (p) => ({ ...p, insurance: stake, chips: p.chips - stake }));
+      return done(closeInsurance(next, now, rng, false));
+    }
     case "hit":
     case "stand":
     case "double":
@@ -360,6 +391,7 @@ export function applyBjIntent(s: BjState, actorId: string, intent: BjIntent, opt
 
 export function serverDeadline(s: BjState): number | null {
   if (s.phase === "lobby") return s.dealAt;
+  if (s.phase === "insurance") return s.turnAt === null ? null : s.turnAt + INSURANCE_MS;
   if (s.phase === "playing") return s.turnAt === null ? null : s.turnAt + TURN_MS;
   return s.settleAt;
 }
@@ -371,10 +403,11 @@ export function onDeadline(s: BjState, now: number, rng: Rng = cryptoRng): BjSta
   if (due === null || now < due) return s;
   if (s.phase === "lobby") return bump(deal(s, now, rng), s);
   if (s.phase === "settle") return bump(resetTable(s), s);
+  if (s.phase === "insurance") return bump(closeInsurance(s, now, rng, true), s);
   return s.turnId ? bump(act(s, s.turnId, "stand", now, rng), s) : s;
 }
 
 export function redactBj(s: BjState): BjState {
-  const dealer = s.phase === "playing" ? s.dealer.map((c, i) => (i === 1 ? null : c)) : s.dealer;
+  const dealer = s.phase === "playing" || s.phase === "insurance" ? s.dealer.map((c, i) => (i === 1 ? null : c)) : s.dealer;
   return { ...s, shoe: [], shoeLeft: s.shoe.length, dealer };
 }
