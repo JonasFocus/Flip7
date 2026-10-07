@@ -49,6 +49,31 @@ function totalLabel(cards: readonly (BjCard | null)[]): string {
   return soft && total < 21 ? `${total - 10}/${total}` : `${total}`;
 }
 
+// Eases a number toward its target so chip totals roll instead of jumping.
+function useTween(target: number, ms = 800): number {
+  const [value, setValue] = useState(target);
+  const from = useRef(target);
+  useEffect(() => {
+    const start = from.current;
+    if (start === target) return;
+    if (reducedMotion()) {
+      from.current = target;
+      setValue(target);
+      return;
+    }
+    const t0 = performance.now();
+    let raf = requestAnimationFrame(function tick(now) {
+      const k = Math.min(1, (now - t0) / ms);
+      const v = Math.round(start + (target - start) * (1 - (1 - k) ** 3));
+      from.current = v;
+      setValue(v);
+      if (k < 1) raf = requestAnimationFrame(tick);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [target, ms]);
+  return value;
+}
+
 const RESULT_BEAT_MS = 700; // results wait for the dealer's last card to land
 
 // Settle: a beat, the hole card turns, then one dealer draw per DEALER_CARD_MS. Derived from the deadline so a reload lands mid-reveal.
@@ -89,6 +114,9 @@ export function Blackjack({ conn }: { conn: BjConnection }) {
   // Chips already include this hand's payout on settle; hold it back until the dealer finishes.
   const chips = me ? me.chips - (game.phase === "settle" && !revealed && me.result ? me.result.net + me.bet : 0) : 0;
 
+  const shownChips = useTween(chips);
+  const delta = revealed && me?.result && me.result.net !== 0 ? me.result.net : 0;
+
   async function share() {
     tap();
     const msg = await shareInvite(conn.code);
@@ -110,9 +138,15 @@ export function Blackjack({ conn }: { conn: BjConnection }) {
         >
           #{conn.code}
         </button>
-        <p className="flex min-h-11 items-center gap-1.5 rounded-full bg-surface px-3 font-display text-sm tabular-nums text-accent" aria-label={`${chips} chips`}>
+        <p className="relative flex min-h-11 items-center gap-1.5 rounded-full border border-accent/30 bg-surface px-3 font-display text-sm tabular-nums text-accent" aria-label={`${chips} chips`}>
           <ChipFace amount={0} size="xs" label="" color="var(--color-accent)" />
-          {chips.toLocaleString()}
+          {shownChips.toLocaleString()}
+          {delta !== 0 && (
+            <span key={game.round} aria-hidden className={cx("bj-delta absolute -bottom-3 right-3 text-xs", delta > 0 ? "text-active" : "text-danger")}>
+              {delta > 0 ? "+" : "−"}
+              {Math.abs(delta).toLocaleString()}
+            </span>
+          )}
         </p>
       </header>
 
@@ -142,6 +176,7 @@ function Felt({
   const arcId = useId();
   const me = game.players.find((p) => p.id === conn.you);
   const canSit = !!me && me.cards.length === 0;
+  const mineNet = revealed ? (me?.result?.net ?? 0) : 0;
   const hand = inHand(game);
   const dealerCards = game.dealer.slice(0, shown).map((c, i) => (i === 1 && !holeUp ? null : c));
   const holeDown = dealerCards[1] === null;
@@ -156,14 +191,15 @@ function Felt({
   return (
     <section aria-label="Table" data-table className="relative mx-2 min-h-0 flex-1">
       <div aria-hidden className="bj-felt absolute inset-x-0 top-0 bottom-[3%]" />
+      {mineNet !== 0 && !clearing && <div key={game.round} aria-hidden className={cx("bj-flash pointer-events-none absolute inset-x-0 top-0 bottom-[3%]", mineNet > 0 ? "bj-flash-win" : "bj-flash-lose")} />}
       <svg aria-hidden viewBox="0 0 100 40" className="pointer-events-none absolute top-[24%] left-[6%] w-[88%] font-sans font-semibold">
         <path id={arcId} d="M 6 4 Q 50 34 94 4" fill="none" />
-        <text fontSize="3.2" fill="oklch(0.86 0.005 260 / 0.5)" letterSpacing="0.9">
+        <text fontSize="3.2" fill="oklch(0.82 0.08 82 / 0.6)" letterSpacing="0.9">
           <textPath href={`#${arcId}`} startOffset="50%" textAnchor="middle">
             BLACKJACK PAYS 3 TO 2
           </textPath>
         </text>
-        <text x="50" y="25" fontSize="2.2" fill="oklch(0.86 0.005 260 / 0.3)" textAnchor="middle" letterSpacing="0.7">
+        <text x="50" y="25" fontSize="2.2" fill="oklch(0.82 0.08 82 / 0.38)" textAnchor="middle" letterSpacing="0.7">
           DEALER STANDS ON ALL 17s
         </text>
       </svg>
@@ -299,7 +335,7 @@ function Seat({
             style={{ animationDelay: `${((inHandCount + 1) + order) * DEAL_STAGGER_MS + CARD_SLIDE_MS}ms` }}
             className={cx(
               "bj-in absolute -top-4 left-1/2 z-10 min-w-8 -translate-x-1/2 rounded-full px-2 py-0.5 text-center font-display text-[13px] leading-tight whitespace-nowrap tabular-nums shadow-[0_2px_8px_oklch(0_0_0/0.5)] ring-1 ring-black/20",
-              bust ? "bg-danger text-ink" : isBlackjack(player.cards) ? "bg-accent text-ink" : "bg-fg text-ink",
+              bust ? "bg-danger text-ink" : isBlackjack(player.cards) ? "bj-shimmer bg-accent text-ink" : "bg-fg text-ink",
             )}
           >
             {bust ? "BUST" : totalLabel(player.cards)}
@@ -602,7 +638,7 @@ function MyResult({ me, result: { outcome, net }, secs }: { me: BjPlayer; result
   const stake = me.doubled ? me.bet / 2 : me.bet;
   const nextBet = stake <= me.chips ? stake : 0;
   return (
-    <div className="bj-in flex flex-col items-center gap-1 rounded-2xl border border-line bg-surface py-4">
+    <div className="bj-in flex flex-col items-center gap-1 rounded-2xl border border-accent/30 bg-surface py-4 shadow-[inset_0_1px_0_oklch(1_0_0/0.06)]">
       <p className={cx("font-display text-3xl", net > 0 ? "text-active" : net < 0 ? "text-danger" : "text-stayed")}>{outcome === "blackjack" ? "BLACKJACK!" : OUTCOME[outcome].label}</p>
       <p className="font-display text-lg tabular-nums">
         <span className="text-muted">Bet {me.bet.toLocaleString()} · </span>
