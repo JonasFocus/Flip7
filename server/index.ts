@@ -1,5 +1,6 @@
 import { createHash, randomInt, randomUUID } from "node:crypto";
-import { createServer } from "node:http";
+import { createServer, type IncomingMessage } from "node:http";
+import { join as joinPath } from "node:path";
 import { fileURLToPath } from "node:url";
 import { WebSocket, WebSocketServer } from "ws";
 import {
@@ -38,6 +39,9 @@ import * as tx from "../lib/texasholdem/index.ts";
 import { isPartyMode, KICKED_MESSAGE, MAX_PLAYERS, nextRoundDelayMs, REPLACED_CLOSE_CODE, REPLACED_MESSAGE, UNKNOWN_GAME_MESSAGE, ROOM_TTL_MS } from "../lib/protocol.ts";
 import type { ClientMessage, PartyGames, PartyMode, PartyRoom, Room, RoomSummary, ServerMessage } from "../lib/protocol.ts";
 import { isUnknownGame, parseMessage } from "./validate.ts";
+import { Activity, deviceOf, type LogInput } from "./activity.ts";
+import { adminRoutes, DEFAULT_ADMIN_CODE } from "./admin.ts";
+import type { LiveTable } from "../lib/admin.ts";
 
 const TOO_MANY_JOINS = "Too many joins, try again in a minute";
 const MAX_PAYLOAD = 8 * 1024;
@@ -264,6 +268,7 @@ interface LiveRoom {
   disconnectedAt: Map<string, number>; // humans who dropped mid-game; they get auto-played after AUTO_PLAY_MS
   awayStays: Map<string, { round: number; event: GameEvent }>; // auto-stays to replay to that human when they return
   kicked: Set<string>; // virtual: removed by the host, rejoin refused. physical: lost their last seat, rejoin as spectator (Late arrival re-seats on purpose)
+  phase: string; // last seen game phase, so the activity log can note when a table leaves the lobby
 }
 
 interface Client {
@@ -275,6 +280,8 @@ interface Client {
   windowStart: number;
   count: number;
   ip: string;
+  device: string;
+  joinedAt: number | null; // when this visit to c.code began, for play time
 }
 
 export interface RunningServer {
@@ -289,6 +296,8 @@ export interface ServerOptions {
   createsPerIpPerMin?: number;
   socketsPerIp?: number;
   joinsPerIpPerMin?: number;
+  activity?: Activity; // defaults to an in-memory log
+  adminCode?: string;
 }
 
 export function startServer(port: number, opts: ServerOptions = {}): Promise<RunningServer> {
@@ -304,6 +313,36 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
   const joinsByIp = new Map<string, { count: number; windowStart: number }>();
   // ponytail: linear scans over all sockets per broadcast; index sockets by room if this ever hosts thousands.
   const clients = new Set<Client>();
+  const activity = opts.activity ?? new Activity(":memory:");
+  const admin = adminRoutes({ code: opts.adminCode ?? DEFAULT_ADMIN_CODE, activity, live: liveTables });
+  let lastPrune = Date.now();
+
+  // One line in the activity log about what this socket's player did in its current room.
+  function track(c: Client, e: LogInput) {
+    const code = e.code ?? c.code ?? "";
+    activity.log({ player: c.clientId ?? "", name: c.name, code, mode: rooms.get(code)?.room.mode ?? null, device: c.device, ...e });
+  }
+
+  // Closes this socket's visit to its room (leave, dropped phone, kicked) with the time spent there.
+  function endVisit(c: Client, kind: "leave" | "drop" | "kicked") {
+    if (!c.code || !c.clientId) return;
+    track(c, { kind, ms: c.joinedAt === null ? null : Date.now() - c.joinedAt });
+    c.joinedAt = null;
+  }
+
+  function liveTables(): LiveTable[] {
+    const now = Date.now();
+    return [...rooms.values()]
+      .sort((a, b) => b.lastActive - a.lastActive)
+      .map(({ room, lastActive }) => {
+        const online = new Set(inRoom(room.code).map((c) => c.clientId));
+        const players =
+          room.mode === "physical"
+            ? room.game.players.map((p) => ({ name: p.name, online: online.has(p.ownerId) }))
+            : room.game.players.map((p) => ({ name: p.name, online: online.has(p.id) || ("isBot" in p && p.isBot === true) }));
+        return { code: room.code, mode: room.mode, phase: room.game.phase, players, idleMs: now - lastActive };
+      });
+  }
 
   const send = (c: Client, msg: ServerMessage) => {
     if (c.ws.readyState === WebSocket.OPEN) c.ws.send(JSON.stringify(msg));
@@ -372,6 +411,11 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
 
   function changed(live: LiveRoom, events: GameEvent[]) {
     live.lastActive = Date.now();
+    const { phase } = live.room.game;
+    if (live.phase === "lobby" && phase !== "lobby") {
+      activity.log({ kind: "start", code: live.room.code, mode: live.room.mode, detail: { players: live.room.game.players.length } });
+    }
+    live.phase = phase;
     ensureHost(live);
     scheduleNextRound(live, events);
     scheduleClues(live);
@@ -512,6 +556,7 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
   function detach(c: Client, leaving: boolean) {
     const code = c.code;
     const id = c.clientId;
+    endVisit(c, leaving ? "leave" : "drop");
     c.code = null;
     const live = code ? rooms.get(code) : undefined;
     if (!live || !id) return;
@@ -549,9 +594,13 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
     changed(live, room.mode === "virtual" && leaving ? room.game.lastEvents : []);
   }
 
-  function attach(c: Client, live: LiveRoom, clientId: string, name: string) {
+  function attach(c: Client, live: LiveRoom, clientId: string, name: string, kind: "create" | "join" | "rejoin") {
+    let joinedAt = Date.now();
     for (const other of clients) {
       if (other !== c && other.clientId === clientId && other.code === live.room.code) {
+        // Same player on a fresh socket (reload, second tab): the visit carries on rather than restarting.
+        if (other.joinedAt !== null) joinedAt = Math.min(joinedAt, other.joinedAt);
+        other.joinedAt = null;
         other.code = null;
         other.ws.close(REPLACED_CLOSE_CODE, REPLACED_MESSAGE);
       }
@@ -559,6 +608,8 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
     c.clientId = clientId;
     c.name = name;
     c.code = live.room.code;
+    c.joinedAt = joinedAt;
+    track(c, { kind });
     changed(live, []);
     const away = live.awayStays.get(clientId);
     live.awayStays.delete(clientId);
@@ -613,15 +664,18 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
         : mode === "imposter"
           ? { code, mode, hostId: clientId, game: addImposterPlayer(createImposterGame(), { id: clientId, name }) }
           : { code, mode, hostId: clientId, game: addScoreSeat(createScoreGame(), { id: clientId, name, ownerId: clientId }) };
-    const live: LiveRoom = { room, lastActive: Date.now(), creatorId: clientId, botTimer: null, nextRound: null, cluesTimer: null, partyTimer: null, disconnectedAt: new Map(), awayStays: new Map(), kicked: new Set() };
+    const live: LiveRoom = { room, lastActive: Date.now(), creatorId: clientId, botTimer: null, nextRound: null, cluesTimer: null, partyTimer: null, disconnectedAt: new Map(), awayStays: new Map(), kicked: new Set(), phase: room.game.phase };
     rooms.set(code, live);
-    attach(c, live, clientId, name);
+    attach(c, live, clientId, name, "create");
   }
 
   function join(c: Client, code: string, name: string, clientId: string) {
     const live = rooms.get(code);
     if (!live) return fail(c, "Room not found");
     const { room } = live;
+    const seated = room.mode === "physical"
+      ? room.game.players.some((p) => p.ownerId === clientId)
+      : room.game.players.some((p) => p.id === clientId);
     if (room.mode === "virtual") {
       if (live.kicked.has(clientId)) return fail(c, KICKED_MESSAGE);
       if (room.game.players.some((p) => p.id === clientId)) {
@@ -645,7 +699,6 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
       else if (!allow(joinsByIp, c.ip, joinsPerIpPerMin)) return fail(c, TOO_MANY_JOINS);
       else room.game = addImposterPlayer(room.game, { id: clientId, name });
     } else if (isParty(room)) {
-      const seated = room.game.players.some((p) => p.id === clientId);
       if (!seated && live.kicked.has(clientId)) return fail(c, KICKED_MESSAGE);
       if (!seated && room.game.players.length >= PARTY[room.mode].maxPlayers) return fail(c, "Room is full");
       if (!seated && room.game.phase !== "lobby" && !PARTY[room.mode].openJoin) return fail(c, "Game already started");
@@ -658,7 +711,7 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
       if (!allow(joinsByIp, c.ip, joinsPerIpPerMin)) return fail(c, TOO_MANY_JOINS);
       room.game = addScoreSeat(room.game, { id: clientId, name, ownerId: clientId });
     }
-    attach(c, live, clientId, name);
+    attach(c, live, clientId, name, seated ? "rejoin" : "join");
   }
 
   function addBot(c: Client, live: LiveRoom) {
@@ -669,6 +722,7 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
     const taken = new Set(room.game.players.map((p) => p.name));
     const name = BOT_NAMES.find((n) => !taken.has(n)) ?? `Bot ${room.game.players.length + 1}`;
     room.game = addPlayer(room.game, { id: `bot-${randomUUID().slice(0, 8)}`, name, isBot: true });
+    track(c, { kind: "addBot", detail: { bot: name } });
     changed(live, []);
   }
 
@@ -686,6 +740,7 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
     live.kicked.add(playerId);
     for (const other of inRoom(room.code)) {
       if (other.clientId === playerId) {
+        endVisit(other, "kicked");
         fail(other, KICKED_MESSAGE);
         other.code = null;
       }
@@ -728,6 +783,7 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
         const res = applyIntent(live.room.game, c.clientId, msg.intent, { isHost });
         if (!res.ok) return fail(c, res.error);
         live.room.game = res.state;
+        track(c, { kind: "action", detail: msg.intent });
         return changed(live, res.events);
       }
       case "score": {
@@ -740,6 +796,7 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
           if (ownerId && !res.state.players.some((p) => p.ownerId === ownerId)) live.kicked.add(ownerId);
         }
         live.room.game = res.state;
+        track(c, { kind: "action", detail: msg.intent });
         return changed(live, []);
       }
       case "imposter": {
@@ -747,6 +804,7 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
         const res = applyImposterIntent(live.room.game, c.clientId, msg.intent, { isHost, now: Date.now() });
         if (!res.ok) return fail(c, res.error);
         live.room.game = res.state;
+        track(c, { kind: "action", detail: msg.intent });
         return changed(live, []);
       }
       case "liarsdice":
@@ -768,7 +826,9 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
           p.set(res.state);
           return null;
         });
-        return error ? fail(c, error) : changed(live, []);
+        if (error) return fail(c, error);
+        track(c, { kind: "action", detail: msg.intent });
+        return changed(live, []);
       }
       case "addBot":
         return isHost ? addBot(c, live) : fail(c, "Only the host can add bots");
@@ -808,13 +868,16 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
   const http = createServer((req, res) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-    const path = (req.url ?? "/").split("?")[0];
+    res.setHeader("Access-Control-Allow-Headers", "Authorization");
+    const path = (req.url ?? "/").split("?")[0] ?? "/";
     if (req.method === "OPTIONS") {
       res.writeHead(204).end();
     } else if (req.method === "GET" && path === "/health") {
       res.writeHead(200, { "Content-Type": "text/plain" }).end("ok");
     } else if (req.method === "GET" && path === "/rooms") {
       res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" }).end(JSON.stringify(summaries()));
+    } else if (admin.handle(req, res, path, peerIp(req))) {
+      // answered by the admin routes
     } else {
       res.writeHead(404, { "Content-Type": "text/plain" }).end("not found");
     }
@@ -823,15 +886,12 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
   const wss = new WebSocketServer({ server: http, maxPayload: MAX_PAYLOAD });
 
   wss.on("connection", (ws, req) => {
-    // Railway's proxy appends the real peer to X-Forwarded-For; the last hop is the one a client can't forge.
-    const forwarded = req.headers["x-forwarded-for"];
-    const hops = (Array.isArray(forwarded) ? forwarded.join(",") : (forwarded ?? "")).split(",").map((h) => h.trim()).filter(Boolean);
-    const ip = hops.at(-1) ?? req.socket.remoteAddress ?? "unknown";
+    const ip = peerIp(req);
     // ponytail: O(clients) scan per connect, keep a per-IP count map if connection volume ever matters
     let fromIp = 0;
     for (const other of clients) if (other.ip === ip) fromIp++;
     if (fromIp >= socketsPerIp) return ws.close(1008, "Too many connections");
-    const c: Client = { ws, clientId: null, code: null, name: "", alive: true, windowStart: Date.now(), count: 0, ip };
+    const c: Client = { ws, clientId: null, code: null, name: "", alive: true, windowStart: Date.now(), count: 0, ip, device: deviceOf(req.headers["user-agent"]), joinedAt: null };
     clients.add(c);
     ws.on("pong", () => {
       c.alive = true;
@@ -879,6 +939,11 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
   const cleanup = setInterval(() => {
     const now = Date.now();
     for (const byIp of [createsByIp, joinsByIp]) for (const [ip, w] of byIp) if (now - w.windowStart >= 60_000) byIp.delete(ip);
+    admin.prune(now);
+    if (now - lastPrune >= 60 * 60_000) {
+      lastPrune = now;
+      activity.prune(now);
+    }
     for (const [code, live] of rooms) {
       if (inRoom(code).length > 0) continue;
       const lobby = live.room.game.phase === "lobby";
@@ -900,16 +965,30 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
             for (const code of [...rooms.keys()]) deleteRoom(code);
             for (const c of clients) c.ws.terminate();
             wss.close();
-            http.close(() => done());
+            http.close(() => {
+              if (!opts.activity) activity.close();
+              done();
+            });
           }),
       });
     });
   });
 }
 
+// Railway's proxy appends the real peer to X-Forwarded-For; the last hop is the one a client can't forge.
+function peerIp(req: IncomingMessage): string {
+  const forwarded = req.headers["x-forwarded-for"];
+  const hops = (Array.isArray(forwarded) ? forwarded.join(",") : (forwarded ?? "")).split(",").map((h) => h.trim()).filter(Boolean);
+  return hops.at(-1) ?? req.socket.remoteAddress ?? "unknown";
+}
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const port = Number(process.env.PORT) || 8787;
-  startServer(port).then(
+  // With a Railway volume attached, Railway sets RAILWAY_VOLUME_MOUNT_PATH and the log survives deploys.
+  const dir = process.env.ACTIVITY_DIR || process.env.RAILWAY_VOLUME_MOUNT_PATH || "data";
+  const activity = new Activity(joinPath(dir, "activity.db"));
+  const adminCode = process.env.ADMIN_CODE || DEFAULT_ADMIN_CODE;
+  startServer(port, { activity, adminCode }).then(
     (s) => console.log(`flip7 server listening on :${s.port}`),
     (err: unknown) => {
       console.error(err);
