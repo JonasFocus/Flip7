@@ -460,7 +460,7 @@ function Panel({
       </>
     );
   } else {
-    body = revealed && me.result ? <MyResult outcome={me.result.outcome} net={me.result.net} secs={secs} /> : <Status>Dealer&apos;s turn…</Status>;
+    body = revealed && me.result ? <MyResult me={me} result={me.result} secs={secs} /> : <Status>Dealer&apos;s turn…</Status>;
   }
 
   // Re-keyed per state so each change (betting, your move, result) eases in instead of snapping.
@@ -593,15 +593,24 @@ function Actions({ conn, me, secs }: { conn: BjConnection; me: BjPlayer; secs: n
   );
 }
 
-function MyResult({ outcome, net, secs }: { outcome: Outcome; net: number; secs: number | null }) {
+function MyResult({ me, result: { outcome, net }, secs }: { me: BjPlayer; result: { outcome: Outcome; net: number }; secs: number | null }) {
   useEffect(() => {
     if (net > 0) success();
     else if (net < 0) fail();
   }, [net]);
+  // Mirrors the server: the next hand starts with the same stake (not the doubled one) if you can still cover it.
+  const stake = me.doubled ? me.bet / 2 : me.bet;
+  const nextBet = stake <= me.chips ? stake : 0;
   return (
     <div className="bj-in flex flex-col items-center gap-1 rounded-2xl border border-line bg-surface py-4">
       <p className={cx("font-display text-3xl", net > 0 ? "text-active" : net < 0 ? "text-danger" : "text-stayed")}>{outcome === "blackjack" ? "BLACKJACK!" : OUTCOME[outcome].label}</p>
-      <p className="font-display text-lg tabular-nums">{net > 0 ? `+${net.toLocaleString()}` : net < 0 ? `−${(-net).toLocaleString()}` : "Bet returned"}</p>
+      <p className="font-display text-lg tabular-nums">
+        <span className="text-muted">Bet {me.bet.toLocaleString()} · </span>
+        {net > 0 ? `won ${net.toLocaleString()}` : net < 0 ? `lost ${(-net).toLocaleString()}` : "returned"}
+      </p>
+      <p className="text-sm text-muted tabular-nums">
+        Chips {me.chips.toLocaleString()} · {nextBet > 0 ? `next bet ${nextBet.toLocaleString()}` : "place a new bet"}
+      </p>
       {secs !== null && <p className="text-xs text-muted tabular-nums">Next hand in {secs}s</p>}
     </div>
   );
