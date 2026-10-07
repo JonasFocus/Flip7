@@ -100,6 +100,7 @@ export function addBjPlayer(s: BjState, p: { id: string; name: string }): BjStat
     done: false,
     doubled: false,
     streak: 0,
+    stats: { hands: 0, wins: 0, pushes: 0, bestStreak: 0, biggestWin: 0, net: 0 },
     result: null,
   };
   return { ...s, players: [...s.players, player], seq: s.seq + 1 };
@@ -163,7 +164,16 @@ function settle(s: BjState, now: number, rng: Rng): BjState {
     const bonus = wins ? streakBonus(p.streak, p.bet) : 0;
     const won = payout(outcome, p.bet) + bonus;
     const streak = wins ? p.streak + 1 : outcome === "push" ? p.streak : 0;
-    return { ...p, chips: p.chips + won, streak, done: true, result: { outcome, net: won - p.bet, bonus } };
+    const net = won - p.bet;
+    const stats = {
+      hands: p.stats.hands + 1,
+      wins: p.stats.wins + (wins ? 1 : 0),
+      pushes: p.stats.pushes + (outcome === "push" ? 1 : 0),
+      bestStreak: Math.max(p.stats.bestStreak, streak),
+      biggestWin: Math.max(p.stats.biggestWin, net),
+      net: p.stats.net + net,
+    };
+    return { ...p, chips: p.chips + won, streak, stats, done: true, result: { outcome, net, bonus } };
   });
   const draws = Math.max(0, dealer.length - 2);
   return { ...next, players, dealer, phase: "settle", turnId: null, turnAt: null, settleAt: now + HOLE_LEAD_MS + draws * DEALER_CARD_MS + SETTLE_MS };

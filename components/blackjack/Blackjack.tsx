@@ -27,7 +27,7 @@ import {
   isBlackjack,
   isBust,
 } from "@/lib/blackjack";
-import type { BjCard, BjConnection, BjPlayer, BjState, Outcome } from "@/lib/blackjack/types";
+import type { BjCard, BjConnection, BjPlayer, BjState, BjStats, Outcome } from "@/lib/blackjack/types";
 
 const BET_CHIPS = CHIPS.filter((c) => [10, 25, 100, 500].includes(c.value));
 
@@ -116,6 +116,7 @@ export function Blackjack({ conn }: { conn: BjConnection }) {
   // Chips already include this hand's payout on settle; hold it back until the dealer finishes.
   const chips = me ? me.chips - (game.phase === "settle" && !revealed && me.result ? me.result.net + me.bet : 0) : 0;
 
+  const holdStats = game.phase === "settle" && !revealed;
   const shownChips = useTween(chips);
   const delta = revealed && me?.result && me.result.net !== 0 ? me.result.net : 0;
 
@@ -152,10 +153,37 @@ export function Blackjack({ conn }: { conn: BjConnection }) {
         </p>
       </header>
 
+      {me && me.seat !== null && me.stats.hands - (holdStats && me.result ? 1 : 0) > 0 && <StatsStrip stats={me.stats} hold={holdStats} />}
+
       <Felt conn={conn} shown={shown} holeUp={holeUp} revealed={revealed} clearing={clearing} secs={secs} />
 
       <Panel conn={conn} me={me} myTurn={myTurn} revealed={revealed} secs={secs} dealing={dealing} />
     </main>
+  );
+}
+
+const signed = (n: number) => (n > 0 ? `+${short(n)}` : n < 0 ? `−${short(-n)}` : "0");
+
+// Your record at this table. Held at its previous values until the dealer's reveal so it can't spoil the hand.
+function StatsStrip({ stats, hold }: { stats: BjStats; hold: boolean }) {
+  const [shown, setShown] = useState(stats);
+  if (!hold && shown !== stats) setShown(stats);
+  const cells: { label: string; value: string; tone?: string }[] = [
+    { label: "Hands", value: `${shown.hands}` },
+    { label: "Win %", value: `${Math.round((shown.wins / shown.hands) * 100)}%` },
+    { label: "Streak", value: `${shown.bestStreak}` },
+    { label: "Top win", value: shown.biggestWin > 0 ? `+${short(shown.biggestWin)}` : "0" },
+    { label: "Net", value: signed(shown.net), tone: shown.net > 0 ? "text-active" : shown.net < 0 ? "text-danger" : undefined },
+  ];
+  return (
+    <dl aria-label="Your stats" className="mx-3 grid grid-cols-5 divide-x divide-line rounded-xl border border-line bg-surface/60 py-1.5 text-center">
+      {cells.map((c) => (
+        <div key={c.label} className="flex min-w-0 flex-col gap-0.5 px-1">
+          <dd className={cx("font-display text-sm leading-none tabular-nums", c.tone)}>{c.value}</dd>
+          <dt className="truncate text-[9px] font-bold tracking-[0.12em] text-muted uppercase">{c.label}</dt>
+        </div>
+      ))}
+    </dl>
   );
 }
 

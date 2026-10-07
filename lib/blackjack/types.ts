@@ -10,6 +10,16 @@ export interface BjCard {
 
 export type Outcome = "blackjack" | "win" | "push" | "lose";
 
+// Kept per player for as long as the table lives; there are no accounts, so a new table starts fresh.
+export interface BjStats {
+  hands: number;
+  wins: number; // wins and blackjacks
+  pushes: number;
+  bestStreak: number;
+  biggestWin: number; // best single-hand net
+  net: number; // chips won minus chips lost across all hands
+}
+
 export interface BjPlayer {
   id: string;
   name: string;
@@ -21,6 +31,7 @@ export interface BjPlayer {
   cards: BjCard[]; // empty = not in this hand
   done: boolean; // stood, busted, doubled or dealt 21
   doubled: boolean;
+  stats: BjStats;
   streak: number; // consecutive winning hands; a push keeps it, a loss resets it
   result: { outcome: Outcome; net: number; bonus: number } | null; // settle only; net includes the streak bonus
 }
