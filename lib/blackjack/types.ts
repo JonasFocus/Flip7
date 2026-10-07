@@ -16,7 +16,7 @@ export interface BjStats {
   wins: number; // wins and blackjacks
   pushes: number;
   bestStreak: number;
-  biggestWin: number; // best single-hand net
+  biggestWin: number; // best single-round net (both hands, insurance included)
   net: number; // chips won minus chips lost across all hands
 }
 
