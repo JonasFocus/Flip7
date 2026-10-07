@@ -1,4 +1,4 @@
-import type { BjCard, BjIntent, BjPlayer, BjState, Outcome, Rank, Suit } from "./types.ts";
+import type { BjCard, BjHand, BjIntent, BjPlayer, BjState, Outcome, Rank, Suit } from "./types.ts";
 
 export const SEATS = 5;
 export const MAX_BJ_PLAYERS = 10; // 5 seats plus rail watchers
@@ -99,6 +99,7 @@ export function addBjPlayer(s: BjState, p: { id: string; name: string }): BjStat
     cards: [],
     done: false,
     doubled: false,
+    hand2: null,
     streak: 0,
     stats: { hands: 0, wins: 0, pushes: 0, bestStreak: 0, biggestWin: 0, net: 0 },
     result: null,
@@ -132,10 +133,11 @@ export function streakBonus(streak: number, bet: number): number {
   return Math.floor(bet * STREAK_STEP * Math.min(streak, STREAK_CAP));
 }
 
-export function outcomeOf(cards: BjCard[], dealer: BjCard[]): Outcome {
+// A 21 on a split hand is just 21, never a blackjack.
+export function outcomeOf(cards: BjCard[], dealer: BjCard[], split = false): Outcome {
   if (isBust(cards)) return "lose";
   const dealerBj = isBlackjack(dealer);
-  if (isBlackjack(cards)) return dealerBj ? "push" : "blackjack";
+  if (!split && isBlackjack(cards)) return dealerBj ? "push" : "blackjack";
   if (dealerBj) return "lose";
   const me = handValue(cards).total;
   const them = handValue(dealer).total;
@@ -143,15 +145,26 @@ export function outcomeOf(cards: BjCard[], dealer: BjCard[]): Outcome {
   return me === them ? "push" : "lose";
 }
 
+// Hand 1 is done and hand 2 (if any) is done too.
+export const handDone = (p: BjPlayer): boolean => p.done && (p.hand2?.done ?? true);
+// The hand taking actions: hand 2 only once hand 1 is finished.
+export const activeHand = (p: BjPlayer): BjHand => (p.done && p.hand2 && !p.hand2.done ? p.hand2 : p);
+// ponytail: one split per round, no re-splitting; move to a hands[] array if more are wanted.
+export const canSplit = (p: BjPlayer): boolean => {
+  const [a, b] = p.cards;
+  return !p.hand2 && p.cards.length === 2 && !!a && !!b && rankValue(a.rank) === rankValue(b.rank) && p.chips >= p.bet;
+};
+
 const real = (cards: (BjCard | null)[]): BjCard[] => cards.filter((c): c is BjCard => c !== null);
 
 // Dealer stands on all 17s; draws nothing when every hand already busted.
 function settle(s: BjState, now: number, rng: Rng): BjState {
   let next = s;
   let dealer = real(s.dealer);
-  const live = inHand(s).some((p) => !isBust(p.cards));
+  const hands = (p: BjPlayer): BjHand[] => (p.hand2 ? [p, p.hand2] : [p]);
+  const live = inHand(s).some((p) => hands(p).some((h) => !isBust(h.cards)));
   const dealerBj = isBlackjack(dealer);
-  const allBlackjack = inHand(s).every((p) => isBlackjack(p.cards));
+  const allBlackjack = inHand(s).every((p) => !p.hand2 && isBlackjack(p.cards));
   while (live && !dealerBj && !allBlackjack && handValue(dealer).total < 17) {
     const d = draw(next, rng);
     dealer = [...dealer, d.card];
@@ -159,12 +172,20 @@ function settle(s: BjState, now: number, rng: Rng): BjState {
   }
   const players = next.players.map((p) => {
     if (p.cards.length === 0) return p;
-    const outcome = outcomeOf(p.cards, dealer);
+    const split = p.hand2 !== null;
+    const parts = hands(p).map((h) => {
+      const outcome = outcomeOf(h.cards, dealer, split);
+      const bonus = outcome === "win" || outcome === "blackjack" ? streakBonus(p.streak, h.bet) : 0;
+      const won = payout(outcome, h.bet) + bonus;
+      return { outcome, bonus, won, net: won - h.bet };
+    });
+    const won = parts.reduce((n, x) => n + x.won, 0);
+    const bonus = parts.reduce((n, x) => n + x.bonus, 0);
+    const net = parts.reduce((n, x) => n + x.net, 0);
+    // A split round counts once for streak and stats, judged by its combined net.
+    const outcome: Outcome = !split ? (parts[0]?.outcome ?? "lose") : net > 0 ? "win" : net < 0 ? "lose" : "push";
     const wins = outcome === "win" || outcome === "blackjack";
-    const bonus = wins ? streakBonus(p.streak, p.bet) : 0;
-    const won = payout(outcome, p.bet) + bonus;
     const streak = wins ? p.streak + 1 : outcome === "push" ? p.streak : 0;
-    const net = won - p.bet;
     const stats = {
       hands: p.stats.hands + 1,
       wins: p.stats.wins + (wins ? 1 : 0),
@@ -173,14 +194,15 @@ function settle(s: BjState, now: number, rng: Rng): BjState {
       biggestWin: Math.max(p.stats.biggestWin, net),
       net: p.stats.net + net,
     };
-    return { ...p, chips: p.chips + won, streak, stats, done: true, result: { outcome, net, bonus } };
+    const result = { outcome, net, bonus, ...(split && { split: parts.map((x) => ({ outcome: x.outcome, net: x.net })) }) };
+    return { ...p, chips: p.chips + won, streak, stats, done: true, hand2: p.hand2 && { ...p.hand2, done: true }, result };
   });
   const draws = Math.max(0, dealer.length - 2);
   return { ...next, players, dealer, phase: "settle", turnId: null, turnAt: null, settleAt: now + HOLE_LEAD_MS + draws * DEALER_CARD_MS + SETTLE_MS };
 }
 
 function nextTurn(s: BjState, now: number, rng: Rng): BjState {
-  const p = inHand(s).find((x) => !x.done);
+  const p = inHand(s).find((x) => !handDone(x));
   return p ? { ...s, turnId: p.id, turnAt: now } : settle(s, now, rng);
 }
 
@@ -224,24 +246,49 @@ function resetTable(s: BjState): BjState {
   const players = s.players.map((p) => {
     const stake = p.doubled ? p.bet / 2 : p.bet;
     const bet = p.seat !== null && stake <= p.chips ? stake : 0;
-    return { ...p, bet, ready: false, cards: [], done: false, doubled: false, result: null };
+    return { ...p, bet, ready: false, cards: [], done: false, doubled: false, hand2: null, result: null };
   });
   return { ...s, phase: "lobby", players, dealer: [], turnId: null, turnAt: null, settleAt: null, dealAt: null };
 }
 
 function act(s: BjState, id: string, move: "hit" | "stand" | "double", now: number, rng: Rng): BjState {
-  if (move === "stand") return nextTurn(patch(s, id, (p) => ({ ...p, done: true })), now, rng);
-  const d = draw(s, rng);
-  const next = {
-    ...patch(s, id, (p) => {
-      const cards = [...p.cards, d.card];
-      if (move === "double") return { ...p, cards, chips: p.chips - p.bet, bet: p.bet * 2, doubled: true, done: true };
-      return { ...p, cards, done: handValue(cards).total >= 21 };
-    }),
-    shoe: d.shoe,
+  const me = s.players.find((p) => p.id === id);
+  if (!me) return s;
+  const h = activeHand(me);
+  const second = h !== me;
+  const d = move === "stand" ? null : draw(s, rng);
+  const cards = d ? [...h.cards, d.card] : h.cards;
+  const hand: BjHand =
+    move === "double" ? { ...h, cards, bet: h.bet * 2, doubled: true, done: true } : { ...h, cards, done: move === "stand" || handValue(cards).total >= 21 };
+  const spent = move === "double" ? h.bet : 0;
+  const next: BjState = {
+    ...patch(s, id, (p) => ({ ...p, ...(second ? { hand2: hand } : hand), chips: p.chips - spent })),
+    shoe: d ? d.shoe : s.shoe,
   };
-  const me = next.players.find((p) => p.id === id);
-  return me?.done ? nextTurn(next, now, rng) : { ...next, turnAt: now };
+  return hand.done ? nextTurn(next, now, rng) : { ...next, turnAt: now };
+}
+
+function split(s: BjState, id: string, now: number, rng: Rng): BjState {
+  const me = s.players.find((p) => p.id === id);
+  const [a, b] = me?.cards ?? [];
+  if (!me || !a || !b) return s;
+  const d1 = draw(s, rng);
+  const d2 = draw({ ...s, shoe: d1.shoe }, rng);
+  const first = [a, d1.card];
+  const second = [b, d2.card];
+  const aces = a.rank === "A"; // split aces take one card each and stand
+  const settled = (cards: BjCard[]) => aces || handValue(cards).total >= 21;
+  const next: BjState = {
+    ...patch(s, id, (p) => ({
+      ...p,
+      chips: p.chips - p.bet,
+      cards: first,
+      done: settled(first),
+      hand2: { cards: second, bet: p.bet, done: settled(second), doubled: false },
+    })),
+    shoe: d2.shoe,
+  };
+  return nextTurn(next, now, rng);
 }
 
 export function removeBjPlayer(s: BjState, id: string, opts: { now: number; rng?: Rng }): BjState {
@@ -299,9 +346,14 @@ export function applyBjIntent(s: BjState, actorId: string, intent: BjIntent, opt
     case "double":
       if (s.phase !== "playing") return fail("No hand in play");
       if (s.turnId !== actorId) return fail("It's not your turn");
-      if (intent.type === "double" && me.cards.length !== 2) return fail("Double only on your first two cards");
-      if (intent.type === "double" && me.chips < me.bet) return fail("Not enough chips to double");
+      if (intent.type === "double" && activeHand(me).cards.length !== 2) return fail("Double only on your first two cards");
+      if (intent.type === "double" && me.chips < activeHand(me).bet) return fail("Not enough chips to double");
       return done(act(s, actorId, intent.type, now, rng));
+    case "split":
+      if (s.phase !== "playing") return fail("No hand in play");
+      if (s.turnId !== actorId) return fail("It's not your turn");
+      if (!canSplit(me)) return fail("Can't split this hand");
+      return done(split(s, actorId, now, rng));
   }
   return fail("Unknown action");
 }

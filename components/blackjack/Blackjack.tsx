@@ -23,6 +23,9 @@ import {
   STREAK_CAP,
   STREAK_STEP,
   TURN_MS,
+  activeHand,
+  canSplit,
+  handDone,
   handValue,
   isBlackjack,
   isBust,
@@ -45,8 +48,8 @@ const chipDelay = (order: number) => 700 + Math.max(0, order) * 220;
 
 const inHand = (g: BjState) => g.players.filter((p) => p.cards.length > 0).sort((a, b) => (a.seat ?? 0) - (b.seat ?? 0));
 
-function totalLabel(cards: readonly (BjCard | null)[]): string {
-  if (isBlackjack(cards)) return "BJ";
+function totalLabel(cards: readonly (BjCard | null)[], split = false): string {
+  if (!split && isBlackjack(cards)) return "BJ";
   const { total, soft } = handValue(cards);
   return soft && total < 21 ? `${total - 10}/${total}` : `${total}`;
 }
@@ -114,7 +117,7 @@ export function Blackjack({ conn }: { conn: BjConnection }) {
   }, [myTurn]);
 
   // Chips already include this hand's payout on settle; hold it back until the dealer finishes.
-  const chips = me ? me.chips - (game.phase === "settle" && !revealed && me.result ? me.result.net + me.bet : 0) : 0;
+  const chips = me ? me.chips - (game.phase === "settle" && !revealed && me.result ? me.result.net + me.bet + (me.hand2?.bet ?? 0) : 0) : 0;
 
   const holdStats = game.phase === "settle" && !revealed;
   const shownChips = useTween(chips);
@@ -340,37 +343,55 @@ function Seat({
   const { game } = conn;
   const mine = player.id === conn.you;
   const turn = game.phase === "playing" && game.turnId === player.id && secs !== null; // secs is null while the deal lands
-  const bust = isBust(player.cards);
   const result = revealed ? player.result : null;
-  const size = mine ? "clamp(38px,11.5vw,48px)" : "clamp(30px,8.6vw,38px)";
-  const n = player.cards.length;
+  const hands = player.hand2 ? [player, player.hand2] : [player];
+  const split = hands.length > 1;
+  const size = split
+    ? mine ? "clamp(26px,7.6vw,34px)" : "clamp(22px,6.2vw,28px)"
+    : mine ? "clamp(38px,11.5vw,48px)" : "clamp(30px,8.6vw,38px)";
+  const activeIdx = turn && split ? hands.indexOf(activeHand(player)) : -1;
+  // Edge seats grow their split hands inward so two fans never run off the felt.
+  const anchor = split && player.seat === 0 ? "right-0" : split && player.seat === SEATS - 1 ? "left-0" : "left-1/2 -translate-x-1/2";
+  const stake = hands.reduce((n, h) => n + h.bet, 0);
 
   return (
     <div className="relative flex flex-col items-center">
-      {n > 0 && (
-        <div className="absolute bottom-full left-1/2 mb-0.5 -translate-x-1/2" style={{ "--s": size } as CSSProperties}>
-          <div className={cx("relative h-[calc(var(--s)*1.4)]", bust && "animate-shake")} style={{ width: `calc(var(--s) + ${n - 1} * var(--s) * ${FAN})` }}>
-            {player.cards.map((c, i) => (
-              <Card
-                key={`${game.round}-${i}`}
-                card={c}
-                delay={i < 2 ? (i * (inHandCount + 1) + order) * DEAL_STAGGER_MS : 0}
-                sweep={clearing}
-                className={cx("absolute transition-[filter] duration-500", bust && "brightness-75")}
-                style={{ fontSize: "var(--s)", left: `calc(${i} * var(--s) * ${FAN})`, bottom: 0 }}
-              />
-            ))}
-          </div>
-          <span
-            style={{ animationDelay: `${((inHandCount + 1) + order) * DEAL_STAGGER_MS + CARD_SLIDE_MS}ms` }}
-            className={cx(
-              "bj-in absolute -top-4 left-1/2 z-10 min-w-8 -translate-x-1/2 rounded-full px-2 py-0.5 text-center font-display text-[13px] leading-tight whitespace-nowrap tabular-nums shadow-[0_2px_8px_oklch(0_0_0/0.5)] ring-1 ring-black/20",
-              bust ? "bg-danger text-ink" : isBlackjack(player.cards) ? "bj-shimmer bg-accent text-ink" : "bg-fg text-ink",
-            )}
-          >
-            {bust ? "BUST" : totalLabel(player.cards)}
-          </span>
-          {result && !clearing && <ResultTag outcome={result.outcome} net={result.net} />}
+      {player.cards.length > 0 && (
+        <div className={cx("absolute bottom-full mb-0.5 flex items-end", split ? "gap-2" : "gap-0", anchor)} style={{ "--s": size } as CSSProperties}>
+          {hands.map((h, k) => {
+            const bust = isBust(h.cards);
+            const n = h.cards.length;
+            const own = split ? result?.split?.[k] : result;
+            return (
+              <div
+                key={k}
+                className={cx("relative h-[calc(var(--s)*1.4)] rounded-md transition-opacity duration-300", bust && "animate-shake", k === activeIdx && "bj-glow", activeIdx >= 0 && k !== activeIdx && "opacity-70")}
+                style={{ width: `calc(var(--s) + ${n - 1} * var(--s) * ${FAN})` }}
+              >
+                {h.cards.map((c, i) => (
+                  <Card
+                    key={`${game.round}-${k}-${i}`}
+                    card={c}
+                    delay={k === 0 && i < 2 ? (i * (inHandCount + 1) + order) * DEAL_STAGGER_MS : 0}
+                    sweep={clearing}
+                    className={cx("absolute transition-[filter] duration-500", bust && "brightness-75")}
+                    style={{ fontSize: "var(--s)", left: `calc(${i} * var(--s) * ${FAN})`, bottom: 0 }}
+                  />
+                ))}
+                <span
+                  style={{ animationDelay: `${k === 0 ? ((inHandCount + 1) + order) * DEAL_STAGGER_MS + CARD_SLIDE_MS : CARD_SLIDE_MS}ms` }}
+                  className={cx(
+                    "bj-in absolute -top-4 left-1/2 z-10 min-w-8 -translate-x-1/2 rounded-full px-2 py-0.5 text-center font-display leading-tight whitespace-nowrap tabular-nums shadow-[0_2px_8px_oklch(0_0_0/0.5)] ring-1 ring-black/20",
+                    split ? "text-[11px]" : "text-[13px]",
+                    bust ? "bg-danger text-ink" : !split && isBlackjack(h.cards) ? "bj-shimmer bg-accent text-ink" : "bg-fg text-ink",
+                  )}
+                >
+                  {bust ? "BUST" : totalLabel(h.cards, split)}
+                </span>
+                {own && !clearing && <ResultTag outcome={own.outcome} net={own.net} />}
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -384,8 +405,8 @@ function Seat({
         {player.bet > 0 ? (
           // Re-keyed when betting reopens so a lost stake comes back as a fresh rebet.
           <Chip
-            key={`${player.bet}-${game.phase === "lobby"}`}
-            amount={player.bet}
+            key={`${stake}-${game.phase === "lobby"}`}
+            amount={stake}
             flyTo={result?.outcome === "lose" ? "[data-dealer]" : undefined}
             delay={chipDelay(order)}
             className="animate-pop"
@@ -527,7 +548,7 @@ function Panel({
     ) : (
       <>
         <TurnClock label={`${turnName}'s turn`} secs={secs} />
-        <Status>{me.done ? "You're set. Waiting on the table…" : "You're up soon…"}</Status>
+        <Status>{handDone(me) ? "You're set. Waiting on the table…" : "You're up soon…"}</Status>
       </>
     );
   } else {
@@ -639,8 +660,10 @@ function Betting({ conn, me, secs }: { conn: BjConnection; me: BjPlayer; secs: n
 }
 
 function Actions({ conn, me, secs }: { conn: BjConnection; me: BjPlayer; secs: number | null }) {
-  const canDouble = me.cards.length === 2 && me.chips >= me.bet;
-  const go = (type: "hit" | "stand" | "double") => {
+  const hand = activeHand(me);
+  const onSecond = hand !== me;
+  const canDouble = hand.cards.length === 2 && me.chips >= hand.bet;
+  const go = (type: "hit" | "stand" | "double" | "split") => {
     tap();
     conn.send({ type });
   };
@@ -649,7 +672,7 @@ function Actions({ conn, me, secs }: { conn: BjConnection; me: BjPlayer; secs: n
       <TurnClock
         label={
           <>
-            Your move · <span className="text-accent tabular-nums">{totalLabel(me.cards)}</span>
+            {me.hand2 ? `Hand ${onSecond ? 2 : 1} of 2` : "Your move"} · <span className="text-accent tabular-nums">{totalLabel(hand.cards, !!me.hand2)}</span>
           </>
         }
         secs={secs}
@@ -662,14 +685,21 @@ function Actions({ conn, me, secs }: { conn: BjConnection; me: BjPlayer; secs: n
           Stand
         </Button>
       </div>
-      <Button variant="secondary" block disabled={!canDouble} onClick={() => go("double")}>
-        Double {canDouble && <span className="text-muted tabular-nums">+{short(me.bet)}</span>}
-      </Button>
+      <div className={cx("grid gap-2.5", canSplit(me) ? "grid-cols-2" : "grid-cols-1")}>
+        <Button variant="secondary" disabled={!canDouble} onClick={() => go("double")}>
+          Double {canDouble && <span className="text-muted tabular-nums">+{short(hand.bet)}</span>}
+        </Button>
+        {canSplit(me) && (
+          <Button variant="secondary" onClick={() => go("split")}>
+            Split <span className="text-muted tabular-nums">+{short(me.bet)}</span>
+          </Button>
+        )}
+      </div>
     </>
   );
 }
 
-function MyResult({ me, result: { outcome, net, bonus }, secs }: { me: BjPlayer; result: { outcome: Outcome; net: number; bonus: number }; secs: number | null }) {
+function MyResult({ me, result: { outcome, net, bonus, split }, secs }: { me: BjPlayer; result: NonNullable<BjPlayer["result"]>; secs: number | null }) {
   useEffect(() => {
     if (net > 0) success();
     else if (net < 0) fail();
@@ -681,9 +711,21 @@ function MyResult({ me, result: { outcome, net, bonus }, secs }: { me: BjPlayer;
     <div className="bj-in flex flex-col items-center gap-1 rounded-2xl border border-accent/30 bg-surface py-4 shadow-[inset_0_1px_0_oklch(1_0_0/0.06)]">
       <p className={cx("font-display text-3xl", net > 0 ? "text-active" : net < 0 ? "text-danger" : "text-stayed")}>{outcome === "blackjack" ? "BLACKJACK!" : OUTCOME[outcome].label}</p>
       <p className="font-display text-lg tabular-nums">
-        <span className="text-muted">Bet {me.bet.toLocaleString()} · </span>
+        <span className="text-muted">Bet {(me.bet + (me.hand2?.bet ?? 0)).toLocaleString()} · </span>
         {net > 0 ? `won ${net.toLocaleString()}` : net < 0 ? `lost ${(-net).toLocaleString()}` : "returned"}
       </p>
+      {split && (
+        <p className="flex gap-3 text-sm tabular-nums">
+          {split.map((h, i) => (
+            <span key={i} className="text-muted">
+              Hand {i + 1}{" "}
+              <span className={cx("font-semibold", h.net > 0 ? "text-active" : h.net < 0 ? "text-danger" : "text-stayed")}>
+                {OUTCOME[h.outcome].label} {signed(h.net)}
+              </span>
+            </span>
+          ))}
+        </p>
+      )}
       {bonus > 0 && (
         <p className="text-sm font-semibold text-accent tabular-nums">
           Streak ×{me.streak} · +{bonus.toLocaleString()} bonus

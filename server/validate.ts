@@ -181,6 +181,7 @@ function parseBjIntent(v: unknown): BjIntent | null {
     case "hit":
     case "stand":
     case "double":
+    case "split":
     case "rebuy":
       return { type: v.type };
     default:
