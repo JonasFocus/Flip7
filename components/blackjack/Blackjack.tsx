@@ -80,6 +80,14 @@ function useTween(target: number, ms = 800): number {
   return value;
 }
 
+// The last value seen while not holding, so a number that already reflects the hand can't give the result away before the reveal.
+// null if this mounted mid-hold (a reload during the dealer's turn): show nothing until the hold lifts.
+function useHeld<T>(value: T, hold: boolean): T | null {
+  const [held, setHeld] = useState<T | null>(hold ? null : value);
+  if (!hold && held !== value) setHeld(value);
+  return held;
+}
+
 const RESULT_BEAT_MS = 700; // results wait for the dealer's last card to land
 
 // Settle: a beat, the hole card turns, then one dealer draw per DEALER_CARD_MS. Derived from the deadline so a reload lands mid-reveal.
@@ -157,7 +165,7 @@ export function Blackjack({ conn }: { conn: BjConnection }) {
         </p>
       </header>
 
-      {me && me.seat !== null && me.stats.hands - (holdStats && me.result ? 1 : 0) > 0 && <StatsStrip stats={me.stats} hold={holdStats} />}
+      {me && me.seat !== null && me.stats.hands > 0 && <StatsStrip stats={me.stats} hold={holdStats} />}
 
       <Felt conn={conn} shown={shown} holeUp={holeUp} revealed={revealed} clearing={clearing} secs={secs} />
 
@@ -170,8 +178,8 @@ const signed = (n: number) => (n > 0 ? `+${short(n)}` : n < 0 ? `−${short(-n)}
 
 // Your record at this table. Held at its previous values until the dealer's reveal so it can't spoil the hand.
 function StatsStrip({ stats, hold }: { stats: BjStats; hold: boolean }) {
-  const [shown, setShown] = useState(stats);
-  if (!hold && shown !== stats) setShown(stats);
+  const shown = useHeld(stats, hold);
+  if (!shown) return null;
   const cells: { label: string; value: string; tone?: string }[] = [
     { label: "Hands", value: `${shown.hands}` },
     { label: "Win %", value: `${Math.round((shown.wins / shown.hands) * 100)}%` },
@@ -345,6 +353,7 @@ function Seat({
   const mine = player.id === conn.you;
   const turn = game.phase === "playing" && game.turnId === player.id && secs !== null; // secs is null while the deal lands
   const result = revealed ? player.result : null;
+  const streak = useHeld(player.streak, player.result !== null && !revealed);
   const hands = player.hand2 ? [player, player.hand2] : [player];
   const split = hands.length > 1;
   const size = split
@@ -418,9 +427,9 @@ function Seat({
         {result && result.net > 0 && (
           <Chip amount={result.net} small flyFrom="[data-dealer]" delay={chipDelay(order)} className="absolute -top-2 -right-3 z-10" />
         )}
-        {player.streak >= 2 && (
-          <span aria-label={`${player.streak} wins in a row`} className="bj-in absolute -top-2 -left-3 z-10 rounded-full bg-accent px-1.5 py-px font-display text-[10px] leading-tight text-ink tabular-nums shadow-[0_2px_6px_oklch(0_0_0/0.5)]">
-            ×{player.streak}
+        {(streak ?? 0) >= 2 && (
+          <span aria-label={`${streak} wins in a row`} className="bj-in absolute -top-2 -left-3 z-10 rounded-full bg-accent px-1.5 py-px font-display text-[10px] leading-tight text-ink tabular-nums shadow-[0_2px_6px_oklch(0_0_0/0.5)]">
+            ×{streak}
           </span>
         )}
         {player.ready && game.phase === "lobby" && (
