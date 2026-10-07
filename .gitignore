@@ -43,3 +43,6 @@ next-env.d.ts
 # local tooling
 .claude/
 .playwright-mcp/
+
+# activity log of a local game server
+/data/
