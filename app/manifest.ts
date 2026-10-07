@@ -2,9 +2,9 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Flip 7 · Family Game Night",
-    short_name: "Flip 7",
-    description: "Play Flip 7 with the family.",
+    name: "Game Time · Family Game Night",
+    short_name: "Game Time",
+    description: "Card games, casino tables and party games for game night.",
     id: "/",
     start_url: "/",
     display: "standalone",
