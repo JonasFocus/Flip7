@@ -20,6 +20,14 @@ export interface BjStats {
   net: number; // chips won minus chips lost across all hands
 }
 
+// The second hand of a split. Hand 1 stays in the player's own cards/bet/done/doubled fields.
+export interface BjHand {
+  cards: BjCard[];
+  bet: number;
+  done: boolean;
+  doubled: boolean;
+}
+
 export interface BjPlayer {
   id: string;
   name: string;
@@ -31,9 +39,12 @@ export interface BjPlayer {
   cards: BjCard[]; // empty = not in this hand
   done: boolean; // stood, busted, doubled or dealt 21
   doubled: boolean;
+  hand2: BjHand | null; // set by a split; hand 2 is played after hand 1
   stats: BjStats;
   streak: number; // consecutive winning hands; a push keeps it, a loss resets it
-  result: { outcome: Outcome; net: number; bonus: number } | null; // settle only; net includes the streak bonus
+  // settle only; net includes the streak bonus. After a split, outcome is the round's aggregate (win if net > 0, push if 0, else lose)
+  // and `split` holds each hand's own result, hand 1 first.
+  result: { outcome: Outcome; net: number; bonus: number; split?: { outcome: Outcome; net: number }[] } | null;
 }
 
 export type BjPhase =
@@ -63,6 +74,7 @@ export type BjIntent =
   | { type: "hit" }
   | { type: "stand" }
   | { type: "double" }
+  | { type: "split" } // first two cards of equal value, one split per round
   | { type: "rebuy" }; // lobby, broke
 
 export interface BjConnection {

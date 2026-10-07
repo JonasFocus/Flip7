@@ -199,3 +199,126 @@ test("stats count hands, wins, pushes, best streak, biggest win and net", () => 
   s = act(act(s, "a", { type: "deal" }), "a", { type: "stand" });
   assert.deepEqual(stats(s), { hands: 3, wins: 1, pushes: 1, bestStreak: 1, biggestWin: 100, net: 0 });
 });
+
+// One player, bet 100, dealt `hand` against a dealer showing `dealer`, then the shoe continues with `rest`.
+const dealt = (hand: [Rank, Rank], dealer: [Rank, Rank], rest: Rank[], chips = START_CHIPS): BjState => {
+  const s = table(["a"], [hand[0], dealer[0], hand[1], dealer[1], ...rest]);
+  return act({ ...s, players: s.players.map((p) => ({ ...p, chips })) }, "a", { type: "deal" });
+};
+
+test("split makes two hands, plays hand 1 then hand 2, and settles each against the dealer", () => {
+  // 8,8 split into 8+3 and 8+5; hand 1 hits a ten for 21, hand 2 stands on 13; dealer 17
+  let s = dealt(["8", "8"], ["10", "7"], ["3", "5", "10"]);
+  s = act(s, "a", { type: "split" });
+  const a = player(s, "a");
+  assert.equal(a.chips, START_CHIPS - 200);
+  assert.deepEqual(a.cards.map((x) => x.rank), ["8", "3"]);
+  assert.deepEqual(a.hand2?.cards.map((x) => x.rank), ["8", "5"]);
+  assert.equal(s.turnId, "a");
+  s = act(s, "a", { type: "hit" }); // 21 on hand 1 passes play to hand 2
+  assert.equal(s.phase, "playing");
+  assert.equal(player(s, "a").done, true);
+  s = act(s, "a", { type: "stand" });
+  assert.equal(s.phase, "settle");
+  assert.deepEqual(player(s, "a").result, {
+    outcome: "push",
+    net: 0,
+    bonus: 0,
+    split: [
+      { outcome: "win", net: 100 }, // 21 after a split pays 1:1, not 3:2
+      { outcome: "lose", net: -100 },
+    ],
+  });
+  assert.equal(player(s, "a").chips, START_CHIPS);
+  assert.equal(player(s, "a").stats.hands, 1);
+  assert.equal(player(s, "a").stats.pushes, 1);
+  const reset = onDeadline(s, s.settleAt!).players[0]!;
+  assert.equal(reset.bet, 100); // the original stake, not doubled
+  assert.equal(reset.hand2, null);
+});
+
+test("ten-value cards split together and a net win counts once for the streak", () => {
+  let s = dealt(["K", "Q"], ["10", "7"], ["9", "9"]);
+  s = act(s, "a", { type: "split" });
+  s = act(act(s, "a", { type: "stand" }), "a", { type: "stand" });
+  const a = player(s, "a");
+  assert.equal(a.result?.outcome, "win");
+  assert.equal(a.result?.net, 200);
+  assert.equal(a.streak, 1);
+  assert.equal(a.stats.wins, 1);
+  assert.equal(a.stats.biggestWin, 200);
+  assert.equal(a.chips, START_CHIPS + 200);
+});
+
+test("split aces get one card each and a 21 is not a blackjack", () => {
+  let s = dealt(["A", "A"], ["9", "8"], ["K", "9"]);
+  s = act(s, "a", { type: "split" });
+  assert.equal(s.phase, "settle"); // both hands stood automatically
+  assert.deepEqual(player(s, "a").result?.split, [
+    { outcome: "win", net: 100 },
+    { outcome: "win", net: 100 },
+  ]);
+});
+
+test("split is refused on unequal cards, short chips, after a hit and for a re-split", () => {
+  assert.equal(err(dealt(["10", "9"], ["10", "7"], []), "a", { type: "split" }), "Can't split this hand");
+  assert.equal(err(dealt(["8", "8"], ["10", "7"], [], 150), "a", { type: "split" }), "Can't split this hand"); // 50 left after the deal
+  let s = dealt(["2", "2"], ["10", "7"], ["5"]);
+  s = act(s, "a", { type: "hit" });
+  assert.equal(err(s, "a", { type: "split" }), "Can't split this hand");
+  s = dealt(["8", "8"], ["10", "7"], ["8", "5"]);
+  s = act(s, "a", { type: "split" }); // hand 1 is 8,8 again
+  assert.equal(err(s, "a", { type: "split" }), "Can't split this hand");
+});
+
+test("the dealer draws if either hand is live, and not when both bust", () => {
+  // hand 1 busts, hand 2 holds 18; dealer 16 draws a ten and busts
+  let s = dealt(["8", "8"], ["10", "6"], ["K", "K", "K", "10"]);
+  s = act(s, "a", { type: "split" });
+  s = act(act(s, "a", { type: "hit" }), "a", { type: "stand" });
+  assert.equal(s.dealer.length, 3);
+  assert.deepEqual(player(s, "a").result?.split, [
+    { outcome: "lose", net: -100 },
+    { outcome: "win", net: 100 },
+  ]);
+
+  s = dealt(["8", "8"], ["10", "6"], ["K", "K", "K", "K"]);
+  s = act(s, "a", { type: "split" });
+  s = act(act(s, "a", { type: "hit" }), "a", { type: "hit" });
+  assert.equal(s.phase, "settle");
+  assert.equal(s.dealer.length, 2);
+  assert.equal(player(s, "a").result?.outcome, "lose");
+  assert.equal(player(s, "a").chips, START_CHIPS - 200);
+});
+
+test("either split hand may double, chips never go negative", () => {
+  let s = dealt(["5", "5"], ["10", "7"], ["6", "6", "10", "10"]);
+  s = act(s, "a", { type: "split" });
+  s = act(s, "a", { type: "double" }); // 11 + ten
+  s = act(s, "a", { type: "double" }); // hand 2 does the same
+  assert.equal(s.phase, "settle");
+  assert.equal(player(s, "a").result?.net, 400);
+  assert.equal(player(s, "a").chips, START_CHIPS + 400);
+  assert.equal(onDeadline(s, s.settleAt!).players[0]?.bet, 100);
+
+  // 300 chips: 200 after the deal, 100 after the split, doubling hand 1 leaves 0, so hand 2 cannot double
+  s = dealt(["5", "5"], ["10", "7"], ["6", "6", "10"], 300);
+  s = act(s, "a", { type: "split" });
+  s = act(s, "a", { type: "double" });
+  assert.equal(player(s, "a").chips, 0);
+  assert.equal(err(s, "a", { type: "double" }), "Not enough chips to double");
+  s = act(s, "a", { type: "stand" });
+  assert.equal(player(s, "a").chips, 400); // hand 1 21 wins 400, hand 2 on 11 loses
+});
+
+test("the turn clock stands the active split hand and moves on", () => {
+  let s = dealt(["8", "8"], ["10", "7"], ["3", "5"]);
+  s = act(s, "a", { type: "split" });
+  s = onDeadline(s, s.turnAt! + TURN_MS);
+  assert.equal(s.phase, "playing");
+  assert.equal(player(s, "a").done, true);
+  assert.equal(player(s, "a").hand2?.done, false);
+  s = onDeadline(s, s.turnAt! + TURN_MS);
+  assert.equal(s.phase, "settle");
+  assert.equal(player(s, "a").hand2?.done, true);
+});
