@@ -293,6 +293,20 @@ test("auto-action: checks when free, folds to a bet, and sits the player out", (
   assert.equal(checked.phase, "flop");
 });
 
+test("fold stays legal when checking is free, so the client confirm cannot strand a player", () => {
+  const s = act(table(["a", "b"]), "a", { type: "call" });
+  assert.equal(s.turnId, "b");
+  assert.equal(legalActions(s, "b")?.canCheck, true);
+  const folded = act(s, "b", { type: "fold" });
+  assert.equal(player(folded, "b").folded, true);
+});
+
+test("facing a bet there is no free check, so fold is the single-tap path", () => {
+  const s = table(["a", "b"]);
+  assert.equal(legalActions(s, "a")?.canCheck, false);
+  assert.ok(legalActions(s, "a")!.callAmount > 0);
+});
+
 test("hole cards never leak to other viewers and the deck is hidden", () => {
   const s = table(["a", "b", "c"], { hole: { a: ["As", "Ah"], b: ["Kc", "Kd"], c: ["Qc", "Qd"] } });
   for (const viewer of ["a", "b", "c", "watcher"]) {
