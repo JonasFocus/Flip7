@@ -646,3 +646,22 @@ test("wentAllIn names the player who just shoved, but not a blind posted all-in 
   assert.ok(dealt.players.some((p) => p.allIn));
   assert.equal(wentAllIn(lobby, dealt), null);
 });
+
+test("three-handed bust to heads-up: last hand's big blind takes the button and small blind", () => {
+  const s = table(["a", "b", "c"]);
+  assert.equal(s.button, 0);
+  assert.equal(s.sbId, "b");
+  assert.equal(s.bbId, "c");
+  const lobby: TxState = {
+    ...s,
+    phase: "lobby",
+    startAt: 5000,
+    players: s.players.map((p) => ({ ...p, bet: 0, total: 0, folded: false, allIn: false, cards: [], chips: p.id === "a" ? 0 : START_CHIPS })),
+  };
+  const next = onDeadline(lobby, 5000, newRng());
+  assert.equal(next.phase, "preflop");
+  assert.equal(next.sbId, "c");
+  assert.equal(next.bbId, "b");
+  assert.equal(next.button, 2);
+  assert.equal(next.turnId, "c");
+});
