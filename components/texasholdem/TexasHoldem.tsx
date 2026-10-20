@@ -517,7 +517,8 @@ function Seat({
   const result = revealed ? player.result : null;
   const won = (result?.won ?? 0) > 0;
   const inHand = player.cards.length > 0;
-  const showCards = inHand && (mine || !player.folded);
+  const ranked = game.phase === "showdown" && player.result?.hand != null; // a hand shown at a contested showdown stays up after its owner leaves
+  const showCards = inHand && (mine || !player.folded || ranked);
   const busted = !inHand && player.chips < BIG_BLIND;
   const awardRef = useRef<HTMLSpanElement>(null);
   useFly(awardRef, won ? "[data-pot]" : undefined, "from", 150);
@@ -583,7 +584,7 @@ function Seat({
               card={c}
               delay={(i * handSize + order) * DEAL_STAGGER_MS}
               sweep={clearing}
-              dim={player.folded || dimCard(c)}
+              dim={(player.folded && !ranked) || dimCard(c)}
               size={size}
               className={cx(mine ? (i === 0 ? "-rotate-3" : "rotate-3") : faceUp ? (i === 0 ? "-rotate-3" : "rotate-3") : i === 0 ? "-rotate-6" : "rotate-6 -ml-[0.5em]", c && won && !dimCard(c) && "ring-2 ring-active", "rounded-[0.12em]")}
             />

@@ -420,10 +420,11 @@ export function wentAllIn(prev: TxState, next: TxState): TxPlayer | null {
 
 // Your own cards always show; everyone else's stay face down until they are shown down (or run out all-in).
 export function redactTx(s: TxState, viewerId: string): TxState {
-  const contested = s.players.filter(isLive).length > 1;
-  const revealed = s.runout || (s.phase === "showdown" && contested);
   const players = s.players.map((p) => {
-    const visible = p.id === viewerId || (isLive(p) && (revealed || p.shown));
+    // A hand name is only set when the hand was actually ranked at a contested showdown. That stays true
+    // after a player leaves (and so folds), which keeps the reveal on screen for the rest of the table.
+    const shownDown = s.phase === "showdown" && p.result?.hand != null;
+    const visible = p.id === viewerId || shownDown || (isLive(p) && (s.runout || p.shown));
     return visible ? p : { ...p, cards: p.cards.map(() => null) };
   });
   return { ...s, players, deck: [], stacks: {} };
