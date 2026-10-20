@@ -133,34 +133,51 @@
 .tx-lift { transform: translateY(-3px); transition: transform 300ms var(--ease-out); }
 .tx-in { animation: tx-in 420ms var(--ease-spring) both; }
 .tx-rise { animation: tx-rise 320ms var(--ease-out) both; }
+.tx-react { animation: tx-float 2s ease-out both; }
+
+/* All-in: the rail lights up red like an arcade marquee, flickers on, holds, then fades. 2600ms matches ALL_IN_MS. */
+.tx-allin {
+  border-radius: 50% / 40%;
+  box-shadow:
+    0 0 0 2px oklch(0.66 0.25 25),
+    0 0 16px 2px oklch(0.62 0.25 25 / 0.6),
+    inset 0 0 0 2px oklch(0.7 0.24 25),
+    inset 0 0 28px 4px oklch(0.6 0.25 25 / 0.4);
+  animation: tx-allin 2600ms linear both;
+}
+.tx-allin-call {
+  text-shadow: 0 0 10px oklch(0.62 0.25 25 / 0.8), 0 2px 0 oklch(0 0 0 / 0.6);
+  animation: tx-allin-call 2600ms var(--ease-out) both;
+}
 }
 
-.tx-range {
-  appearance: none;
-  width: 100%;
-  height: 28px;
-  background: transparent;
-  touch-action: pan-y;
+@keyframes tx-allin {
+  0% { opacity: 0; }
+  4% { opacity: 1; }
+  7% { opacity: 0.2; }
+  10% { opacity: 1; }
+  13% { opacity: 0.4; }
+  16% { opacity: 1; }
+  40% { opacity: 1; filter: brightness(1.3); }
+  75% { opacity: 0.8; filter: none; }
+  100% { opacity: 0; }
 }
-.tx-range::-webkit-slider-runnable-track { height: 6px; border-radius: 9999px; background: var(--color-surface-2); }
-.tx-range::-moz-range-track { height: 6px; border-radius: 9999px; background: var(--color-surface-2); }
-.tx-range::-webkit-slider-thumb {
-  appearance: none;
-  width: 26px;
-  height: 26px;
-  margin-top: -10px;
-  border-radius: 9999px;
-  border: 0;
-  background: var(--color-accent);
-  box-shadow: 0 0 0 4px oklch(0.2 0.006 260), 0 2px 8px oklch(0 0 0 / 0.6);
+
+@keyframes tx-allin-call {
+  0% { opacity: 0; transform: scale(1.4); }
+  12% { opacity: 1; transform: scale(1); }
+  80% { opacity: 1; }
+  100% { opacity: 0; }
 }
-.tx-range::-moz-range-thumb {
-  width: 26px;
-  height: 26px;
-  border-radius: 9999px;
-  border: 0;
-  background: var(--color-accent);
-  box-shadow: 0 0 0 4px oklch(0.2 0.006 260), 0 2px 8px oklch(0 0 0 / 0.6);
+
+@keyframes tx-hold {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+.tx-hold {
+  transform-origin: left;
+  animation: tx-hold 3s linear forwards;
 }
 
 @keyframes tx-glow {
@@ -183,6 +200,21 @@
   from { opacity: 0; transform: translateY(10px); }
 }
 
+@keyframes tx-float {
+  from { opacity: 0; transform: translateY(8px) scale(0.7); }
+  15% { opacity: 1; transform: translateY(0) scale(1.15); }
+  80% { opacity: 1; }
+  to { opacity: 0; transform: translateY(-18px); }
+}
+
+@keyframes tx-fade {
+  from { opacity: 0; }
+  10%, 80% { opacity: 1; }
+  to { opacity: 0; }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .tx-glow, .tx-win, .tx-in, .tx-rise, .tx-pop { animation: none; }
+  .tx-glow, .tx-win, .tx-in, .tx-rise, .tx-pop, .tx-allin, .tx-allin-call { animation: none; }
+  .tx-hold { display: none; }
+  .tx-react { animation-name: tx-fade; }
 }

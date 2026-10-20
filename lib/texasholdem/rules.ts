@@ -15,6 +15,7 @@ export const REVEAL_MS = 1800; // all-in called: a beat with the hands face up b
 export const RUNOUT_MS = 2200; // between streets of an all-in runout
 export const DEAL_STAGGER_MS = 200; // client deal animation: gap between cards going round the table
 export const CARD_SLIDE_MS = 550; // client deal animation: one card's trip from the deck
+export const REACTION_COOLDOWN_MS = 1500; // between emoji reactions from one player
 
 // Two passes round the table; the first turn's clock starts once the last card lands.
 export const dealAnimMs = (hands: number): number => (2 * hands - 1) * DEAL_STAGGER_MS + CARD_SLIDE_MS;
@@ -42,7 +43,7 @@ const seatOf = (p: TxPlayer): number => p.seat ?? -1;
 const bySeat = (a: TxPlayer, b: TxPlayer) => seatOf(a) - seatOf(b);
 const isLive = (p: TxPlayer): boolean => p.cards.length > 0 && !p.folded;
 const canAct = (p: TxPlayer): boolean => isLive(p) && !p.allIn;
-const isDealable = (p: TxPlayer): boolean => p.seat !== null && !p.sitOut && !p.gone && p.chips > 0;
+const isDealable = (p: TxPlayer): boolean => p.seat !== null && p.connected && !p.sitOut && !p.gone && p.chips > 0;
 const isStreet = (phase: TxPhase): boolean => phase === "preflop" || phase === "flop" || phase === "turn" || phase === "river";
 const holeOf = (p: TxPlayer): TxCard[] => p.cards.filter((c): c is TxCard => c !== null);
 
@@ -111,6 +112,7 @@ export function addTxPlayer(s: TxState, p: { id: string; name: string }): TxStat
     gone: false,
     shown: false,
     result: null,
+    reaction: null,
   };
   return { ...s, players: [...s.players, player], seq: s.seq + 1 };
 }
@@ -118,7 +120,8 @@ export function addTxPlayer(s: TxState, p: { id: string; name: string }): TxStat
 export function setTxConnected(s: TxState, id: string, connected: boolean, now: number): TxState {
   const p = s.players.find((x) => x.id === id);
   if (!p || p.connected === connected) return s;
-  return seal(syncLobby(patch(s, id, (x) => ({ ...x, connected, sitOut: !connected })), now), s);
+  // Rejoining cancels a mid-hand leave: still folded this hand, but kept at the table.
+  return seal(syncLobby(patch(s, id, (x) => ({ ...x, connected, gone: connected ? false : x.gone })), now), s);
 }
 
 function startHand(s: TxState, now: number, rng: Rng): TxState {
@@ -146,6 +149,8 @@ function startHand(s: TxState, now: number, rng: Rng): TxState {
     if (p.id === bb.id) return commit(fresh, BIG_BLIND);
     return fresh;
   });
+  // Heads-up, a short big blind can post less than the small blind. Nobody owes more than the largest posted blind.
+  const posted = headsUp ? Math.max(...players.map((p) => p.bet)) : BIG_BLIND;
   const dealt: TxState = {
     ...s,
     phase: "preflop",
@@ -155,7 +160,7 @@ function startHand(s: TxState, now: number, rng: Rng): TxState {
     button: seatOf(btn),
     sbId: sb.id,
     bbId: bb.id,
-    currentBet: BIG_BLIND,
+    currentBet: posted,
     minRaise: BIG_BLIND,
     turnId: null,
     turnAt: null,
@@ -288,7 +293,7 @@ export function removeTxPlayer(s: TxState, id: string, opts: { now: number; rng?
   const rng = opts.rng ?? cryptoRng;
   if (me.cards.length === 0) return syncLobby({ ...s, players: s.players.filter((p) => p.id !== id), seq: s.seq + 1 }, opts.now);
   // Their chips stay in the pot, so the seat lingers (folded) until the hand ends.
-  const folded = patch(s, id, (p) => ({ ...p, folded: true, gone: true, connected: false, sitOut: true }));
+  const folded = patch(s, id, (p) => ({ ...p, folded: true, gone: true, connected: false }));
   if (s.phase === "showdown") return { ...folded, seq: s.seq + 1 };
   if (s.turnId === id) return seal(proceed(folded, seatOf(me), opts.now, rng), s);
   return seal(resume(folded, opts.now, rng), s);
@@ -325,6 +330,10 @@ export function applyTxIntent(s: TxState, actorId: string, intent: TxIntent, opt
       if (inHand) return fail("Wait for the hand to finish");
       if (me.chips >= BIG_BLIND) return fail("You still have chips");
       return lobby(patch(s, actorId, (p) => ({ ...p, chips: START_CHIPS })));
+    case "react":
+      if (me.seat === null) return fail("Take a seat first");
+      if (me.reaction && now - me.reaction.at < REACTION_COOLDOWN_MS) return fail("Slow down");
+      return done(patch(s, actorId, (p) => ({ ...p, reaction: { emoji: intent.emoji, at: now } })));
     case "show":
       if (s.phase !== "showdown" || !isLive(me)) return fail("Nothing to show");
       return done(patch(s, actorId, (p) => ({ ...p, shown: true })));
@@ -387,6 +396,12 @@ export function onDeadline(s: TxState, now: number, rng: Rng = cryptoRng): TxSta
   const timedOut = patch(s, actor.id, (p) => ({ ...p, sitOut: true }));
   if (actor.bet >= s.currentBet) return seal(proceed(patch(timedOut, actor.id, (p) => ({ ...p, acted: true })), seatOf(actor), now, rng), s);
   return seal(proceed(patch(timedOut, actor.id, (p) => ({ ...p, folded: true })), seatOf(actor), now, rng), s);
+}
+
+// The player who just shoved, for the table's all-in moment. A blind posted all-in at the deal doesn't count.
+export function wentAllIn(prev: TxState, next: TxState): TxPlayer | null {
+  if (prev.round !== next.round) return null;
+  return next.players.filter((p) => p.allIn && !p.folded && !prev.players.find((q) => q.id === p.id)?.allIn).at(-1) ?? null;
 }
 
 // Your own cards always show; everyone else's stay face down until they are shown down (or run out all-in).
