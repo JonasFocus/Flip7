@@ -1,15 +1,20 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  START_CHIPS,
   START_MS,
   TX_BOT_STYLES,
   addTxPlayer,
   applyTxIntent,
   chooseTxIntent,
   createTxGame,
+  canKickTx,
+  isTxBotId,
   legalActions,
   newDeck,
+  nextTxBotMove,
   onDeadline,
+  removeTxPlayer,
   serverDeadline,
   type Rank,
   type TxCard,
@@ -197,4 +202,123 @@ test("the same state and seed give the same intent", () => {
       assert.deepEqual(chooseTxIntent(s, "b", p, mulberry(seed)), chooseTxIntent(s, "b", p, mulberry(seed)));
     }
   }
+});
+
+test("nextTxBotMove stays quiet on a human's turn and waits out the deal before a bot acts", () => {
+  const s = table(["bot-a", "h"]);
+  const botTurn = s.turnId === "bot-a" ? s : act(s, "h", { type: "call" });
+  const humanTurn = s.turnId === "h" ? s : act(s, "bot-a", { type: "call" });
+  assert.equal(nextTxBotMove(humanTurn, 0, mulberry(1)), null);
+
+  const { turnAt } = botTurn;
+  assert.ok(turnAt !== null);
+  for (let seed = 1; seed <= 20; seed++) {
+    const move = nextTxBotMove(botTurn, 0, mulberry(seed));
+    assert.ok(move && move.playerId === "bot-a");
+    assert.ok(move.atMs >= turnAt + 1000 && move.atMs <= turnAt + 2000, `${move.atMs} vs ${turnAt}`);
+    const res = applyTxIntent(botTurn, move.playerId, move.intent, { isHost: false, now: move.atMs });
+    assert.ok(res.ok, res.ok ? "" : res.error);
+  }
+  const late = nextTxBotMove(botTurn, turnAt + 5000, mulberry(1));
+  assert.ok(late && late.atMs >= turnAt + 6000);
+});
+
+test("nextTxBotMove rebuys a busted bot and sits a benched one back in, only in the lobby", () => {
+  let s = seat(["bot-a", "bot-b", "h"]);
+  assert.equal(nextTxBotMove(s, 5000, mulberry(1)), null);
+  s = { ...s, players: s.players.map((p) => (p.id === "bot-a" ? { ...p, chips: 0 } : p.id === "bot-b" ? { ...p, sitOut: true } : p)) };
+  const first = nextTxBotMove(s, 5000, mulberry(1));
+  assert.deepEqual(first && [first.playerId, first.intent, first.atMs], ["bot-a", { type: "rebuy" }, 6500]);
+  s = act(s, "bot-a", { type: "rebuy" });
+  const second = nextTxBotMove(s, 5000, mulberry(1));
+  assert.deepEqual(second && [second.playerId, second.intent], ["bot-b", { type: "sitIn" }]);
+  assert.equal(nextTxBotMove({ ...s, phase: "showdown" }, 5000, mulberry(1)), null);
+});
+
+test("a bot with no answer from the brain still checks or folds", () => {
+  const s = table(["bot-a", "h"]);
+  const botTurn = s.turnId === "bot-a" ? s : act(s, "h", { type: "call" });
+  const stripped = { ...botTurn, players: botTurn.players.map((p) => (p.id === "bot-a" ? { ...p, cards: [] } : p)) };
+  assert.equal(chooseTxIntent(stripped, "bot-a", "tight", mulberry(1)), null);
+  const canCheck = legalActions(stripped, "bot-a")?.canCheck;
+  assert.deepEqual(nextTxBotMove(stripped, 0, mulberry(1))?.intent, { type: canCheck ? "check" : "fold" });
+});
+
+// Drives a bot-only table on a virtual clock: a due bot move first, else the engine's own deadline.
+function playBots(n: number, hands: number, seed: number): { rebuys: number; redealt: number } {
+  const rng = mulberry(seed);
+  let s = createTxGame();
+  for (let i = 0; i < n; i++) {
+    const style = TX_BOT_STYLES[(i + seed) % TX_BOT_STYLES.length]!;
+    s = addTxPlayer(s, { id: `bot-${i}`, name: style.name });
+    s = act(s, `bot-${i}`, { type: "sit", seat: i }, 1000);
+  }
+  let total = s.players.reduce((sum, p) => sum + p.chips, 0);
+  let rebuys = 0;
+  let redealt = 0;
+  const waiting = new Set<string>();
+  let now = 1000;
+  for (let step = 0; step < hands * 400 && s.round < hands; step++) {
+    const move = nextTxBotMove(s, now, rng);
+    const due = serverDeadline(s);
+    if (move && (due === null || move.atMs <= due)) {
+      now = Math.max(now, move.atMs);
+      if (move.intent.type === "rebuy") {
+        total += START_CHIPS - (s.players.find((p) => p.id === move.playerId)?.chips ?? 0);
+        rebuys++;
+        waiting.add(move.playerId);
+      }
+      const res = applyTxIntent(s, move.playerId, move.intent, { isHost: false, now, rng });
+      assert.ok(res.ok, res.ok ? "" : `${move.playerId} ${JSON.stringify(move.intent)}: ${res.error}`);
+      s = res.state;
+    } else {
+      assert.ok(due !== null, `stalled in ${s.phase} at step ${step}`);
+      now = Math.max(now, due);
+      s = onDeadline(s, now, rng);
+    }
+    if (s.phase === "lobby") assert.equal(s.players.reduce((sum, p) => sum + p.chips, 0), total, "chips leaked");
+    for (const p of s.players) {
+      if (p.cards.length > 0 && waiting.delete(p.id)) redealt++;
+    }
+  }
+  assert.ok(s.round >= hands, `only reached round ${s.round}`);
+  return { rebuys, redealt };
+}
+
+test("bot-only tables of 3 to 6 play 200 hands with no stall, no illegal move and no leaked chips", () => {
+  let rebuys = 0;
+  let redealt = 0;
+  for (let n = 3; n <= 6; n++) {
+    for (const seed of [1, 2]) {
+      const r = playBots(n, 200, seed * 10 + n);
+      rebuys += r.rebuys;
+      redealt += r.redealt;
+    }
+  }
+  assert.ok(rebuys > 0, "nobody busted");
+  assert.ok(redealt >= rebuys - 8, `${redealt} redealt of ${rebuys} rebuys`);
+});
+
+test("the host may remove a bot mid-hand: it folds, the hand goes on, and the seat frees at the next boundary", () => {
+  const s = table(["bot-a", "h1", "h2"]);
+  assert.ok(isTxBotId("bot-a") && !isTxBotId("h1"));
+  assert.equal(canKickTx(s, "bot-a"), true);
+  assert.equal(canKickTx(s, "h1"), false, "a connected human who is still playing stays");
+
+  const removed = removeTxPlayer(s, "bot-a", { now: 100_000, rng: mulberry(3) });
+  const bot = removed.players.find((p) => p.id === "bot-a");
+  assert.ok(bot?.folded && bot.gone && bot.seat !== null, "folded but holding its seat until the hand ends");
+  assert.notEqual(removed.turnId, "bot-a");
+  assert.equal(canKickTx(removed, "bot-a"), false);
+
+  let after = removed;
+  for (let i = 0; i < 40 && after.phase !== "showdown"; i++) {
+    const id = after.turnId;
+    if (id === null) break;
+    after = act(after, id, legalActions(after, id)?.canCheck ? { type: "check" } : { type: "call" });
+  }
+  assert.equal(after.phase, "showdown");
+  const lobby = onDeadline(after, (after.settleAt ?? 0) + 1, mulberry(4));
+  assert.equal(lobby.phase, "lobby");
+  assert.ok(!lobby.players.some((p) => p.id === "bot-a"), "seat freed");
 });
