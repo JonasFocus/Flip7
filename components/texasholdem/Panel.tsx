@@ -161,12 +161,22 @@ function Actions({ conn, me, secs }: { conn: TxConnection; me: TxPlayer; secs: n
         label={
           <>
             Your move · pot <span className="text-accent tabular-nums">{game.pot.toLocaleString()}</span>
+            {canRaise && <span className="text-muted tabular-nums"> · min raise {minRaiseTo.toLocaleString()}</span>}
           </>
         }
         secs={secs}
       />
       {canRaise && (
-        <div className="grid grid-cols-5 items-center gap-2">
+        <div className="grid grid-cols-6 items-center gap-2">
+          <button
+            type="button"
+            aria-label={`Remove 1 big blind, ${BIG_BLIND} chips`}
+            disabled={amount === minRaiseTo}
+            onClick={() => (tap(), setRaiseTo(stackRaise(amount, -1, minRaiseTo, maxRaiseTo)))}
+            className={cx(chipButton, "text-sm font-bold tabular-nums")}
+          >
+            −{shortAmount(BIG_BLIND)}
+          </button>
           {RAISE_CHIPS.map((bb) => {
             const add = bb * BIG_BLIND;
             return (
@@ -277,7 +287,7 @@ function Label({ top, bottom }: { top: string; bottom: string }) {
   return (
     <span className="flex flex-col items-center gap-1 leading-none">
       <span className="text-[11px] tracking-[0.12em] opacity-70">{top}</span>
-      <span className="text-lg tabular-nums">{bottom}</span>
+      <span className="text-2xl tabular-nums">{bottom}</span>
     </span>
   );
 }

@@ -12,7 +12,7 @@ export function clampRaise(amount: number, minRaiseTo: number, maxRaiseTo: numbe
   return Math.min(maxRaiseTo, Math.max(minRaiseTo, n));
 }
 
-// Stack a chip of `bigBlinds` big blinds onto the current amount, never leaving the legal range.
+// Stack a chip of `bigBlinds` big blinds onto the current amount (negative removes them), never leaving the legal range.
 export function stackRaise(current: number, bigBlinds: number, minRaiseTo: number, maxRaiseTo: number): number {
   return clampRaise(clampRaise(current, minRaiseTo, maxRaiseTo) + bigBlinds * BIG_BLIND, minRaiseTo, maxRaiseTo);
 }

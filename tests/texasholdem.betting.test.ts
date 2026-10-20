@@ -30,6 +30,13 @@ test("stackRaise adds big blinds onto the current amount", () => {
   assert.equal(amount, 360);
 });
 
+test("stackRaise steps down by big blinds and stops at the min raise", () => {
+  assert.equal(stackRaise(160, -1, 40, 1000), 140);
+  assert.equal(stackRaise(60, -1, 40, 1000), 40);
+  assert.equal(stackRaise(40, -1, 40, 1000), 40);
+  assert.equal(stackRaise(1000, -1, 40, 1000), 980);
+});
+
 test("stackRaise never exceeds the stack", () => {
   assert.equal(stackRaise(900, 10, 40, 1000), 1000);
   assert.equal(stackRaise(1000, 1, 40, 1000), 1000);
