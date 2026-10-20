@@ -729,9 +729,11 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
   function kick(c: Client, live: LiveRoom, playerId: string) {
     const { room } = live;
     if (room.mode === "physical") return fail(c, "Use seat removal in scorekeeper rooms");
-    if (room.game.phase !== "lobby") return fail(c, "Can only remove players in the lobby");
     if (playerId === c.clientId) return fail(c, "Use leave instead");
     if (!room.game.players.some((p) => p.id === playerId)) return fail(c, "No such player");
+    if (room.mode === "texasholdem") {
+      if (!tx.canKickTx(room.game, playerId)) return fail(c, "Only offline or sitting-out players can be removed mid-hand");
+    } else if (room.game.phase !== "lobby") return fail(c, "Can only remove players in the lobby");
     if (room.mode === "imposter") room.game = removeImposterPlayer(room.game, playerId);
     else if (isParty(room)) withParty(room, (p) => p.set(p.e.remove(p.game, playerId, { now: Date.now() })));
     else room.game = removePlayer(room.game, playerId);
