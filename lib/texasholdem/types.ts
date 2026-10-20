@@ -9,8 +9,8 @@ export interface TxCard {
 }
 
 export interface TxHandResult {
-  won: number; // chips collected from the pots
-  net: number; // won minus everything you put in
+  won: number; // chips collected from the pots, not counting an uncalled bet returned to you
+  net: number; // everything you got back minus everything you put in
   hand: string | null; // "Two pair, Kings and Fives"; null when folded or the hand was never shown down
   best: TxCard[]; // the five cards that make `hand`, for highlighting; [] when hand is null
 }

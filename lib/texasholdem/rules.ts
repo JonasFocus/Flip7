@@ -221,7 +221,10 @@ function showdown(s: TxState, now: number): TxState {
   const live = s.players.filter(isLive);
   const hands = new Map(live.map((p) => [p.id, evaluate([...holeOf(p), ...s.board])]));
   const won = new Map<string, number>();
-  const pots = buildPots(s.players.filter((p) => p.total > 0).map((p) => ({ id: p.id, total: p.total, folded: !isLive(p) })));
+  const [top, next] = [...s.players].sort((a, b) => b.total - a.total);
+  // A bet nobody matched goes back to its owner untouched; it is not a pot win.
+  const refund = top && isLive(top) ? top.total - (next?.total ?? 0) : 0;
+  const pots = buildPots(s.players.filter((p) => p.total > 0).map((p) => ({ id: p.id, total: p.id === top?.id ? top.total - refund : p.total, folded: !isLive(p) })));
   for (const pot of pots) {
     const contenders = live.filter((p) => pot.eligible.includes(p.id));
     const top = Math.max(...contenders.map((p) => hands.get(p.id)?.value ?? 0));
@@ -238,7 +241,8 @@ function showdown(s: TxState, now: number): TxState {
     if (p.cards.length === 0) return p;
     const take = won.get(p.id) ?? 0;
     const hand = hands.get(p.id);
-    return { ...p, chips: p.chips + take, result: { won: take, net: take - p.total, hand: hand?.name ?? null, best: hand?.best ?? [] } };
+    const back = p.id === top?.id ? refund : 0;
+    return { ...p, chips: p.chips + take + back, result: { won: take, net: take + back - p.total, hand: hand?.name ?? null, best: hand?.best ?? [] } };
   });
   return { ...s, players, phase: "showdown", turnId: null, turnAt: null, dealAt: null, runout: false, settleAt: now + SHOWDOWN_MS };
 }

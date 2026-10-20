@@ -262,6 +262,20 @@ test("side pots: short stack can only win what it covered", () => {
   assert.equal(player(s, "c").result?.net, -300);
 });
 
+test("an uncalled bet comes back as a refund, not a win for the bigger stack", () => {
+  let s = table(["a", "b"], {
+    chips: { a: 1000, b: 100 },
+    hole: { a: ["Kc", "Kd"], b: ["As", "Ah"] },
+    board: ["2c", "7d", "9h", "Jc", "3s"],
+  });
+  s = act(s, "a", { type: "allIn" });
+  s = act(s, "b", { type: "call" });
+  while (s.phase !== "showdown") s = onDeadline(s, serverDeadline(s)!);
+  assert.deepEqual([player(s, "b").chips, player(s, "b").result?.won, player(s, "b").result?.net], [200, 200, 100]);
+  assert.deepEqual([player(s, "a").chips, player(s, "a").result?.won, player(s, "a").result?.net], [900, 0, -100]);
+  assert.equal(chipsAndPot(s), 1100);
+});
+
 test("split pot hands the odd chip to the first winner left of the button", () => {
   let s = table(["a", "b", "c"], {
     chips: { a: 5, b: 2000, c: 2000 },
