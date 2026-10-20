@@ -225,7 +225,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .tx-glow, .tx-win, .tx-in, .tx-bump, .tx-rise, .tx-pop, .tx-allin, .tx-allin-call, .tx-low { animation: none; }
-  .tx-lift { transform: none; transition: none; }
+  .tx-lift { transition: none; }
   .tx-hold { display: none; }
   .tx-react { animation-name: tx-fade; }
 }
