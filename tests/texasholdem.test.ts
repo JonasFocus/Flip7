@@ -21,6 +21,7 @@ import {
   removeTxPlayer,
   serverDeadline,
   setTxConnected,
+  stackBeforeAward,
   wentAllIn,
   type Rank,
   type TxCard,
@@ -591,4 +592,13 @@ test("wentAllIn names the player who just shoved, but not a blind posted all-in 
   const dealt = onDeadline(lobby, 1000 + START_MS, newRng());
   assert.ok(dealt.players.some((p) => p.allIn));
   assert.equal(wentAllIn(lobby, dealt), null);
+});
+
+test("stackBeforeAward holds the winnings back only at showdown", () => {
+  const result = (won: number) => ({ won, net: won, hand: null, best: [] });
+  assert.equal(stackBeforeAward({ chips: 1300, result: result(300) }, "showdown"), 1000);
+  assert.equal(stackBeforeAward({ chips: 1300, result: null }, "showdown"), 1300);
+  assert.equal(stackBeforeAward({ chips: 1300, result: result(300) }, "river"), 1300);
+  assert.equal(stackBeforeAward({ chips: 1300, result: result(300) }, "preflop"), 1300);
+  assert.equal(stackBeforeAward({ chips: 700, result: result(0) }, "showdown"), 700);
 });

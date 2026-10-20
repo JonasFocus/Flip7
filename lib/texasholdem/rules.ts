@@ -392,6 +392,11 @@ export function onDeadline(s: TxState, now: number, rng: Rng = cryptoRng): TxSta
   return seal(proceed(patch(timedOut, actor.id, (p) => ({ ...p, folded: true })), seatOf(actor), now, rng), s);
 }
 
+// The stack before this hand's pots were paid: at showdown the winnings are already in `chips`.
+export function stackBeforeAward(p: Pick<TxPlayer, "chips" | "result">, phase: TxState["phase"]): number {
+  return phase === "showdown" && p.result ? p.chips - p.result.won : p.chips;
+}
+
 // The player who just shoved, for the table's all-in moment. A blind posted all-in at the deal doesn't count.
 export function wentAllIn(prev: TxState, next: TxState): TxPlayer | null {
   if (prev.round !== next.round) return null;

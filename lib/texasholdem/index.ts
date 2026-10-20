@@ -27,6 +27,7 @@ export {
   redactTx,
   removeTxPlayer,
   serverDeadline,
+  stackBeforeAward,
   setTxConnected,
   streetAnimMs,
   visibleDeadline,

@@ -81,7 +81,7 @@ function TurnClock({ label, secs }: { label: ReactNode; secs: number | null }) {
         {secs !== null && <span className={cx("tabular-nums", low ? "text-danger" : "text-muted")}>{secs}s</span>}
       </div>
       <div className="h-1 overflow-hidden rounded-full bg-surface-2">
-        <div className={cx("h-full origin-left rounded-full transition-[width] duration-1000 ease-linear", low ? "bg-danger" : "bg-accent")} style={{ width: `${pct}%` }} />
+        <div className={cx("h-full origin-left rounded-full transition-[width] duration-1000 ease-linear motion-reduce:transition-none", low ? "bg-danger" : "bg-accent")} style={{ width: `${pct}%` }} />
       </div>
     </div>
   );

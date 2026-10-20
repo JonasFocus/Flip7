@@ -4,8 +4,10 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperti
 import "./texasholdem.css";
 import { CardFace } from "@/components/casino/CardFace";
 import { Chip, shortAmount } from "@/components/casino/Chip";
+import { gapTo, reducedMotion } from "@/components/casino/motion";
 import { shareInvite } from "@/components/lobby/Lobby";
 import { useSecondsLeft } from "@/components/table/ActionBar";
+import { useCountUp } from "@/components/table/moments/util";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { cx } from "@/components/ui/cx";
@@ -25,6 +27,7 @@ import {
   buildPots,
   dealAnimMs,
   madeHand,
+  stackBeforeAward,
   streetAnimMs,
   wentAllIn,
 } from "@/lib/texasholdem";
@@ -63,19 +66,8 @@ const REACTION_SHOW_MS = 2000;
 const BOARD_SIZE = "clamp(36px,10.4vw,46px)";
 const STREET: Record<TxState["phase"], string> = { lobby: "", preflop: "PRE-FLOP", flop: "FLOP", turn: "TURN", river: "RIVER", showdown: "SHOWDOWN" };
 
-const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
-
 const seatPos = (rel: number) => SEAT_POS[rel % SEAT_POS.length] ?? SEAT_POS[0];
 const betPos = (rel: number) => BET_POS[rel % BET_POS.length] ?? BET_POS[0];
-
-// Distance from el's centre to the centre of a landmark on the felt ([data-deck], [data-pot], [data-seat="n"]).
-function gapTo(el: Element, selector: string): { dx: number; dy: number } | null {
-  const target = el.closest("[data-table]")?.querySelector(selector);
-  if (!target) return null;
-  const a = el.getBoundingClientRect();
-  const b = target.getBoundingClientRect();
-  return { dx: b.left + b.width / 2 - (a.left + a.width / 2), dy: b.top + b.height / 2 - (a.top + a.height / 2) };
-}
 
 // "to": carry el to the landmark and fade it. "from": bring el in from the landmark and set it down.
 function useFly(ref: RefObject<HTMLElement | null>, target: string | undefined, dir: "to" | "from", delay = 0, duration = AWARD_MS) {
@@ -151,8 +143,9 @@ export function TexasHoldem({ conn }: { conn: TxConnection }) {
   const dealing = street && !game.runout && left !== null && left > TURN_MS / 1000;
   const secs = dealing ? null : left;
 
-  // Winnings are already in the stack at showdown; hold them back until the winner is called.
-  const stack = me ? me.chips - (game.phase === "showdown" && !revealed && me.result ? me.result.won : 0) : 0;
+  // Winnings are already in the stack at showdown; hold them back, then count them up when the winner is called.
+  const held = me ? stackBeforeAward(me, game.phase) : 0;
+  const stack = useCountUp(me && revealed ? me.chips : held, held, 0, 700);
   const offline = conn.status !== "open";
 
   async function share() {
@@ -187,7 +180,7 @@ export function TexasHoldem({ conn }: { conn: TxConnection }) {
             <span aria-hidden>😊</span>
           </button>
         )}
-        <p className="flex min-h-11 items-center gap-1.5 rounded-full bg-surface px-3 font-display text-sm tabular-nums text-accent" aria-label={`${stack} chips`}>
+        <p className="flex min-h-11 items-center gap-1.5 rounded-full bg-surface px-3 font-display text-sm tabular-nums text-accent" aria-label={`${me?.chips ?? 0} chips`}>
           <Chip amount={stack} size="xs" label="" color="var(--color-accent)" />
           {stack.toLocaleString()}
         </p>
@@ -525,7 +518,7 @@ function Seat({
   const dimCard = (c: TxCard | null) => revealed && won && bestOf.length > 0 && c !== null && !bestOf.some((b) => sameCard(b, c));
 
   // Winnings are in the stack already at showdown; hold them back until the winner is called.
-  const shownStack = player.chips - (game.phase === "showdown" && !revealed && player.result ? player.result.won : 0);
+  const shownStack = revealed ? player.chips : stackBeforeAward(player, game.phase);
   const faceUp = !mine && player.cards.some((c) => c !== null); // an opponent's hand only arrives face up at showdown
   const size = mine ? "clamp(44px,13vw,54px)" : faceUp ? "clamp(30px,9vw,36px)" : "clamp(22px,6.4vw,28px)";
 
