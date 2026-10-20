@@ -8,6 +8,7 @@ export const START_CHIPS = 2000; // 100 big blinds
 export const SMALL_BLIND = 10;
 export const BIG_BLIND = 20;
 export const TURN_MS = 25_000; // then the server checks, or folds if there is a bet to face
+export const LOW_TURN_SECS = 5; // the turn clock turns urgent at this many seconds left
 export const START_MS = 3000; // two funded players are seated: the next hand is dealt after this beat
 export const SHOWDOWN_MS = 7000; // results and the winning hand stay up before the table resets
 export const FOLD_WIN_MS = 3500; // everyone folded: a shorter beat, no hands to read

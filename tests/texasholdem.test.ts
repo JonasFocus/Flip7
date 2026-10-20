@@ -4,6 +4,7 @@ import {
   BIG_BLIND,
   DROP_GRACE_MS,
   FOLD_WIN_MS,
+  LOW_TURN_SECS,
   REACTION_COOLDOWN_MS,
   RUNOUT_MS,
   SHOWDOWN_MS,
@@ -315,6 +316,11 @@ test("split pot hands the odd chip to the first winner left of the button", () =
   assert.equal(player(s, "c").chips, 1980 + 8 + 10 + 10);
   assert.equal(player(s, "b").chips, 1990);
   assert.equal(chipsAndPot(s), 5 + 4000);
+});
+
+test("the low-time warning stays reachable inside the turn clock", () => {
+  assert.ok(Number.isInteger(LOW_TURN_SECS) && LOW_TURN_SECS > 0);
+  assert.ok(LOW_TURN_SECS < TURN_MS / 1000);
 });
 
 test("auto-action: checks when free, folds to a bet, and sits the player out", () => {
@@ -668,6 +674,7 @@ const payee = (id: string, name: string, won: number, hand: string | null, best:
   id,
   name,
   connected: true,
+  droppedAt: null,
   seat: 0,
   chips: 0,
   bet: 0,
