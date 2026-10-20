@@ -24,6 +24,10 @@ export function DealtCard({
   sweepMs,
   delay = 0,
   sweep = false,
+  from = "[data-shoe]",
+  to = "[data-discard]",
+  pips,
+  size,
   className,
   style,
 }: {
@@ -33,6 +37,10 @@ export function DealtCard({
   sweepMs: number; // the trip to the discard tray at the end of the hand
   delay?: number; // may be negative: a card already partway (or all the way) through its trip
   sweep?: boolean; // end of the hand: slide off to the discard tray
+  from?: string; // landmark the card is dealt out of
+  to?: string; // landmark the card is swept into
+  pips?: boolean;
+  size?: number | string;
   className?: string;
   style?: CSSProperties;
 }) {
@@ -42,7 +50,7 @@ export function DealtCard({
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el || !onMount.slide || reducedMotion() || onMount.delay <= -slideMs) return;
-    const gap = gapTo(el, "[data-shoe]");
+    const gap = gapTo(el, from);
     if (!gap) return;
     const { dx, dy } = gap;
     const timing: KeyframeAnimationOptions = { duration: slideMs, delay: onMount.delay, easing: "cubic-bezier(0.22, 0.9, 0.3, 1)", fill: "backwards" };
@@ -63,19 +71,19 @@ export function DealtCard({
       moves.push(inner.animate([{ transform: "rotateY(180deg)" }, { transform: "rotateY(180deg)", offset: 0.55 }, { transform: "rotateY(0deg)" }], timing));
     }
     return () => moves.forEach((m) => m.cancel());
-  }, [onMount, slideMs]);
+  }, [onMount, slideMs, from]);
 
   useEffect(() => {
     const el = ref.current;
     if (!el || !sweep || reducedMotion()) return;
-    const gap = gapTo(el, "[data-discard]");
+    const gap = gapTo(el, to);
     if (!gap) return;
     const away = el.animate(
       [{ transform: "none" }, { transform: `translate(${gap.dx}px, ${gap.dy}px) rotate(30deg) scale(0.6)`, opacity: 0 }],
       { duration: sweepMs - 100, easing: "cubic-bezier(0.5, 0, 0.75, 0)", fill: "forwards" },
     );
     return () => away.cancel();
-  }, [sweep, sweepMs]);
+  }, [sweep, sweepMs, to]);
 
-  return <CardFace ref={ref} card={card} className={className} style={style} />;
+  return <CardFace ref={ref} card={card} pips={pips} size={size} className={className} style={style} />;
 }
