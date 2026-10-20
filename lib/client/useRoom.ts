@@ -476,7 +476,7 @@ export function useRoom(code: string, name: string): RoomConnection {
       duel: room?.mode === "bjduel" ? partyOf(c, room, c.sendDuel) : null,
       bac: room?.mode === "baccarat" ? partyOf(c, room, c.sendBac) : null,
       rl: room?.mode === "roulette" ? partyOf(c, room, c.sendRl) : null,
-      tx: room?.mode === "texasholdem" ? partyOf(c, room, c.sendTx) : null,
+      tx: room?.mode === "texasholdem" ? { ...partyOf(c, room, c.sendTx), addBot: c.addBot } : null,
       hadRoom: c.hadRoom,
       unreachable: c.unreachable,
       leave: c.leave,

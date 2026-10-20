@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { cx } from "@/components/ui/cx";
 import { Chip, shortAmount } from "@/components/casino/Chip";
 import { fail, success, tap } from "@/lib/client/haptics";
-import { FOLD_HOLD_MS, RAISE_CHIPS, START_CHIPS, TURN_MS, clampRaise, legalActions, stackRaise } from "@/lib/texasholdem";
+import { FOLD_HOLD_MS, RAISE_CHIPS, START_CHIPS, TURN_MS, clampRaise, legalActions, potWon, stackRaise } from "@/lib/texasholdem";
 import type { TxConnection, TxIntent, TxPace, TxPlayer } from "@/lib/texasholdem/types";
 
 const LOW_SECS = 5; // the clock turns urgent and your phone buzzes again at this many seconds left
@@ -323,7 +323,9 @@ function MyResult({ conn, me, secs }: { conn: TxConnection; me: TxPlayer; secs: 
   const { game } = conn;
   const result = me.result;
   const net = result?.net ?? 0;
-  const won = (result?.won ?? 0) > 0;
+  const take = result?.won ?? 0;
+  const won = take > 0;
+  const pot = potWon(game.players);
   const onlyLive = game.players.filter((p) => p.cards.length > 0 && !p.folded).length === 1;
   const canShow = !me.folded && onlyLive && !me.shown && result?.hand == null;
 
@@ -338,6 +340,8 @@ function MyResult({ conn, me, secs }: { conn: TxConnection; me: TxPlayer; secs: 
         <p className={cx("font-display text-3xl", won ? "text-active" : me.folded ? "text-muted" : "text-danger")}>{won ? (net > 0 ? "YOU WIN" : "SPLIT POT") : me.folded ? "FOLDED" : "LOST"}</p>
         {result?.hand && <p className="text-sm text-muted">{result.hand}</p>}
         <p className="font-display text-lg tabular-nums">{net > 0 ? `+${net.toLocaleString()}` : net < 0 ? `−${(-net).toLocaleString()}` : "Even"}</p>
+        {won && take < pot && <p className="text-sm text-muted tabular-nums">{`Won ${take.toLocaleString()} of ${pot.toLocaleString()}`}</p>}
+        <p className="text-sm text-muted tabular-nums">Stack {me.chips.toLocaleString()}</p>
         {secs !== null && <p className="text-xs text-muted tabular-nums">Next hand in {secs}s</p>}
       </div>
       {canShow && (

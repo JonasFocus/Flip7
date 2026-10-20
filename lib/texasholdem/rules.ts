@@ -5,6 +5,7 @@ import type { Rank, Suit, TxActions, TxCard, TxIntent, TxPhase, TxPlayer, TxStat
 
 export const SEATS = 8;
 export const MAX_TX_PLAYERS = 12; // 8 seats plus rail watchers
+export const MAX_TX_BOTS = 7; // a table always keeps a seat for a human
 export const START_CHIPS = 2000; // 100 big blinds
 export const SMALL_BLIND = BLIND_LEVELS[0][0]; // the opening blinds; a turbo table raises them
 export const BIG_BLIND = BLIND_LEVELS[0][1];
@@ -66,9 +67,12 @@ function commit(p: TxPlayer, amount: number): TxPlayer {
   return { ...p, chips: p.chips - pay, bet: p.bet + pay, total: p.total + pay, allIn: p.chips - pay === 0 };
 }
 
-// A player who leaves with chips keeps them for the id; only a bust (0 chips) earns a fresh stack.
+// Human ids are hashes from publicId, so the "bot-" prefix the virtual bots use cannot clash.
+export const isTxBotId = (id: string): boolean => id.startsWith("bot-");
+
+// A player who leaves with chips keeps them for the id; only a bust (0 chips) earns a fresh stack. A removed bot never returns.
 function keepStack(stacks: Record<string, number>, p: TxPlayer): Record<string, number> {
-  return p.chips > 0 ? { ...stacks, [p.id]: p.chips } : stacks;
+  return p.chips > 0 && !isTxBotId(p.id) ? { ...stacks, [p.id]: p.chips } : stacks;
 }
 
 export function createTxGame(): TxState {
@@ -315,12 +319,12 @@ export function legalActions(s: TxState, id: string): TxActions | null {
   };
 }
 
-// The host may remove someone between hands, or at any time once they are offline or sitting out.
+// The host may remove someone between hands, or at any time once they are offline, sitting out or a bot.
 export function canKickTx(s: TxState, id: string): boolean {
   const p = s.players.find((x) => x.id === id);
   if (!p) return false;
   if (s.phase === "lobby") return true;
-  return !p.gone && (!p.connected || p.sitOut);
+  return !p.gone && (!p.connected || p.sitOut || isTxBotId(id));
 }
 
 export function removeTxPlayer(s: TxState, id: string, opts: { now: number; rng?: Rng }): TxState {
