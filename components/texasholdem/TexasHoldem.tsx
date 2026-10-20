@@ -382,7 +382,7 @@ function Felt({ conn, me, revealed, clearing, secs }: { conn: TxConnection; me: 
                 onClick={() => sit(seat)}
                 aria-label={`Sit in seat ${seat + 1}`}
                 className={cx(
-                  "grid size-11 place-items-center rounded-full border bg-black/25 shadow-[inset_0_1px_3px_oklch(0_0_0/0.45)] transition-[transform,border-color,color] active:scale-95",
+                  "grid size-11 place-items-center rounded-full border bg-black/25 shadow-[inset_0_1px_3px_oklch(0_0_0/0.45)] transition-[scale,border-color,color] active:scale-95",
                   canSit && me?.seat === null ? "border-white/25 text-fg/70 hover:border-white/40 hover:text-fg" : canSit ? "border-white/10 text-fg/35" : "border-white/[0.06] text-transparent",
                 )}
               >
