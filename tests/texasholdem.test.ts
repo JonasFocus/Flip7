@@ -19,6 +19,7 @@ import {
   legalActions,
   newDeck,
   onDeadline,
+  paidOut,
   redactTx,
   removeTxPlayer,
   serverDeadline,
@@ -26,7 +27,9 @@ import {
   wentAllIn,
   type Rank,
   type TxCard,
+  winLines,
   type TxIntent,
+  type TxPlayer,
   type TxState,
 } from "../lib/texasholdem/index.ts";
 import { parseTxIntent } from "../lib/texasholdem/validate.ts";
@@ -279,6 +282,22 @@ test("side pots: short stack can only win what it covered", () => {
   assert.equal(player(s, "c").chips, 700); // c keeps the uncalled 700
   assert.equal(player(s, "a").result?.net, 200);
   assert.equal(player(s, "c").result?.net, -300);
+});
+
+test("an uncalled bet comes back as a refund, not a win for the bigger stack", () => {
+  let s = table(["a", "b"], {
+    chips: { a: 1000, b: 100 },
+    hole: { a: ["Kc", "Kd"], b: ["As", "Ah"] },
+    board: ["2c", "7d", "9h", "Jc", "3s"],
+  });
+  s = act(s, "a", { type: "allIn" });
+  s = act(s, "b", { type: "call" });
+  while (s.phase !== "showdown") s = onDeadline(s, serverDeadline(s)!);
+  assert.deepEqual([player(s, "b").chips, player(s, "b").result?.won, player(s, "b").result?.net], [200, 200, 100]);
+  assert.deepEqual([player(s, "a").chips, player(s, "a").result?.won, player(s, "a").result?.net], [900, 0, -100]);
+  assert.equal(chipsAndPot(s), 1100);
+  // Before the reveal the stacks hold back everything paid out, so the loser shows 0 beside the 1100 pot.
+  assert.deepEqual([paidOut(player(s, "a")), paidOut(player(s, "b"))], [900, 200]);
 });
 
 test("split pot hands the odd chip to the first winner left of the button", () => {
@@ -643,6 +662,67 @@ test("fuzz: chips are conserved and the engine never throws across random hands"
     }
   }
   assert.ok(hands >= 10);
+});
+
+const payee = (id: string, name: string, won: number, hand: string | null, best: string[] = []): TxPlayer => ({
+  id,
+  name,
+  connected: true,
+  seat: 0,
+  chips: 0,
+  bet: 0,
+  total: 0,
+  cards: [],
+  folded: false,
+  allIn: false,
+  acted: true,
+  sitOut: false,
+  gone: false,
+  shown: false,
+  reaction: null,
+  result: { won, net: won, hand, best: best.map(cd) },
+});
+
+test("winLines: one winner gets one row with their own hand", () => {
+  const sam = payee("s", "Sam", 300, "Flush", ["Ah", "Kh", "9h", "5h", "2h"]);
+  assert.deepEqual(winLines([sam], "me"), [{ key: "s", text: "Sam wins 300", hand: "Flush" }]);
+  assert.equal(winLines([sam], "s")[0]?.text, "You win 300");
+});
+
+test("winLines: main and side pot winners with different hands are not a split", () => {
+  const a = payee("a", "Ann", 600, "Straight", ["9h", "8d", "7c", "6s", "5h"]);
+  const b = payee("b", "Bo", 300, "Pair of Aces", ["Ah", "Ad", "Kc", "9s", "4h"]);
+  assert.deepEqual(winLines([a, b], "me"), [
+    { key: "a", text: "Ann wins 600", hand: "Straight" },
+    { key: "b", text: "Bo wins 300", hand: "Pair of Aces" },
+  ]);
+});
+
+test("winLines: identical hands split, with verb agreement", () => {
+  const board = ["Ah", "Ad", "Kc", "9s", "4h"];
+  const a = payee("a", "Ann", 450, "Pair of Aces", board);
+  const b = payee("b", "Bo", 450, "Pair of Aces", board);
+  assert.deepEqual(
+    winLines([a, b], "a").map((l) => l.text),
+    ["You split 450", "Bo splits 450"],
+  );
+  assert.deepEqual(
+    winLines([a, b], "me").map((l) => l.hand),
+    ["Pair of Aces", "Pair of Aces"],
+  );
+});
+
+test("winLines: same hand name with different kickers is not a split", () => {
+  const a = payee("a", "Ann", 600, "Pair of Aces", ["Ah", "Ad", "Kc", "9s", "4h"]);
+  const b = payee("b", "Bo", 300, "Pair of Aces", ["As", "Ac", "Qc", "9d", "4d"]);
+  assert.deepEqual(
+    winLines([a, b], "me").map((l) => l.text),
+    ["Ann wins 600", "Bo wins 300"],
+  );
+});
+
+test("winLines: a fold win has no hand", () => {
+  assert.deepEqual(winLines([payee("a", "Ann", 30, null)], "me"), [{ key: "a", text: "Ann wins 30", hand: null }]);
 });
 
 test("wentAllIn names the player who just shoved, but not a blind posted all-in at the deal", () => {
