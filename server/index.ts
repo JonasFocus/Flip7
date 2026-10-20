@@ -339,7 +339,7 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
         const players =
           room.mode === "physical"
             ? room.game.players.map((p) => ({ name: p.name, online: online.has(p.ownerId) }))
-            : room.game.players.map((p) => ({ name: p.name, online: online.has(p.id) || ("isBot" in p && p.isBot === true) }));
+            : room.game.players.map((p) => ({ name: p.name, online: online.has(p.id) || ("isBot" in p && p.isBot === true) || tx.isTxBotId(p.id) }));
         return { code: room.code, mode: room.mode, phase: room.game.phase, players, idleMs: now - lastActive };
       });
   }
@@ -519,6 +519,7 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
     if (live.botTimer) clearTimeout(live.botTimer);
     live.botTimer = null;
     const { room } = live;
+    if (room.mode === "texasholdem") return scheduleTxBot(live);
     if (room.mode !== "virtual" || inRoom(room.code).length === 0) return;
     const game = room.game;
     const botId = awaitingPlayerId(game);
@@ -553,6 +554,31 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
     }, delay);
   }
 
+  // Hold'em bots play by the engine's own clock: the next due move is re-planned after every change.
+  function scheduleTxBot(live: LiveRoom) {
+    const { room } = live;
+    if (room.mode !== "texasholdem" || inRoom(room.code).length === 0) return;
+    const move = tx.nextTxBotMove(room.game, Date.now(), Math.random);
+    if (!move) return;
+    const seq = room.game.seq;
+    live.botTimer = setTimeout(() => {
+      live.botTimer = null;
+      try {
+        const current = live.room;
+        if (current.mode !== "texasholdem" || current.game.seq !== seq) return;
+        const res = tx.applyTxIntent(current.game, move.playerId, move.intent, { isHost: false, now: Date.now() });
+        if (!res.ok) {
+          console.error(`bot ${move.playerId} in ${current.code}: ${res.error}`);
+          return;
+        }
+        current.game = res.state;
+        changed(live, []);
+      } catch (err) {
+        console.error("bot error", err);
+      }
+    }, Math.max(0, move.atMs - Date.now()));
+  }
+
   function detach(c: Client, leaving: boolean) {
     const code = c.code;
     const id = c.clientId;
@@ -583,7 +609,7 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
         if (leaving) p.set(p.e.remove(p.game, id, { now }));
         else if (offline) p.set(p.e.setConnected(p.game, id, false, now));
       });
-      if (room.game.players.length === 0) return deleteRoom(room.code);
+      if (room.game.players.length === 0 || (room.mode === "texasholdem" && room.game.players.every((p) => p.gone || tx.isTxBotId(p.id)))) return deleteRoom(room.code);
     } else if (leaving && room.game.phase === "lobby") {
       // Mid-game seats stay so their round history survives; the host can remove them from the board.
       const gone = new Set(room.game.players.filter((p) => p.ownerId === id).map((p) => p.id));
@@ -716,12 +742,31 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
 
   function addBot(c: Client, live: LiveRoom) {
     const { room } = live;
-    if (room.mode !== "virtual") return fail(c, "Bots are only for virtual rooms");
+    if (room.mode === "texasholdem") return addTxBot(c, live, room);
+    if (room.mode !== "virtual") return fail(c, "Bots are only for virtual and Hold'em rooms");
     if (room.game.phase !== "lobby") return fail(c, "Game already started");
     if (room.game.players.length >= MAX_PLAYERS) return fail(c, "Room is full");
     const taken = new Set(room.game.players.map((p) => p.name));
     const name = BOT_NAMES.find((n) => !taken.has(n)) ?? `Bot ${room.game.players.length + 1}`;
     room.game = addPlayer(room.game, { id: `bot-${randomUUID().slice(0, 8)}`, name, isBot: true });
+    track(c, { kind: "addBot", detail: { bot: name } });
+    changed(live, []);
+  }
+
+  function addTxBot(c: Client, live: LiveRoom, room: PartyRoom<"texasholdem">) {
+    const { players } = room.game;
+    if (players.length >= PARTY.texasholdem.maxPlayers) return fail(c, "Room is full");
+    const seat = Array.from({ length: tx.SEATS }, (_, i) => i).find((i) => !players.some((p) => p.seat === i));
+    if (seat === undefined) return fail(c, "No free seat");
+    if (players.filter((p) => tx.isTxBotId(p.id) && !p.gone).length >= tx.MAX_TX_BOTS) return fail(c, `A table holds ${tx.MAX_TX_BOTS} bots at most`);
+    const taken = new Set(players.map((p) => p.name));
+    const open = tx.TX_BOT_STYLES.filter((b) => !taken.has(b.name));
+    const name = open[Math.floor(Math.random() * open.length)]?.name ?? `Bot ${players.length + 1}`;
+    const id = `bot-${randomUUID().slice(0, 8)}`;
+    const added = PARTY.texasholdem.add(room.game, { id, name });
+    const seated = tx.applyTxIntent(added, id, { type: "sit", seat }, { isHost: false, now: Date.now() });
+    if (!seated.ok) return fail(c, seated.error);
+    room.game = seated.state;
     track(c, { kind: "addBot", detail: { bot: name } });
     changed(live, []);
   }
@@ -732,7 +777,7 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
     if (playerId === c.clientId) return fail(c, "Use leave instead");
     if (!room.game.players.some((p) => p.id === playerId)) return fail(c, "No such player");
     if (room.mode === "texasholdem") {
-      if (!tx.canKickTx(room.game, playerId)) return fail(c, "Only offline or sitting-out players can be removed mid-hand");
+      if (!tx.canKickTx(room.game, playerId)) return fail(c, "Only bots, offline or sitting-out players can be removed mid-hand");
     } else if (room.game.phase !== "lobby") return fail(c, "Can only remove players in the lobby");
     if (room.mode === "imposter") room.game = removeImposterPlayer(room.game, playerId);
     else if (isParty(room)) withParty(room, (p) => p.set(p.e.remove(p.game, playerId, { now: Date.now() })));

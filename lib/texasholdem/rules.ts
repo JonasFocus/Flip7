@@ -4,6 +4,7 @@ import type { Rank, Suit, TxActions, TxCard, TxIntent, TxPhase, TxPlayer, TxStat
 
 export const SEATS = 8;
 export const MAX_TX_PLAYERS = 12; // 8 seats plus rail watchers
+export const MAX_TX_BOTS = 7; // a table always keeps a seat for a human
 export const START_CHIPS = 2000; // 100 big blinds
 export const SMALL_BLIND = 10;
 export const BIG_BLIND = 20;
@@ -65,9 +66,12 @@ function commit(p: TxPlayer, amount: number): TxPlayer {
   return { ...p, chips: p.chips - pay, bet: p.bet + pay, total: p.total + pay, allIn: p.chips - pay === 0 };
 }
 
-// A player who leaves with chips keeps them for the id; only a bust (0 chips) earns a fresh stack.
+// Human ids are hashes from publicId, so the "bot-" prefix the virtual bots use cannot clash.
+export const isTxBotId = (id: string): boolean => id.startsWith("bot-");
+
+// A player who leaves with chips keeps them for the id; only a bust (0 chips) earns a fresh stack. A removed bot never returns.
 function keepStack(stacks: Record<string, number>, p: TxPlayer): Record<string, number> {
-  return p.chips > 0 ? { ...stacks, [p.id]: p.chips } : stacks;
+  return p.chips > 0 && !isTxBotId(p.id) ? { ...stacks, [p.id]: p.chips } : stacks;
 }
 
 export function createTxGame(): TxState {
@@ -118,6 +122,7 @@ export function addTxPlayer(s: TxState, p: { id: string; name: string }): TxStat
     allIn: false,
     acted: false,
     sitOut: false,
+    timedOut: false,
     gone: false,
     shown: false,
     result: null,
@@ -309,12 +314,12 @@ export function legalActions(s: TxState, id: string): TxActions | null {
   };
 }
 
-// The host may remove someone between hands, or at any time once they are offline or sitting out.
+// The host may remove someone between hands, or at any time once they are offline, sitting out or a bot.
 export function canKickTx(s: TxState, id: string): boolean {
   const p = s.players.find((x) => x.id === id);
   if (!p) return false;
   if (s.phase === "lobby") return true;
-  return !p.gone && (!p.connected || p.sitOut);
+  return !p.gone && (!p.connected || p.sitOut || isTxBotId(id));
 }
 
 export function removeTxPlayer(s: TxState, id: string, opts: { now: number; rng?: Rng }): TxState {
@@ -345,17 +350,17 @@ export function applyTxIntent(s: TxState, actorId: string, intent: TxIntent, opt
       if (!Number.isInteger(seat) || seat < 0 || seat >= SEATS) return fail("No such seat");
       if (inHand) return fail("Finish your hand first");
       if (s.players.some((p) => p.seat === seat && p.id !== actorId)) return fail("Seat taken");
-      return lobby(patch(s, actorId, (p) => ({ ...p, seat, sitOut: false })));
+      return lobby(patch(s, actorId, (p) => ({ ...p, seat, sitOut: false, timedOut: false })));
     }
     case "standUp":
       if (me.seat === null) return fail("You're not seated");
       if (isLive(me)) return fail("Finish your hand first");
-      return lobby(patch(s, actorId, (p) => ({ ...p, seat: null })));
+      return lobby(patch(s, actorId, (p) => ({ ...p, seat: null, timedOut: false })));
     case "sitOut":
-      return lobby(patch(s, actorId, (p) => ({ ...p, sitOut: true })));
+      return lobby(patch(s, actorId, (p) => ({ ...p, sitOut: true, timedOut: false })));
     case "sitIn":
       if (me.seat === null) return fail("Take a seat first");
-      return lobby(patch(s, actorId, (p) => ({ ...p, sitOut: false })));
+      return lobby(patch(s, actorId, (p) => ({ ...p, sitOut: false, timedOut: false })));
     case "rebuy":
       if (inHand) return fail("Wait for the hand to finish");
       if (me.chips > 0) return fail("You still have chips");
@@ -432,7 +437,7 @@ export function onDeadline(s: TxState, now: number, rng: Rng = cryptoRng): TxSta
   if (s.runout) return seal(runoutStep(s, now), s);
   const actor = s.players.find((p) => p.id === s.turnId);
   if (!actor) return s;
-  const timedOut = patch(s, actor.id, (p) => ({ ...p, sitOut: true }));
+  const timedOut = patch(s, actor.id, (p) => ({ ...p, sitOut: true, timedOut: true }));
   if (actor.bet >= s.currentBet) return seal(proceed(patch(timedOut, actor.id, (p) => ({ ...p, acted: true })), seatOf(actor), now, rng), s);
   return seal(proceed(patch(timedOut, actor.id, (p) => ({ ...p, folded: true })), seatOf(actor), now, rng), s);
 }
@@ -445,10 +450,11 @@ export function wentAllIn(prev: TxState, next: TxState): TxPlayer | null {
 
 // Your own cards always show; everyone else's stay face down until they are shown down (or run out all-in).
 export function redactTx(s: TxState, viewerId: string): TxState {
-  const contested = s.players.filter(isLive).length > 1;
-  const revealed = s.runout || (s.phase === "showdown" && contested);
   const players = s.players.map((p) => {
-    const visible = p.id === viewerId || (isLive(p) && (revealed || p.shown));
+    // A hand name is only set when the hand was actually ranked at a contested showdown. That stays true
+    // after a player leaves (and so folds), which keeps the reveal on screen for the rest of the table.
+    const shownDown = s.phase === "showdown" && p.result?.hand != null;
+    const visible = p.id === viewerId || shownDown || (isLive(p) && (s.runout || p.shown));
     return visible ? p : { ...p, cards: p.cards.map(() => null) };
   });
   return { ...s, players, deck: [], stacks: {} };
