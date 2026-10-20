@@ -8,6 +8,8 @@ import { fail, success, tap } from "@/lib/client/haptics";
 import { BIG_BLIND, FOLD_HOLD_MS, RAISE_CHIPS, START_CHIPS, TURN_MS, clampRaise, legalActions, stackRaise } from "@/lib/texasholdem";
 import type { TxConnection, TxIntent, TxPlayer } from "@/lib/texasholdem/types";
 
+const LOW_SECS = 5; // the clock turns urgent and your phone buzzes again at this many seconds left
+
 export function Panel({
   conn,
   me,
@@ -75,15 +77,15 @@ export function Panel({
 function TurnClock({ label, secs }: { label: ReactNode; secs: number | null }) {
   const total = TURN_MS / 1000;
   const pct = secs === null ? 100 : Math.min(100, (secs / total) * 100);
-  const low = secs !== null && secs <= 5;
+  const low = secs !== null && secs <= LOW_SECS;
   return (
     <div className="flex flex-col gap-1.5" role="timer" aria-label={secs === null ? undefined : `${secs} seconds left`}>
       <div className="flex items-baseline justify-between font-display text-[13px] tracking-wide">
         <span className="truncate">{label}</span>
-        {secs !== null && <span className={cx("tabular-nums", low ? "text-danger" : "text-muted")}>{secs}s</span>}
+        {secs !== null && <span className={cx("text-[15px] font-semibold tabular-nums", low ? "tx-low text-danger" : "text-muted")}>{secs}s</span>}
       </div>
-      <div className="h-1 overflow-hidden rounded-full bg-surface-2">
-        <div className={cx("h-full origin-left rounded-full transition-[width] duration-1000 ease-linear", low ? "bg-danger" : "bg-accent")} style={{ width: `${pct}%` }} />
+      <div className="h-1.5 overflow-hidden rounded-full bg-surface-2">
+        <div className={cx("h-full origin-left rounded-full transition-[width] duration-1000 ease-linear", low ? "tx-low bg-danger" : "bg-accent")} style={{ width: `${pct}%` }} />
       </div>
     </div>
   );
@@ -144,8 +146,12 @@ function Actions({ conn, me, secs }: { conn: TxConnection; me: TxPlayer; secs: n
   const [raiseTo, setRaiseTo] = useState(() => legal?.minRaiseTo ?? 0);
 
   useEffect(() => {
-    tap();
+    success();
   }, []);
+
+  useEffect(() => {
+    if (secs === LOW_SECS) fail();
+  }, [secs]);
 
   if (!legal) return <Status>Waiting…</Status>;
 
