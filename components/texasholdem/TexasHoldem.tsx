@@ -23,6 +23,7 @@ import {
   TURN_MS,
   TX_REACTIONS,
   buildPots,
+  canKickTx,
   dealAnimMs,
   madeHand,
   streetAnimMs,
@@ -521,6 +522,13 @@ function Seat({
   const awardRef = useRef<HTMLSpanElement>(null);
   useFly(awardRef, won ? "[data-pot]" : undefined, "from", 150);
   const bubble = useReactionBubble(player.reaction);
+  const [armed, setArmed] = useState(false);
+  const canKick = conn.isHost && !mine && !player.gone && canKickTx(game, player.id);
+  useEffect(() => {
+    if (!armed) return;
+    const t = setTimeout(() => setArmed(false), 3000);
+    return () => clearTimeout(t);
+  }, [armed]);
   const bestOf = player.result?.best ?? [];
   const dimCard = (c: TxCard | null) => revealed && won && bestOf.length > 0 && c !== null && !bestOf.some((b) => sameCard(b, c));
 
@@ -616,6 +624,24 @@ function Seat({
         <span className={cx("block truncate text-[11px] font-semibold", mine ? "text-ink" : "text-fg/85")}>{mine ? "You" : player.name}</span>
         <span className={cx("block truncate font-display text-xs tabular-nums", mine ? "text-ink/80" : line.tone)}>{line.text}</span>
       </span>
+      {canKick && (
+        <button
+          type="button"
+          aria-label={armed ? `Confirm removing ${player.name}` : `Remove ${player.name}`}
+          onClick={() => {
+            tap();
+            if (!armed) return setArmed(true);
+            setArmed(false);
+            conn.removePlayer(player.id);
+          }}
+          className={cx(
+            "absolute -top-1 -right-3 z-20 grid h-5 min-w-5 place-items-center rounded-full px-1 text-[10px] font-bold shadow-[0_2px_6px_oklch(0_0_0/0.6)]",
+            armed ? "bg-danger text-ink" : "bg-[oklch(0.15_0.003_260/0.92)] text-fg/80",
+          )}
+        >
+          {armed ? "Remove?" : "×"}
+        </button>
+      )}
       {result?.hand && !mine && (
         <span className={cx("tx-in absolute top-full mt-1 max-w-[96px] truncate rounded-full bg-[oklch(0.15_0.003_260/0.92)] px-2 py-0.5 text-[10px] font-semibold", won ? "text-active" : "text-fg/65")}>{result.hand}</span>
       )}

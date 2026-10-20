@@ -13,6 +13,7 @@ import {
   TX_REACTIONS,
   addTxPlayer,
   applyTxIntent,
+  canKickTx,
   createTxGame,
   legalActions,
   newDeck,
@@ -431,6 +432,22 @@ test("leaving mid-hand folds and keeps the chips in the pot", () => {
   assert.equal(player(won, "a").chips, START_CHIPS - 100 + 130);
   const reset = onDeadline(won, won.settleAt!, newRng());
   assert.deepEqual(reset.players.map((p) => p.id), ["a"]);
+});
+
+test("the host can only remove offline or sat-out players mid-hand, and removal folds them", () => {
+  let s = table(["a", "b", "c"]);
+  assert.equal(canKickTx(s, "c"), false); // live and connected
+  assert.equal(canKickTx(s, "nobody"), false);
+  const offline = setTxConnected(s, "c", false, NOW);
+  assert.equal(canKickTx(offline, "c"), true);
+  const sat = act(s, "b", { type: "sitOut" });
+  assert.equal(canKickTx(sat, "b"), true);
+  const removed = removeTxPlayer(offline, "c", { now: NOW });
+  assert.equal(player(removed, "c").folded, true);
+  assert.equal(player(removed, "c").gone, true);
+  assert.equal(canKickTx(removed, "c"), false); // already gone
+  s = { ...s, phase: "lobby" };
+  assert.equal(canKickTx(s, "a"), true); // between hands anyone can go
 });
 
 test("a disconnected player is not dealt in, and reconnecting before the deal restores them", () => {
