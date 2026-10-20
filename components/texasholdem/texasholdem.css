@@ -134,6 +134,7 @@
 .tx-in { animation: tx-in 420ms var(--ease-spring) both; }
 .tx-rise { animation: tx-rise 320ms var(--ease-out) both; }
 .tx-react { animation: tx-float 2s ease-out both; }
+.tx-low { animation: tx-low 700ms ease-in-out infinite; }
 
 /* All-in: the rail lights up red like an arcade marquee, flickers on, holds, then fades. 2600ms matches ALL_IN_MS. */
 .tx-allin {
@@ -180,6 +181,10 @@
   animation: tx-hold 3s linear forwards;
 }
 
+@keyframes tx-low {
+  50% { opacity: 0.45; }
+}
+
 @keyframes tx-glow {
   50% { box-shadow: 0 0 0 3px var(--color-accent), 0 0 22px 2px oklch(0.89 0.18 98 / 0.6); }
 }
@@ -214,7 +219,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .tx-glow, .tx-win, .tx-in, .tx-rise, .tx-pop, .tx-allin, .tx-allin-call { animation: none; }
+  .tx-glow, .tx-win, .tx-in, .tx-rise, .tx-pop, .tx-allin, .tx-allin-call, .tx-low { animation: none; }
   .tx-hold { display: none; }
   .tx-react { animation-name: tx-fade; }
 }
