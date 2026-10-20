@@ -24,6 +24,7 @@ import {
   dealAnimMs,
   madeHand,
   streetAnimMs,
+  winLines,
 } from "@/lib/texasholdem";
 import type { TxCard, TxConnection, TxPlayer, TxState } from "@/lib/texasholdem/types";
 import { Panel } from "./Panel";
@@ -106,12 +107,7 @@ function useShowdown(conn: TxConnection): { revealed: boolean; clearing: boolean
   return { revealed: t >= (shownDown ? RESULT_BEAT_MS : FOLD_RESULT_BEAT_MS), clearing: now >= deadlineAt - SWEEP_MS };
 }
 
-function winBanner(payees: readonly TxPlayer[], you: string): { title: string; hand: string | null } {
-  const total = payees.reduce((n, w) => n + (w.result?.won ?? 0), 0);
-  const names = payees.map((w) => (w.id === you ? "You" : w.name)).join(" & ");
-  const verb = payees.length > 1 ? "split" : payees[0]?.id === you ? "win" : "wins";
-  return { title: `${names} ${verb} ${total.toLocaleString()}`, hand: payees[0]?.result?.hand ?? null };
-}
+const MAX_WIN_ROWS = 3;
 
 const sameCard = (a: TxCard, b: TxCard) => a.rank === b.rank && a.suit === b.suit;
 
@@ -199,7 +195,8 @@ function Felt({ conn, me, revealed, clearing, secs }: { conn: TxConnection; me: 
   const dimBoard = (c: TxCard) => winners.length > 0 && !winning(c);
 
   const payees = game.phase === "showdown" && revealed ? game.players.filter((p) => (p.result?.won ?? 0) > 0) : [];
-  const banner = payees.length > 0 ? winBanner(payees, conn.you) : null;
+  const lines = winLines(payees, conn.you);
+  const shownLines = lines.slice(0, MAX_WIN_ROWS);
 
   function sit(seat: number) {
     if (!canSit) return;
@@ -247,11 +244,16 @@ function Felt({ conn, me, revealed, clearing, secs }: { conn: TxConnection; me: 
       </div>
 
       <div className="absolute left-1/2 flex w-[84%] -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1" style={{ top: "62%" }}>
-        {banner ? (
-          <p key={`${game.round}-banner`} role="status" className="tx-pop flex max-w-full flex-col items-center rounded-2xl border border-active/50 bg-[oklch(0.15_0.003_260/0.92)] px-4 py-1.5 text-center shadow-[0_8px_24px_-8px_oklch(0_0_0/0.8)]">
-            <span className="max-w-full truncate font-display text-sm tracking-wide text-active">{banner.title}</span>
-            {banner.hand && <span className="max-w-full truncate text-[11px] text-fg/70">{banner.hand}</span>}
-          </p>
+        {lines.length > 0 ? (
+          <div key={`${game.round}-banner`} role="status" className="tx-pop flex max-w-full flex-col items-center gap-1 rounded-2xl border border-active/50 bg-[oklch(0.15_0.003_260/0.92)] px-4 py-1.5 text-center shadow-[0_8px_24px_-8px_oklch(0_0_0/0.8)]">
+            {shownLines.map((line) => (
+              <p key={line.key} className="flex max-w-full flex-col items-center">
+                <span className="max-w-full truncate font-display text-sm tracking-wide text-active">{line.text}</span>
+                {line.hand && <span className="max-w-full truncate text-[11px] text-fg/70">{line.hand}</span>}
+              </p>
+            ))}
+            {lines.length > shownLines.length && <span className="text-[11px] text-fg/70">+{lines.length - shownLines.length} more</span>}
+          </div>
         ) : pots.length > 1 && game.players.some((p) => p.allIn && p.total > 0) ? (
           <p className="font-display text-[10px] tracking-[0.1em] text-fg/50 tabular-nums">
             {pots.map((p, i) => (

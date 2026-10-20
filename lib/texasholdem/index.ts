@@ -1,5 +1,6 @@
 export * from "./types.ts";
 export { buildPots, evaluate, madeHand } from "./eval.ts";
+export { winLines, type WinLine } from "./winners.ts";
 export {
   BIG_BLIND,
   CARD_SLIDE_MS,
