@@ -9,7 +9,7 @@ export const START_CHIPS = 2000; // 100 big blinds
 export const SMALL_BLIND = 10;
 export const BIG_BLIND = 20;
 export const TURN_MS = 25_000; // then the server checks, or folds if there is a bet to face
-export const AWAY_TURN_MS = 3000; // an offline or sitting-out player gets a short clock, long enough to ride out a page reload
+export const AWAY_TURN_MS = 2000; // an offline or sitting-out actor gets this short clock instead of TURN_MS
 export const START_MS = 3000; // two funded players are seated: the next hand is dealt after this beat
 export const SHOWDOWN_MS = 7000; // results and the winning hand stay up before the table resets
 export const FOLD_WIN_MS = 3500; // everyone folded: a shorter beat, no hands to read
@@ -423,7 +423,8 @@ export function serverDeadline(s: TxState): number | null {
   if (s.runout) return s.dealAt;
   if (s.turnAt === null) return null;
   const actor = s.players.find((p) => p.id === s.turnId);
-  return s.turnAt + (actor && (!actor.connected || actor.sitOut) ? AWAY_TURN_MS : TURN_MS);
+  if (!actor || (actor.connected && !actor.sitOut)) return s.turnAt + TURN_MS;
+  return Math.max(s.turnAt, actor.droppedAt ?? 0) + AWAY_TURN_MS; // a socket that drops mid-turn gets the full short clock from the drop
 }
 
 // The clock players see: ghost cleanup in an idle lobby is not a countdown.

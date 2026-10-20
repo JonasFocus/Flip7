@@ -363,7 +363,7 @@ test("an offline or sitting-out actor gets the short clock, a connected seated o
   const actor = s.turnId!;
   assert.equal(serverDeadline(s), s.turnAt! + TURN_MS);
   const offline = setTxConnected(s, actor, false, NOW);
-  assert.equal(serverDeadline(offline), s.turnAt! + AWAY_TURN_MS);
+  assert.equal(serverDeadline(offline), NOW + AWAY_TURN_MS); // measured from the drop, which is after the turn began
   const sitting = { ...s, players: s.players.map((p) => (p.id === actor ? { ...p, sitOut: true } : p)) };
   assert.equal(serverDeadline(sitting), s.turnAt! + AWAY_TURN_MS);
   assert.equal(serverDeadline(setTxConnected(offline, actor, true, NOW)), s.turnAt! + TURN_MS);
@@ -372,14 +372,14 @@ test("an offline or sitting-out actor gets the short clock, a connected seated o
 test("an offline actor is acted for after the short clock: fold to a bet, check when free", () => {
   const s = table(["a", "b"]);
   const offline = setTxConnected(s, "a", false, NOW);
-  const due = s.turnAt! + AWAY_TURN_MS;
+  const due = NOW + AWAY_TURN_MS;
   assert.equal(onDeadline(offline, due - 1), offline);
   const folded = onDeadline(offline, due);
   assert.equal(player(folded, "a").folded, true);
   assert.equal(player(folded, "a").sitOut, true);
 
   const free = setTxConnected(act(s, "a", { type: "call" }), "b", false, NOW);
-  const checked = onDeadline(free, free.turnAt! + AWAY_TURN_MS);
+  const checked = onDeadline(free, NOW + AWAY_TURN_MS);
   assert.equal(player(checked, "b").folded, false);
   assert.equal(player(checked, "b").sitOut, true);
   assert.equal(checked.phase, "flop");
@@ -759,7 +759,6 @@ const payee = (id: string, name: string, won: number, hand: string | null, best:
   acted: true,
   sitOut: false,
   gone: false,
-  droppedAt: null,
   shown: false,
   reaction: null,
   result: { won, net: won, hand, best: best.map(cd) },
