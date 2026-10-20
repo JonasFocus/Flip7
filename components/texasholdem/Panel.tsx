@@ -5,8 +5,8 @@ import { Button } from "@/components/ui/Button";
 import { cx } from "@/components/ui/cx";
 import { Chip, shortAmount } from "@/components/casino/Chip";
 import { fail, success, tap } from "@/lib/client/haptics";
-import { BIG_BLIND, FOLD_HOLD_MS, RAISE_CHIPS, START_CHIPS, TURN_MS, clampRaise, legalActions, stackRaise } from "@/lib/texasholdem";
-import type { TxConnection, TxIntent, TxPlayer } from "@/lib/texasholdem/types";
+import { FOLD_HOLD_MS, RAISE_CHIPS, START_CHIPS, TURN_MS, clampRaise, legalActions, stackRaise } from "@/lib/texasholdem";
+import type { TxConnection, TxIntent, TxPace, TxPlayer } from "@/lib/texasholdem/types";
 
 const LOW_SECS = 5; // the clock turns urgent and your phone buzzes again at this many seconds left
 
@@ -61,6 +61,8 @@ export function Panel({
     );
   }
 
+  if (conn.isHost && game.phase === "lobby") body = <><PacePicker conn={conn} />{body}</>;
+
   // Re-keyed per state so each change (your move, a result, between hands) eases in instead of snapping.
   // The floor is the tallest view (your move, 210px of content) plus the home-indicator inset that pb-safe-3 adds,
   // so the felt above never resizes when your turn starts.
@@ -96,6 +98,33 @@ function Status({ children }: { children: ReactNode }) {
     <p aria-live="polite" className="grid min-h-14 place-items-center rounded-2xl border border-line bg-surface px-4 text-center text-sm text-muted">
       {children}
     </p>
+  );
+}
+
+const PACES: { pace: TxPace; label: string }[] = [
+  { pace: "casual", label: "Casual blinds" },
+  { pace: "turbo", label: "Turbo blinds" },
+];
+
+// Between hands the host picks static or rising blinds; a change lands at the next deal.
+function PacePicker({ conn }: { conn: TxConnection }) {
+  return (
+    <div role="group" aria-label="Blind levels" className="flex gap-2">
+      {PACES.map(({ pace, label }) => {
+        const on = conn.game.pace === pace;
+        return (
+          <button
+            key={pace}
+            type="button"
+            aria-pressed={on}
+            onClick={() => (tap(), conn.send({ type: "setPace", pace }))}
+            className={cx(chipButton, "flex-1 px-2 text-xs font-bold tracking-wide uppercase", on ? "border-accent bg-accent/15 text-accent" : "text-muted")}
+          >
+            {label}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -176,14 +205,14 @@ function Actions({ conn, me, secs }: { conn: TxConnection; me: TxPlayer; secs: n
       {canRaise && (
         <div className="grid grid-cols-5 items-center gap-2">
           {RAISE_CHIPS.map((bb) => {
-            const add = bb * BIG_BLIND;
+            const add = bb * game.blinds.bigBlind;
             return (
               <button
                 key={bb}
                 type="button"
                 aria-label={`Add ${bb} big blind${bb === 1 ? "" : "s"}, ${add} chips`}
                 disabled={allIn}
-                onClick={() => (tap(), setRaiseTo(stackRaise(amount, bb, minRaiseTo, maxRaiseTo)))}
+                onClick={() => (tap(), setRaiseTo(stackRaise(amount, bb, minRaiseTo, maxRaiseTo, game.blinds.bigBlind)))}
                 className={chipButton}
               >
                 <Chip amount={add} label={`+${shortAmount(add)}`} />

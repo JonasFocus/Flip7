@@ -22,25 +22,25 @@ test("clampRaise keeps the amount between the min raise and the stack", () => {
 
 test("stackRaise adds big blinds onto the current amount", () => {
   let amount = 40;
-  amount = stackRaise(amount, 1, 40, 1000);
+  amount = stackRaise(amount, 1, 40, 1000, BIG_BLIND);
   assert.equal(amount, 60);
-  amount = stackRaise(amount, 5, 40, 1000);
+  amount = stackRaise(amount, 5, 40, 1000, BIG_BLIND);
   assert.equal(amount, 160);
-  amount = stackRaise(amount, 10, 40, 1000);
+  amount = stackRaise(amount, 10, 40, 1000, BIG_BLIND);
   assert.equal(amount, 360);
 });
 
 test("stackRaise never exceeds the stack", () => {
-  assert.equal(stackRaise(900, 10, 40, 1000), 1000);
-  assert.equal(stackRaise(1000, 1, 40, 1000), 1000);
+  assert.equal(stackRaise(900, 10, 40, 1000, BIG_BLIND), 1000);
+  assert.equal(stackRaise(1000, 1, 40, 1000, BIG_BLIND), 1000);
 });
 
 test("stackRaise starts from the min raise when the current amount is stale or too low", () => {
-  assert.equal(stackRaise(0, 1, 40, 1000), 60);
-  assert.equal(stackRaise(20, 5, 40, 1000), 140);
+  assert.equal(stackRaise(0, 1, 40, 1000, BIG_BLIND), 60);
+  assert.equal(stackRaise(20, 5, 40, 1000, BIG_BLIND), 140);
 });
 
 test("stackRaise stays legal when the stack is below the min raise", () => {
   // A short stack can only go all in: min and max collapse onto the same amount.
-  assert.equal(stackRaise(30, 5, 30, 30), 30);
+  assert.equal(stackRaise(30, 5, 30, 30, BIG_BLIND), 30);
 });

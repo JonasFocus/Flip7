@@ -46,6 +46,14 @@ export type TxPhase =
   | "river"
   | "showdown"; // pots paid, results shown until settleAt
 
+export type TxPace = "casual" | "turbo"; // casual: static blinds; turbo: they rise every few hands
+
+export interface TxBlinds {
+  smallBlind: number;
+  bigBlind: number; // of the hand in play, or of the next hand in the lobby
+  next: { smallBlind: number; bigBlind: number; inHands: number } | null; // the following level and how many hands away it starts; null when the blinds no longer rise
+}
+
 export interface TxState {
   phase: TxPhase;
   players: TxPlayer[]; // join order, seat lives on the player
@@ -57,6 +65,9 @@ export interface TxState {
   sbId: string | null;
   bbId: string | null;
   currentBet: number; // highest street bet to match
+  pace: TxPace;
+  paceRound: number; // hands already dealt when the pace was chosen; blind levels count from here
+  blinds: TxBlinds;
   minRaise: number; // size of the last full raise (the big blind at street start)
   turnId: string | null;
   turnAt: number | null; // server ms the current turn begins
@@ -74,6 +85,7 @@ export type TxIntent =
   | { type: "sitOut" }
   | { type: "sitIn" }
   | { type: "rebuy" } // busted: back to the starting stack between hands
+  | { type: "setPace"; pace: TxPace } // host only, between hands
   | { type: "fold" }
   | { type: "check" }
   | { type: "call" }
