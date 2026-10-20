@@ -16,17 +16,19 @@ import {
   CARD_SLIDE_MS,
   DEAL_STAGGER_MS,
   FOLD_WIN_MS,
+  REACTION_COOLDOWN_MS,
   SEATS,
   SHOWDOWN_MS,
   SMALL_BLIND,
   TURN_MS,
+  TX_REACTIONS,
   buildPots,
   dealAnimMs,
   madeHand,
   streetAnimMs,
   wentAllIn,
 } from "@/lib/texasholdem";
-import type { TxCard, TxConnection, TxPlayer, TxState } from "@/lib/texasholdem/types";
+import type { TxCard, TxConnection, TxPlayer, TxReaction, TxState } from "@/lib/texasholdem/types";
 import { Panel } from "./Panel";
 
 // Seats are placed by hand (percent of the table) so plates stay clear of the board on a 375px phone; index = seat relative to you, clockwise.
@@ -57,6 +59,7 @@ const AWARD_MS = 1100;
 const RESULT_BEAT_MS = 1000; // showdown: hands face up for a beat before the winner is called
 const FOLD_RESULT_BEAT_MS = 400;
 const ALL_IN_MS = 2600; // matches the tx-allin animation
+const REACTION_SHOW_MS = 2000;
 const BOARD_SIZE = "clamp(36px,10.4vw,46px)";
 const STREET: Record<TxState["phase"], string> = { lobby: "", preflop: "PRE-FLOP", flop: "FLOP", turn: "TURN", river: "RIVER", showdown: "SHOWDOWN" };
 
@@ -136,8 +139,10 @@ function useAllInMoment(game: TxState): { key: number; id: string; name: string;
 
 export function TexasHoldem({ conn }: { conn: TxConnection }) {
   const [toast, setToast] = useState<string | null>(null);
+  const [reacting, setReacting] = useState(false);
   const { game } = conn;
   const me = game.players.find((p) => p.id === conn.you);
+  const seated = me?.seat != null;
   const { revealed, clearing } = useShowdown(conn);
   const street = game.phase !== "lobby" && game.phase !== "showdown";
   const myTurn = street && !game.runout && game.turnId === conn.you;
@@ -171,6 +176,17 @@ export function TexasHoldem({ conn }: { conn: TxConnection }) {
         >
           #{conn.code}
         </button>
+        {seated && (
+          <button
+            type="button"
+            onClick={() => setReacting((v) => !v)}
+            aria-label="Reactions"
+            aria-expanded={reacting}
+            className={cx("min-h-11 min-w-11 rounded-full border border-line text-base active:bg-surface-2", reacting && "bg-surface")}
+          >
+            <span aria-hidden>😊</span>
+          </button>
+        )}
         <p className="flex min-h-11 items-center gap-1.5 rounded-full bg-surface px-3 font-display text-sm tabular-nums text-accent" aria-label={`${stack} chips`}>
           <Chip amount={stack} size="xs" label="" color="var(--color-accent)" />
           {stack.toLocaleString()}
@@ -183,11 +199,61 @@ export function TexasHoldem({ conn }: { conn: TxConnection }) {
         </p>
       )}
 
+      {seated && reacting && <ReactionStrip send={conn.send} />}
+
       <Felt conn={conn} me={me} revealed={revealed} clearing={clearing} secs={secs} />
 
       <Panel conn={conn} me={me} myTurn={myTurn} dealing={dealing} revealed={revealed} secs={secs} />
     </main>
   );
+}
+
+// Greys out for the server's cooldown after each tap, so the "Slow down" backstop never reaches a toast.
+function ReactionStrip({ send }: { send: TxConnection["send"] }) {
+  const [cooling, setCooling] = useState(false);
+  useEffect(() => {
+    if (!cooling) return;
+    const t = setTimeout(() => setCooling(false), REACTION_COOLDOWN_MS);
+    return () => clearTimeout(t);
+  }, [cooling]);
+
+  function react(emoji: TxReaction) {
+    tap();
+    send({ type: "react", emoji });
+    setCooling(true);
+  }
+
+  return (
+    <div role="group" aria-label="Send a reaction" className="flex px-1">
+      {TX_REACTIONS.map((emoji) => (
+        <button
+          key={emoji}
+          type="button"
+          disabled={cooling}
+          onClick={() => react(emoji)}
+          className="min-h-11 min-w-0 flex-1 rounded-full text-xl transition-opacity active:bg-surface-2 disabled:opacity-40"
+        >
+          {emoji}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// Shows each new reaction for a couple of seconds. The first value seen on mount is marked seen, so joining or reloading never replays an old one.
+function useReactionBubble(reaction: TxPlayer["reaction"]): { emoji: TxReaction; at: number } | null {
+  const seen = useRef(reaction?.at);
+  const [shown, setShown] = useState<{ emoji: TxReaction; at: number } | null>(null);
+  const at = reaction?.at;
+  const emoji = reaction?.emoji;
+  useEffect(() => {
+    if (at === undefined || emoji === undefined || at === seen.current) return;
+    seen.current = at;
+    setShown({ emoji, at });
+    const t = setTimeout(() => setShown(null), REACTION_SHOW_MS);
+    return () => clearTimeout(t);
+  }, [at, emoji]);
+  return shown;
 }
 
 function Felt({ conn, me, revealed, clearing, secs }: { conn: TxConnection; me: TxPlayer | undefined; revealed: boolean; clearing: boolean; secs: number | null }) {
@@ -308,7 +374,7 @@ function Felt({ conn, me, revealed, clearing, secs }: { conn: TxConnection; me: 
         return (
           <div key={seat} className="absolute z-10 -translate-x-1/2 -translate-y-1/2" style={{ left: `${pos.x}%`, top: `${pos.y}%` }}>
             {p ? (
-              <Seat conn={conn} player={p} below={pos.y < 35} order={dealOrder(p)} handSize={hand.length} revealed={revealed} clearing={clearing} secs={secs} />
+              <Seat key={p.id} conn={conn} player={p} below={pos.y < 35} order={dealOrder(p)} handSize={hand.length} revealed={revealed} clearing={clearing} secs={secs} />
             ) : (
               <button
                 type="button"
@@ -452,6 +518,7 @@ function Seat({
   const busted = !inHand && player.chips < BIG_BLIND;
   const awardRef = useRef<HTMLSpanElement>(null);
   useFly(awardRef, won ? "[data-pot]" : undefined, "from", 150);
+  const bubble = useReactionBubble(player.reaction);
   const bestOf = player.result?.best ?? [];
   const dimCard = (c: TxCard | null) => revealed && won && bestOf.length > 0 && c !== null && !bestOf.some((b) => sameCard(b, c));
 
@@ -477,6 +544,14 @@ function Seat({
 
   return (
     <div className={cx("relative flex flex-col items-center", !player.connected && "opacity-50")}>
+      {bubble && (
+        <span className="pointer-events-none absolute bottom-full left-1/2 z-30 -translate-x-1/2">
+          <span key={bubble.at} aria-hidden className="tx-react block text-3xl leading-none drop-shadow-[0_2px_6px_oklch(0_0_0/0.7)]">
+            {bubble.emoji}
+          </span>
+          <span role="status" className="sr-only">{`${player.name} reacted ${bubble.emoji}`}</span>
+        </span>
+      )}
       {showCards && (
         <div className={cx("absolute left-1/2 flex -translate-x-1/2", mine ? "bottom-full z-10 mb-0.5 gap-1" : faceUp ? cx("z-10 gap-0.5", below ? "top-full mt-6" : "bottom-full mb-1") : "bottom-[58%]")}>
           {helper && (

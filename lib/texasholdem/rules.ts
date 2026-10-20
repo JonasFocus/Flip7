@@ -15,6 +15,7 @@ export const REVEAL_MS = 1800; // all-in called: a beat with the hands face up b
 export const RUNOUT_MS = 2200; // between streets of an all-in runout
 export const DEAL_STAGGER_MS = 200; // client deal animation: gap between cards going round the table
 export const CARD_SLIDE_MS = 550; // client deal animation: one card's trip from the deck
+export const REACTION_COOLDOWN_MS = 1500; // between emoji reactions from one player
 
 // Two passes round the table; the first turn's clock starts once the last card lands.
 export const dealAnimMs = (hands: number): number => (2 * hands - 1) * DEAL_STAGGER_MS + CARD_SLIDE_MS;
@@ -111,6 +112,7 @@ export function addTxPlayer(s: TxState, p: { id: string; name: string }): TxStat
     gone: false,
     shown: false,
     result: null,
+    reaction: null,
   };
   return { ...s, players: [...s.players, player], seq: s.seq + 1 };
 }
@@ -322,6 +324,10 @@ export function applyTxIntent(s: TxState, actorId: string, intent: TxIntent, opt
       if (inHand) return fail("Wait for the hand to finish");
       if (me.chips >= BIG_BLIND) return fail("You still have chips");
       return lobby(patch(s, actorId, (p) => ({ ...p, chips: START_CHIPS })));
+    case "react":
+      if (me.seat === null) return fail("Take a seat first");
+      if (me.reaction && now - me.reaction.at < REACTION_COOLDOWN_MS) return fail("Slow down");
+      return done(patch(s, actorId, (p) => ({ ...p, reaction: { emoji: intent.emoji, at: now } })));
     case "show":
       if (s.phase !== "showdown" || !isLive(me)) return fail("Nothing to show");
       return done(patch(s, actorId, (p) => ({ ...p, shown: true })));

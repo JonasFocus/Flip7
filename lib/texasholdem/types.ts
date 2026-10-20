@@ -8,6 +8,9 @@ export interface TxCard {
   suit: Suit;
 }
 
+export const TX_REACTIONS = ["👍", "😂", "😮", "😭", "🔥", "👏", "🤝", "💀"] as const;
+export type TxReaction = (typeof TX_REACTIONS)[number];
+
 export interface TxHandResult {
   won: number; // chips collected from the pots
   net: number; // won minus everything you put in
@@ -31,6 +34,7 @@ export interface TxPlayer {
   gone: boolean; // left mid-hand: kept until the hand ends so their chips stay in the pot
   shown: boolean; // turned their hand face up voluntarily
   result: TxHandResult | null; // showdown only
+  reaction: { emoji: TxReaction; at: number } | null; // last emoji sent and its server ms; shown briefly, stale ones ignored
 }
 
 export type TxPhase =
@@ -73,6 +77,7 @@ export type TxIntent =
   | { type: "call" }
   | { type: "bet"; amount: number } // raise TO this street total (an opening bet when nothing is bet yet)
   | { type: "allIn" }
+  | { type: "react"; emoji: TxReaction } // any phase, never touches the hand
   | { type: "show" }; // showdown: turn your hand face up after everyone else folded
 
 export interface TxActions {
