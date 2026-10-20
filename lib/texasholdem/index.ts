@@ -20,6 +20,7 @@ export {
   START_MS,
   TURN_MS,
   addTxPlayer,
+  railWatchers,
   applyTxIntent,
   canKickTx,
   createTxGame,
