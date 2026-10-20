@@ -124,9 +124,20 @@ export function setTxConnected(s: TxState, id: string, connected: boolean, now: 
   return seal(syncLobby(patch(s, id, (x) => ({ ...x, connected, gone: connected ? false : x.gone })), now), s);
 }
 
+// Heads-up the previous big blind takes the button, and a previous small blind left alone with them moves to the big blind, so a blind never repeats when the table shrinks.
+function headsUpButton(pool: TxPlayer[], s: TxState): TxPlayer | undefined {
+  if (pool.length === 2) {
+    const prevBb = pool.find((p) => p.id === s.bbId);
+    if (prevBb) return prevBb;
+    const prevSb = pool.find((p) => p.id === s.sbId);
+    if (prevSb) return pool.find((p) => p.id !== prevSb.id);
+  }
+  return after(pool, s.button ?? -1)[0];
+}
+
 function startHand(s: TxState, now: number, rng: Rng): TxState {
   const pool = s.players.filter(isDealable);
-  const btn = after(pool, s.button ?? -1)[0];
+  const btn = headsUpButton(pool, s);
   if (pool.length < 2 || !btn) return { ...s, startAt: null };
   const rest = after(pool, seatOf(btn)).filter((p) => p.id !== btn.id);
   const order = [btn, ...rest];
@@ -158,7 +169,7 @@ function startHand(s: TxState, now: number, rng: Rng): TxState {
     button: seatOf(btn),
     sbId: sb.id,
     bbId: bb.id,
-    currentBet: BIG_BLIND,
+    currentBet: headsUp ? Math.max(...players.map((p) => p.bet)) : BIG_BLIND, // a short big blind leaves nothing for the small blind to call
     minRaise: BIG_BLIND,
     turnId: null,
     turnAt: null,
@@ -251,7 +262,7 @@ function resetTable(s: TxState, now: number): TxState {
     .filter((p) => !p.gone)
     .map((p) => ({ ...p, bet: 0, total: 0, cards: [], folded: false, allIn: false, acted: false, shown: false, result: null }));
   return syncLobby(
-    { ...s, phase: "lobby", players, board: [], deck: [], currentBet: 0, minRaise: BIG_BLIND, turnId: null, turnAt: null, dealAt: null, settleAt: null, sbId: null, bbId: null, runout: false, startAt: null },
+    { ...s, phase: "lobby", players, board: [], deck: [], currentBet: 0, minRaise: BIG_BLIND, turnId: null, turnAt: null, dealAt: null, settleAt: null, runout: false, startAt: null },
     now,
   );
 }

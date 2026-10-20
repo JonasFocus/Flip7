@@ -129,6 +129,69 @@ test("the button moves one seat each hand and skips players who sit out", () => 
   assert.equal(s.bbId, "a");
 });
 
+// Folds a three-handed hand round to showdown, drops `leaver`, and deals the next hand once the table resets.
+function nextHandAfterLeaving(leaver: string): TxState {
+  let s = act(act(table(["a", "b", "c"]), "a", { type: "fold" }), "b", { type: "fold" });
+  s = removeTxPlayer(s, leaver, { now: NOW });
+  s = onDeadline(s, s.settleAt!, newRng());
+  assert.equal(s.players.length, 2);
+  return onDeadline(s, s.startAt!, newRng());
+}
+
+test("dropping to heads-up when the button leaves: the old big blind takes the button, the old small blind the big blind", () => {
+  const s = nextHandAfterLeaving("a");
+  assert.deepEqual([s.button, s.sbId, s.bbId], [2, "c", "b"]);
+});
+
+test("dropping to heads-up when the big blind leaves: the old small blind posts the big blind", () => {
+  const s = nextHandAfterLeaving("c");
+  assert.deepEqual([s.button, s.sbId, s.bbId], [0, "a", "b"]);
+});
+
+test("dropping to heads-up when the small blind leaves: the old big blind keeps the button", () => {
+  const s = nextHandAfterLeaving("b");
+  assert.deepEqual([s.button, s.sbId, s.bbId], [2, "c", "a"]);
+});
+
+test("the lobby between hands keeps the last blinds for the next rotation", () => {
+  const s = table(["a", "b", "c"]);
+  const lobby = onDeadline(act(act(s, "a", { type: "fold" }), "b", { type: "fold" }), NOW + FOLD_WIN_MS, newRng());
+  assert.equal(lobby.phase, "lobby");
+  assert.deepEqual([lobby.sbId, lobby.bbId], ["b", "c"]);
+  assert.ok(lobby.players.every((p) => p.cards.length === 0));
+});
+
+test("heads-up short big blind: the small blind has nothing to call and the hand runs out", () => {
+  let s = table(["a", "b"], { chips: { b: 5 }, hole: { a: ["Kc", "Kd"], b: ["As", "Ah"] }, board: ["2c", "7d", "9h", "Jc", "3s"] });
+  assert.equal(player(s, "b").allIn, true);
+  assert.deepEqual([player(s, "b").total, player(s, "a").total], [5, SMALL_BLIND]);
+  assert.equal(s.turnId, null);
+  assert.equal(s.runout, true);
+  assert.equal(s.pot, 15);
+  const total = chipsAndPot(s);
+  while (s.phase !== "showdown") s = onDeadline(s, serverDeadline(s)!, newRng());
+  assert.equal(chipsAndPot(s), total);
+  assert.equal(player(s, "b").chips, 10); // doubled the 5 it covered
+  assert.equal(player(s, "a").chips, START_CHIPS - 5); // the uncalled 5 came back
+});
+
+test("a short big blind facing a full-size small blind in a three-way pot still owes the full big blind", () => {
+  const s = table(["a", "b", "c"], { chips: { c: 5 } });
+  assert.equal(s.currentBet, BIG_BLIND);
+  assert.equal(s.turnId, "a");
+});
+
+test("leaving during an all-in runout hands the pot to the player still in", () => {
+  let s = table(["a", "b"]);
+  s = act(act(s, "a", { type: "allIn" }), "b", { type: "call" });
+  assert.equal(s.runout, true);
+  const left = removeTxPlayer(s, "a", { now: NOW });
+  assert.equal(left.phase, "showdown");
+  assert.equal(player(left, "a").result?.won, 0);
+  assert.equal(player(left, "b").chips, START_CHIPS * 2);
+  assert.deepEqual(onDeadline(left, left.settleAt!, newRng()).players.map((p) => p.id), ["b"]);
+});
+
 test("everyone folds: the last player wins the pot unseen", () => {
   let s = table(["a", "b"], { hole: { a: ["As", "Ah"], b: ["Kc", "Kd"] } });
   s = act(s, "a", { type: "fold" });
