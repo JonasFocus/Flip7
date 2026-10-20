@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   BIG_BLIND,
+  DROP_GRACE_MS,
   FOLD_WIN_MS,
   REACTION_COOLDOWN_MS,
   RUNOUT_MS,
@@ -662,6 +663,58 @@ test("wentAllIn names the player who just shoved, but not a blind posted all-in 
   const dealt = onDeadline(lobby, 1000 + START_MS, newRng());
   assert.ok(dealt.players.some((p) => p.allIn));
   assert.equal(wentAllIn(lobby, dealt), null);
+});
+
+// Everyone but c folds, so the hand ends and the table is about to reset.
+function endedHand(c: { dropAt: number }): TxState {
+  let s = table(["a", "b", "c"]);
+  s = setTxConnected(s, "c", false, c.dropAt);
+  s = act(s, "a", { type: "fold" }, c.dropAt);
+  s = act(s, "b", { type: "fold" }, c.dropAt);
+  return s;
+}
+
+test("a player offline past the grace period is cleared at the next hand boundary", () => {
+  const s = endedHand({ dropAt: NOW });
+  const reset = onDeadline(s, NOW + DROP_GRACE_MS + 1, newRng());
+  assert.equal(reset.phase, "lobby");
+  assert.deepEqual(reset.players.map((p) => p.id), ["a", "b"]);
+});
+
+test("a player who is back within the grace period keeps their seat and chips", () => {
+  let s = endedHand({ dropAt: NOW });
+  s = setTxConnected(s, "c", true, NOW + DROP_GRACE_MS - 1);
+  const chips = player(s, "c").chips;
+  const reset = onDeadline(s, NOW + DROP_GRACE_MS + 1, newRng());
+  assert.equal(player(reset, "c").seat, 2);
+  assert.equal(player(reset, "c").chips, chips);
+  assert.equal(player(reset, "c").droppedAt, null);
+});
+
+test("a drop shorter than the grace period survives the hand boundary", () => {
+  const s = endedHand({ dropAt: NOW });
+  const reset = onDeadline(s, s.settleAt!, newRng());
+  assert.ok(player(reset, "c"));
+  assert.equal(player(reset, "c").connected, false);
+});
+
+test("stale ghosts are cleared in the lobby when someone else connects or drops", () => {
+  let s = addTxPlayer(createTxGame(), { id: "a", name: "A" });
+  s = addTxPlayer(s, { id: "b", name: "B" });
+  s = setTxConnected(s, "a", false, NOW);
+  s = setTxConnected(s, "b", false, NOW + DROP_GRACE_MS + 5);
+  assert.deepEqual(s.players.map((p) => p.id), ["b"]);
+});
+
+test("an idle lobby clears a ghost once the grace period runs out", () => {
+  let s = addTxPlayer(createTxGame(), { id: "a", name: "A" });
+  s = addTxPlayer(s, { id: "b", name: "B" });
+  s = setTxConnected(s, "b", false, NOW);
+  assert.equal(serverDeadline(s), NOW + DROP_GRACE_MS);
+  assert.equal(onDeadline(s, NOW + DROP_GRACE_MS - 1), s);
+  const pruned = onDeadline(s, NOW + DROP_GRACE_MS);
+  assert.deepEqual(pruned.players.map((p) => p.id), ["a"]);
+  assert.equal(serverDeadline(pruned), null);
 });
 
 test("three-handed bust to heads-up: last hand's big blind takes the button and small blind", () => {
