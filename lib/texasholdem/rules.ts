@@ -64,12 +64,18 @@ function commit(p: TxPlayer, amount: number): TxPlayer {
   return { ...p, chips: p.chips - pay, bet: p.bet + pay, total: p.total + pay, allIn: p.chips - pay === 0 };
 }
 
+// A player who leaves with chips keeps them for the id; only a bust (0 chips) earns a fresh stack.
+function keepStack(stacks: Record<string, number>, p: TxPlayer): Record<string, number> {
+  return p.chips > 0 ? { ...stacks, [p.id]: p.chips } : stacks;
+}
+
 export function createTxGame(): TxState {
   return {
     phase: "lobby",
     players: [],
     board: [],
     deck: [],
+    stacks: {},
     pot: 0,
     button: null,
     sbId: null,
@@ -96,12 +102,13 @@ function syncLobby(s: TxState, now: number): TxState {
 
 export function addTxPlayer(s: TxState, p: { id: string; name: string }): TxState {
   if (s.players.length >= MAX_TX_PLAYERS || s.players.some((x) => x.id === p.id)) return s;
+  const { [p.id]: kept, ...stacks } = s.stacks;
   const player: TxPlayer = {
     id: p.id,
     name: p.name,
     connected: true,
     seat: null,
-    chips: START_CHIPS,
+    chips: kept ?? START_CHIPS,
     bet: 0,
     total: 0,
     cards: [],
@@ -114,7 +121,7 @@ export function addTxPlayer(s: TxState, p: { id: string; name: string }): TxStat
     result: null,
     reaction: null,
   };
-  return { ...s, players: [...s.players, player], seq: s.seq + 1 };
+  return { ...s, players: [...s.players, player], stacks, seq: s.seq + 1 };
 }
 
 export function setTxConnected(s: TxState, id: string, connected: boolean, now: number): TxState {
@@ -126,7 +133,9 @@ export function setTxConnected(s: TxState, id: string, connected: boolean, now: 
 
 function startHand(s: TxState, now: number, rng: Rng): TxState {
   const pool = s.players.filter(isDealable);
-  const btn = after(pool, s.button ?? -1)[0];
+  // Heads-up after a bust: last hand's big blind takes the button and small blind, so nobody posts the big blind twice.
+  const prevBb = pool.length === 2 ? pool.find((p) => p.id === s.bbId) : undefined;
+  const btn = prevBb ?? after(pool, s.button ?? -1)[0];
   if (pool.length < 2 || !btn) return { ...s, startAt: null };
   const rest = after(pool, seatOf(btn)).filter((p) => p.id !== btn.id);
   const order = [btn, ...rest];
@@ -249,11 +258,12 @@ function showdown(s: TxState, now: number): TxState {
 }
 
 function resetTable(s: TxState, now: number): TxState {
+  const stacks = s.players.filter((p) => p.gone).reduce(keepStack, s.stacks);
   const players = s.players
     .filter((p) => !p.gone)
     .map((p) => ({ ...p, bet: 0, total: 0, cards: [], folded: false, allIn: false, acted: false, shown: false, result: null }));
   return syncLobby(
-    { ...s, phase: "lobby", players, board: [], deck: [], currentBet: 0, minRaise: BIG_BLIND, turnId: null, turnAt: null, dealAt: null, settleAt: null, sbId: null, bbId: null, runout: false, startAt: null },
+    { ...s, phase: "lobby", players, stacks, board: [], deck: [], currentBet: 0, minRaise: BIG_BLIND, turnId: null, turnAt: null, dealAt: null, settleAt: null, sbId: null, bbId: null, runout: false, startAt: null },
     now,
   );
 }
@@ -283,11 +293,19 @@ export function legalActions(s: TxState, id: string): TxActions | null {
   };
 }
 
+// The host may remove someone between hands, or at any time once they are offline or sitting out.
+export function canKickTx(s: TxState, id: string): boolean {
+  const p = s.players.find((x) => x.id === id);
+  if (!p) return false;
+  if (s.phase === "lobby") return true;
+  return !p.gone && (!p.connected || p.sitOut);
+}
+
 export function removeTxPlayer(s: TxState, id: string, opts: { now: number; rng?: Rng }): TxState {
   const me = s.players.find((p) => p.id === id);
   if (!me) return s;
   const rng = opts.rng ?? cryptoRng;
-  if (me.cards.length === 0) return syncLobby({ ...s, players: s.players.filter((p) => p.id !== id), seq: s.seq + 1 }, opts.now);
+  if (me.cards.length === 0) return syncLobby({ ...s, players: s.players.filter((p) => p.id !== id), stacks: keepStack(s.stacks, me), seq: s.seq + 1 }, opts.now);
   // Their chips stay in the pot, so the seat lingers (folded) until the hand ends.
   const folded = patch(s, id, (p) => ({ ...p, folded: true, gone: true, connected: false }));
   if (s.phase === "showdown") return { ...folded, seq: s.seq + 1 };
@@ -324,7 +342,7 @@ export function applyTxIntent(s: TxState, actorId: string, intent: TxIntent, opt
       return lobby(patch(s, actorId, (p) => ({ ...p, sitOut: false })));
     case "rebuy":
       if (inHand) return fail("Wait for the hand to finish");
-      if (me.chips >= BIG_BLIND) return fail("You still have chips");
+      if (me.chips > 0) return fail("You still have chips");
       return lobby(patch(s, actorId, (p) => ({ ...p, chips: START_CHIPS })));
     case "react":
       if (me.seat === null) return fail("Take a seat first");
@@ -409,5 +427,5 @@ export function redactTx(s: TxState, viewerId: string): TxState {
     const visible = p.id === viewerId || shownDown || (isLive(p) && (s.runout || p.shown));
     return visible ? p : { ...p, cards: p.cards.map(() => null) };
   });
-  return { ...s, players, deck: [] };
+  return { ...s, players, deck: [], stacks: {} };
 }
