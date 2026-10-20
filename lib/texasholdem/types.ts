@@ -101,5 +101,6 @@ export interface TxConnection {
   error: string | null;
   send: (intent: TxIntent) => void;
   removePlayer: (playerId: string) => void;
+  addBot: () => void;
   leave: () => void;
 }
