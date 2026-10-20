@@ -308,13 +308,11 @@ function Felt({ conn, me, revealed, clearing, secs }: { conn: TxConnection; me: 
           <CardFace key={i} card={null} className="absolute" size={25} style={{ left: i * 1.5, top: -i * 1.5 }} />
         ))}
       </div>
-      <div className="absolute top-[1%] right-[3%] z-20 flex flex-col items-end gap-1">
-        <div className="flex items-center gap-1.5">
-          <Watchers players={game.players} you={conn.you} />
-          <p aria-label={`Blinds ${SMALL_BLIND} and ${BIG_BLIND}`} className="rounded-full border border-white/10 bg-black/40 px-2 py-0.5 font-display text-[10px] tracking-[0.14em] text-fg/70 tabular-nums">
-            {SMALL_BLIND}/{BIG_BLIND}
-          </p>
-        </div>
+      <div className="absolute top-[1%] right-[3%] z-20 flex items-center gap-1.5">
+        <Watchers players={game.players} you={conn.you} />
+        <p aria-label={`Blinds ${SMALL_BLIND} and ${BIG_BLIND}`} className="rounded-full border border-white/10 bg-black/40 px-2 py-0.5 font-display text-[10px] tracking-[0.14em] text-fg/70 tabular-nums">
+          {SMALL_BLIND}/{BIG_BLIND}
+        </p>
       </div>
 
       <div data-pot className="absolute left-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2" style={{ top: "34%" }}>
