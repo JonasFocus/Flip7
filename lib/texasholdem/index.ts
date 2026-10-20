@@ -1,5 +1,5 @@
 export * from "./types.ts";
-export { chooseTxIntent, TX_BOT_STYLES, type TxPersonality } from "./bot.ts";
+export { chooseTxIntent, isTxBotId, nextTxBotMove, TX_BOT_STYLES, type TxBotMove, type TxPersonality } from "./bot.ts";
 export { buildPots, evaluate, madeHand } from "./eval.ts";
 export {
   BIG_BLIND,

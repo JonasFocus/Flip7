@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { cx } from "@/components/ui/cx";
 import { shortAmount } from "@/components/casino/Chip";
 import { fail, success, tap } from "@/lib/client/haptics";
-import { BIG_BLIND, START_CHIPS, TURN_MS, legalActions } from "@/lib/texasholdem";
+import { BIG_BLIND, SEATS, START_CHIPS, TURN_MS, isTxBotId, legalActions } from "@/lib/texasholdem";
 import type { TxConnection, TxIntent, TxPlayer } from "@/lib/texasholdem/types";
 
 const PRESETS = [
@@ -71,6 +71,7 @@ export function Panel({
       <div key={view} className="tx-rise flex flex-col gap-2">
         {body}
       </div>
+      {conn.isHost && <BotRow conn={conn} />}
     </footer>
   );
 }
@@ -108,6 +109,25 @@ const presetClass = (on: boolean) =>
   );
 
 const linkButton = "min-h-11 text-xs font-bold tracking-[0.16em] text-muted uppercase active:text-fg disabled:opacity-30";
+
+// Host only: fill empty seats with bots, any time. Remove takes the newest one.
+function BotRow({ conn }: { conn: TxConnection }) {
+  const { players } = conn.game;
+  const full = players.filter((p) => p.seat !== null).length >= SEATS;
+  const newest = players.findLast((p) => isTxBotId(p.id));
+  return (
+    <div className="flex items-center justify-between">
+      <button type="button" onClick={() => (tap(), conn.addBot())} disabled={full} className={linkButton}>
+        Add bot
+      </button>
+      {newest && (
+        <button type="button" onClick={() => (tap(), conn.removePlayer(newest.id))} className={linkButton}>
+          Remove bot
+        </button>
+      )}
+    </div>
+  );
+}
 
 // Seated but not in this hand: waiting for the next deal, sitting out, or busted.
 function Idle({ conn, me, secs }: { conn: TxConnection; me: TxPlayer; secs: number | null }) {
