@@ -50,6 +50,7 @@ export interface TxState {
   players: TxPlayer[]; // join order, seat lives on the player
   board: TxCard[];
   deck: TxCard[]; // REDACTED to []
+  stacks: Record<string, number>; // chips kept for players who left with more than 0, restored if they rejoin; REDACTED to {}
   pot: number; // everything committed this hand, including the current street
   button: number | null; // seat of the dealer button
   sbId: string | null;

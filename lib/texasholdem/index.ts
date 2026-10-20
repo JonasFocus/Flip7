@@ -20,6 +20,7 @@ export {
   TURN_MS,
   addTxPlayer,
   applyTxIntent,
+  canKickTx,
   createTxGame,
   dealAnimMs,
   legalActions,
