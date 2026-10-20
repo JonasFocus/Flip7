@@ -351,7 +351,7 @@ export function applyTxIntent(s: TxState, actorId: string, intent: TxIntent, opt
     case "standUp":
       if (me.seat === null) return fail("You're not seated");
       if (isLive(me)) return fail("Finish your hand first");
-      return lobby(patch(s, actorId, (p) => ({ ...p, seat: null })));
+      return lobby(patch(s, actorId, (p) => ({ ...p, seat: null, timedOut: false })));
     case "sitOut":
       return lobby(patch(s, actorId, (p) => ({ ...p, sitOut: true, timedOut: false })));
     case "sitIn":

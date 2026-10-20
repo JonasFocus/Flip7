@@ -328,6 +328,7 @@ test("auto-action: checks when free, folds to a bet, and sits the player out", (
   assert.equal(player(folded, "a").sitOut, true);
   assert.equal(player(folded, "a").timedOut, true);
   assert.equal(player(folded, "b").timedOut, false);
+  assert.equal(player(act(folded, "a", { type: "standUp" }), "a").timedOut, false);
   s = act(act(s, "a", { type: "call" }), "b", { type: "check" });
   const checked = onDeadline(s, serverDeadline(s)!);
   assert.equal(player(checked, "b").sitOut, true);
