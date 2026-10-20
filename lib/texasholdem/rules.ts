@@ -9,7 +9,6 @@ export const SMALL_BLIND = 10;
 export const BIG_BLIND = 20;
 export const TURN_MS = 25_000; // then the server checks, or folds if there is a bet to face
 export const START_MS = 3000; // two funded players are seated: the next hand is dealt after this beat
-export const AFTER_HAND_MS = 1200; // lobby beat after a hand settles, long enough to rebuy or sit out before the next deal
 export const SHOWDOWN_MS = 5000; // results and the winning hand stay up before the table resets
 export const FOLD_WIN_MS = 3500; // everyone folded: a shorter beat, no hands to read
 export const REVEAL_MS = 1800; // all-in called: a beat with the hands face up before the next street
@@ -95,10 +94,10 @@ export function createTxGame(): TxState {
 }
 
 // The next hand starts once two funded players are seated; the clock is set once and survives further joins.
-function syncLobby(s: TxState, now: number, delay = START_MS): TxState {
+function syncLobby(s: TxState, now: number): TxState {
   if (s.phase !== "lobby") return s;
   if (s.players.filter(isDealable).length < 2) return { ...s, startAt: null };
-  return { ...s, startAt: s.startAt ?? now + delay };
+  return { ...s, startAt: s.startAt ?? now + START_MS };
 }
 
 export function addTxPlayer(s: TxState, p: { id: string; name: string }): TxState {
@@ -266,7 +265,6 @@ function resetTable(s: TxState, now: number): TxState {
   return syncLobby(
     { ...s, phase: "lobby", players, stacks, board: [], deck: [], currentBet: 0, minRaise: BIG_BLIND, turnId: null, turnAt: null, dealAt: null, settleAt: null, sbId: null, bbId: null, runout: false, startAt: null },
     now,
-    AFTER_HAND_MS,
   );
 }
 

@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  AFTER_HAND_MS,
   BIG_BLIND,
   FOLD_WIN_MS,
   REACTION_COOLDOWN_MS,
@@ -186,15 +185,28 @@ test("full hand to showdown pays the best hand and resets the table", () => {
   assert.equal(reset.board.length, 0);
   assert.equal(reset.pot, 0);
   assert.ok(reset.players.every((p) => p.cards.length === 0 && p.result === null));
-  assert.equal(reset.startAt, s.settleAt! + AFTER_HAND_MS);
+  assert.equal(reset.startAt, s.settleAt! + START_MS);
 });
 
-test("the gap from the last action to the next deal stays short, and late joiners do not move it", () => {
+test("a busted player in a three-handed game keeps the full beat to rebuy and is dealt in", () => {
+  let s = table(["a", "b", "c"], { hole: { a: ["As", "Ah"], b: ["Kc", "Kd"], c: ["2h", "3h"] }, board: ["2c", "7d", "9h", "Jc", "3s"] });
+  s = act(act(act(s, "a", { type: "allIn" }), "b", { type: "call" }), "c", { type: "fold" });
+  while (s.phase !== "showdown") s = onDeadline(s, serverDeadline(s)!);
+  const settleAt = s.settleAt!;
+  s = onDeadline(s, settleAt, newRng());
+  assert.equal(player(s, "b").chips, 0);
+  assert.equal(s.startAt, settleAt + START_MS); // a and c are funded, so the clock runs without b
+  s = act(s, "b", { type: "rebuy" }, settleAt + START_MS - 1500);
+  assert.equal(s.startAt, settleAt + START_MS);
+  const dealt = onDeadline(s, s.startAt!, newRng());
+  assert.equal(dealt.players.filter((p) => p.cards.length === 2).length, 3);
+});
+
+test("late joiners do not move the next deal", () => {
   let s = table(["a", "b"], { hole: { a: ["As", "Ah"], b: ["Kc", "Kd"] }, board: ["2c", "7d", "9h", "Jc", "3s"] });
   s = act(act(s, "a", { type: "call" }), "b", { type: "check" });
   while (s.phase !== "showdown") s = act(act(s, "b", { type: "check" }), "a", { type: "check" });
   const reset = onDeadline(s, s.settleAt!, newRng());
-  assert.ok(reset.startAt! - NOW <= 6500);
   const joined = act(addTxPlayer(reset, { id: "c", name: "C" }), "c", { type: "sit", seat: 4 }, reset.startAt! - 500);
   assert.equal(joined.startAt, reset.startAt);
 });
