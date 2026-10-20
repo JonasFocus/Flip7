@@ -687,6 +687,7 @@ const payee = (id: string, name: string, won: number, hand: string | null, best:
   id,
   name,
   connected: true,
+  droppedAt: null,
   seat: 0,
   chips: 0,
   bet: 0,
