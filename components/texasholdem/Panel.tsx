@@ -5,10 +5,10 @@ import { Button } from "@/components/ui/Button";
 import { cx } from "@/components/ui/cx";
 import { Chip, shortAmount } from "@/components/casino/Chip";
 import { fail, success, tap } from "@/lib/client/haptics";
-import { BIG_BLIND, FOLD_HOLD_MS, RAISE_CHIPS, START_CHIPS, TURN_MS, clampRaise, legalActions, potWon, stackRaise } from "@/lib/texasholdem";
+import { BIG_BLIND, FOLD_HOLD_MS, RAISE_CHIPS, START_CHIPS, TURN_MS, clampRaise, facing, legalActions, potWon, preActionIntent, stackRaise, type Facing, type PreAction } from "@/lib/texasholdem";
 import type { TxConnection, TxIntent, TxPlayer } from "@/lib/texasholdem/types";
 
-const LOW_SECS = 5; // the clock turns urgent and your phone buzzes again at this many seconds left
+export const LOW_SECS = 5; // the clock turns urgent and your phone buzzes again at this many seconds left
 
 export function Panel({
   conn,
@@ -29,6 +29,34 @@ export function Panel({
   const inHand = !!me && me.cards.length > 0;
   const acting = game.players.find((p) => p.id === game.turnId);
   const street = game.phase !== "lobby" && game.phase !== "showdown";
+
+  // A queued move is dropped when its street or hand ends, or once your turn has come and gone:
+  // the bet it was chosen against is no longer there.
+  const [pre, setPre] = useState<PreAction | null>(null);
+  const [preScope, setPreScope] = useState(`${game.round}-${game.phase}`);
+  const [wasMyTurn, setWasMyTurn] = useState(myTurn);
+  if (preScope !== `${game.round}-${game.phase}`) {
+    setPreScope(`${game.round}-${game.phase}`);
+    setPre(null);
+  }
+  if (wasMyTurn !== myTurn) {
+    setWasMyTurn(myTurn);
+    if (!myTurn) setPre(null);
+  }
+  const canQueue = inHand && !me.folded && !me.allIn && !me.sitOut && street && !game.runout && !myTurn;
+  const now = canQueue ? facing(game, me) : null;
+  if (pre && now && preActionIntent(pre, now) === null) setPre(null);
+
+  // Your turn with a queued move that still fits: it goes out at once instead of showing the buttons.
+  const turnLegal = myTurn && !dealing && conn.status === "open" ? legalActions(game, conn.you) : null;
+  const queued = pre && turnLegal ? preActionIntent(pre, turnLegal) : null;
+  const queuedType = queued?.type ?? null;
+  const { send } = conn;
+  useEffect(() => {
+    if (!queuedType) return;
+    tap();
+    send({ type: queuedType });
+  }, [queuedType, send]);
 
   let view: string;
   let body: ReactNode;
@@ -52,6 +80,9 @@ export function Panel({
   } else if (street && dealing) {
     view = "dealing";
     body = <Status>Dealing…</Status>;
+  } else if (queued) {
+    view = "queued";
+    body = <Status>Playing your queued move…</Status>;
   } else if (myTurn) {
     view = "turn";
     body = <Actions conn={conn} me={me} secs={secs} />;
@@ -61,6 +92,7 @@ export function Panel({
       <>
         <TurnClock label={`${acting?.name ?? "Someone"}'s turn`} secs={secs} />
         <Status>{me.folded ? "You folded. Waiting for the next hand…" : me.allIn ? "You're all in. Waiting on the table…" : "Waiting for your turn…"}</Status>
+        {now && <PreActions now={now} pre={pre} onChange={setPre} />}
       </>
     );
   }
@@ -71,6 +103,7 @@ export function Panel({
   return (
     <footer className="flex min-h-[calc(226px+env(safe-area-inset-bottom))] flex-col justify-center px-4 pt-1 pb-safe-3">
       <div key={view} className="tx-rise flex flex-col gap-2">
+        {me?.timedOut && <TimedOutNotice conn={conn} />}
         {body}
       </div>
     </footer>
@@ -89,7 +122,7 @@ function TurnClock({ label, secs }: { label: ReactNode; secs: number | null }) {
         {secs !== null && <span className={cx("text-[15px] font-semibold tabular-nums", low ? "tx-low text-danger" : "text-muted")}>{secs}s</span>}
       </div>
       <div className="h-1.5 overflow-hidden rounded-full bg-surface-2">
-        <div className={cx("h-full origin-left rounded-full transition-[width] duration-1000 ease-linear", low ? "tx-low bg-danger" : "bg-accent")} style={{ width: `${pct}%` }} />
+        <div className={cx("h-full origin-left rounded-full transition-[width] duration-1000 ease-linear motion-reduce:transition-none", low ? "tx-low bg-danger" : "bg-accent")} style={{ width: `${pct}%` }} />
       </div>
     </div>
   );
@@ -117,11 +150,53 @@ function RunTwice({ conn, me, secs }: { conn: TxConnection; me: TxPlayer; secs: 
   );
 }
 
+// Shown on every panel view until they sit back in, so a clock-forced sit out is never a silent surprise.
+function TimedOutNotice({ conn }: { conn: TxConnection }) {
+  return (
+    <div role="status" className="flex items-center justify-between gap-3 rounded-2xl border border-danger px-4 py-2 text-sm">
+      <span>You timed out and were sat out.</span>
+      <button
+        type="button"
+        onClick={() => (tap(), conn.send({ type: "sitIn" }))}
+        className="min-h-11 shrink-0 text-xs font-bold tracking-[0.16em] text-accent uppercase active:text-fg"
+      >
+        Sit back in
+      </button>
+    </div>
+  );
+}
+
 function Status({ children }: { children: ReactNode }) {
   return (
     <p aria-live="polite" className="grid min-h-14 place-items-center rounded-2xl border border-line bg-surface px-4 text-center text-sm text-muted">
       {children}
     </p>
+  );
+}
+
+// Moves you can queue while others act: tap again to clear. Check and Call X drop out if the bet changes before your turn.
+function PreActions({ now, pre, onChange }: { now: Facing; pre: PreAction | null; onChange: (pre: PreAction | null) => void }) {
+  const options: { action: PreAction; label: string }[] = [{ action: { type: "checkFold" }, label: "Check / Fold" }];
+  if (now.canCheck) options.push({ action: { type: "check" }, label: "Check" }, { action: { type: "callAny" }, label: "Call any" });
+  else options.push({ action: { type: "call", amount: now.callAmount }, label: `Call ${shortAmount(now.callAmount)}` });
+
+  return (
+    <div className="flex gap-2">
+      {options.map(({ action, label }) => {
+        const on = pre?.type === action.type;
+        return (
+          <button
+            key={action.type}
+            type="button"
+            aria-pressed={on}
+            onClick={() => (tap(), onChange(on ? null : action))}
+            className={cx(chipButton, "flex-1 px-2 text-xs font-bold tracking-wide uppercase", on ? "border-accent bg-accent/15 text-accent" : "text-muted")}
+          >
+            {label}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
