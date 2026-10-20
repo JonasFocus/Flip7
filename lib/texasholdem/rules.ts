@@ -126,7 +126,9 @@ export function setTxConnected(s: TxState, id: string, connected: boolean, now: 
 
 function startHand(s: TxState, now: number, rng: Rng): TxState {
   const pool = s.players.filter(isDealable);
-  const btn = after(pool, s.button ?? -1)[0];
+  // Heads-up after a bust: last hand's big blind takes the button and small blind, so nobody posts the big blind twice.
+  const prevBb = pool.length === 2 ? pool.find((p) => p.id === s.bbId) : undefined;
+  const btn = prevBb ?? after(pool, s.button ?? -1)[0];
   if (pool.length < 2 || !btn) return { ...s, startAt: null };
   const rest = after(pool, seatOf(btn)).filter((p) => p.id !== btn.id);
   const order = [btn, ...rest];
