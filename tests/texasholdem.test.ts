@@ -348,9 +348,47 @@ test("busted players rebuy between hands, only when low and not in a hand", () =
   s = onDeadline(s, s.settleAt!, newRng());
   assert.equal(s.startAt, null); // b is broke, one funded player cannot play
   assert.equal(err(s, "a", { type: "rebuy" }), "You still have chips");
+  assert.equal(player(s, "b").chips, 0);
   s = act(s, "b", { type: "rebuy" }, s.settleAt ?? NOW);
   assert.equal(player(s, "b").chips, START_CHIPS);
   assert.ok(s.startAt !== null);
+});
+
+test("rebuy is rejected with a short stack and allowed at zero", () => {
+  const lobby = (chips: number): TxState => {
+    let s = createTxGame();
+    s = addTxPlayer(s, { id: "a", name: "A" });
+    return { ...s, players: s.players.map((p) => ({ ...p, chips })) };
+  };
+  assert.equal(err(lobby(1), "a", { type: "rebuy" }), "You still have chips");
+  assert.equal(err(lobby(BIG_BLIND - 1), "a", { type: "rebuy" }), "You still have chips");
+  assert.equal(player(act(lobby(0), "a", { type: "rebuy" }), "a").chips, START_CHIPS);
+});
+
+test("leaving and rejoining keeps a stack above zero, a bust gets a fresh one", () => {
+  let s = createTxGame();
+  s = addTxPlayer(s, { id: "a", name: "A" });
+  s = { ...s, players: s.players.map((p) => ({ ...p, chips: 7 })) };
+  s = removeTxPlayer(s, "a", { now: NOW });
+  assert.equal(s.players.length, 0);
+  s = addTxPlayer(s, { id: "a", name: "A" });
+  assert.equal(player(s, "a").chips, 7);
+  assert.deepEqual(s.stacks, {});
+  s = { ...s, players: s.players.map((p) => ({ ...p, chips: 0 })) };
+  s = removeTxPlayer(s, "a", { now: NOW });
+  s = addTxPlayer(s, { id: "a", name: "A" });
+  assert.equal(player(s, "a").chips, START_CHIPS);
+});
+
+test("a mid-hand leaver keeps their remaining chips for a later rejoin", () => {
+  let s = table(["a", "b", "c"]);
+  s = removeTxPlayer(s, "c", { now: NOW });
+  const kept = player(s, "c").chips;
+  while (s.phase !== "lobby") s = onDeadline(s, serverDeadline(s) ?? s.settleAt ?? NOW, newRng());
+  assert.equal(s.stacks["c"], kept);
+  s = addTxPlayer(s, { id: "c", name: "C" });
+  assert.equal(player(s, "c").chips, kept);
+  assert.deepEqual(redactTx({ ...s, stacks: { z: 5 } }, "a").stacks, {});
 });
 
 test("joiners sit between hands and are dealt in next hand only", () => {
