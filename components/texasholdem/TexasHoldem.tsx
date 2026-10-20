@@ -26,8 +26,10 @@ import {
   canKickTx,
   dealAnimMs,
   madeHand,
+  paidOut,
   streetAnimMs,
   wentAllIn,
+  winLines,
 } from "@/lib/texasholdem";
 import type { TxCard, TxConnection, TxPlayer, TxReaction, TxState } from "@/lib/texasholdem/types";
 import { Panel } from "./Panel";
@@ -112,12 +114,7 @@ function useShowdown(conn: TxConnection): { revealed: boolean; clearing: boolean
   return { revealed: t >= (shownDown ? RESULT_BEAT_MS : FOLD_RESULT_BEAT_MS), clearing: now >= deadlineAt - SWEEP_MS };
 }
 
-function winBanner(payees: readonly TxPlayer[], you: string): { title: string; hand: string | null } {
-  const total = payees.reduce((n, w) => n + (w.result?.won ?? 0), 0);
-  const names = payees.map((w) => (w.id === you ? "You" : w.name)).join(" & ");
-  const verb = payees.length > 1 ? "split" : payees[0]?.id === you ? "win" : "wins";
-  return { title: `${names} ${verb} ${total.toLocaleString()}`, hand: payees[0]?.result?.hand ?? null };
-}
+const MAX_WIN_ROWS = 3;
 
 const sameCard = (a: TxCard, b: TxCard) => a.rank === b.rank && a.suit === b.suit;
 
@@ -153,7 +150,7 @@ export function TexasHoldem({ conn }: { conn: TxConnection }) {
   const secs = dealing ? null : left;
 
   // Winnings are already in the stack at showdown; hold them back until the winner is called.
-  const stack = me ? me.chips - (game.phase === "showdown" && !revealed && me.result ? me.result.won : 0) : 0;
+  const stack = me ? me.chips - (game.phase === "showdown" && !revealed ? paidOut(me) : 0) : 0;
   const offline = conn.status !== "open";
 
   async function share() {
@@ -285,7 +282,8 @@ function Felt({ conn, me, revealed, clearing, secs }: { conn: TxConnection; me: 
   const dimBoard = (c: TxCard) => winners.length > 0 && !winning(c);
 
   const payees = game.phase === "showdown" && revealed ? game.players.filter((p) => (p.result?.won ?? 0) > 0) : [];
-  const banner = payees.length > 0 ? winBanner(payees, conn.you) : null;
+  const lines = winLines(payees, conn.you);
+  const shownLines = lines.slice(0, MAX_WIN_ROWS);
   const allIn = useAllInMoment(game);
 
   function sit(seat: number) {
@@ -335,11 +333,16 @@ function Felt({ conn, me, revealed, clearing, secs }: { conn: TxConnection; me: 
       </div>
 
       <div className="absolute left-1/2 flex w-[84%] -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1" style={{ top: "62%" }}>
-        {banner ? (
-          <p key={`${game.round}-banner`} role="status" className="tx-pop flex max-w-full flex-col items-center rounded-2xl border border-active/50 bg-[oklch(0.15_0.003_260/0.92)] px-4 py-1.5 text-center shadow-[0_8px_24px_-8px_oklch(0_0_0/0.8)]">
-            <span className="max-w-full truncate font-display text-sm tracking-wide text-active">{banner.title}</span>
-            {banner.hand && <span className="max-w-full truncate text-[11px] text-fg/70">{banner.hand}</span>}
-          </p>
+        {lines.length > 0 ? (
+          <div key={`${game.round}-banner`} role="status" className="tx-pop flex max-w-full flex-col items-center gap-1 rounded-2xl border border-active/50 bg-[oklch(0.15_0.003_260/0.92)] px-4 py-1.5 text-center shadow-[0_8px_24px_-8px_oklch(0_0_0/0.8)]">
+            {shownLines.map((line) => (
+              <p key={line.key} className="flex max-w-full flex-col items-center">
+                <span className="max-w-full truncate font-display text-sm tracking-wide text-active">{line.text}</span>
+                {line.hand && <span className="max-w-full truncate text-[11px] text-fg/70">{line.hand}</span>}
+              </p>
+            ))}
+            {lines.length > shownLines.length && <span className="text-[11px] text-fg/70">+{lines.length - shownLines.length} more</span>}
+          </div>
         ) : allIn ? (
           <p key={allIn.key} role="status" className="tx-allin-call flex flex-col items-center text-center">
             <span className="font-display text-xl leading-none tracking-[0.18em] tabular-nums">
@@ -348,7 +351,7 @@ function Felt({ conn, me, revealed, clearing, secs }: { conn: TxConnection; me: 
             <span className="mt-1 max-w-full truncate font-display text-[11px] tracking-[0.14em] text-fg/80">{allIn.id === conn.you ? "YOU" : allIn.name.toUpperCase()}</span>
           </p>
         ) : pots.length > 1 && game.players.some((p) => p.allIn && p.total > 0) ? (
-          <p className="font-display text-[10px] tracking-[0.1em] text-fg/50 tabular-nums">
+          <p className="font-display text-[11px] tracking-[0.1em] text-fg/85 tabular-nums">
             {pots.map((p, i) => (
               <span key={i} className="mx-1">
                 {i === 0 ? "MAIN" : `SIDE ${i}`} {shortAmount(p.amount)}
@@ -356,7 +359,7 @@ function Felt({ conn, me, revealed, clearing, secs }: { conn: TxConnection; me: 
             ))}
           </p>
         ) : (
-          <p className="font-display text-[10px] tracking-[0.26em] text-fg/35">{STREET[game.phase]}</p>
+          <p className="font-display text-[11px] tracking-[0.26em] text-fg/80">{STREET[game.phase]}</p>
         )}
       </div>
 
@@ -384,7 +387,7 @@ function Felt({ conn, me, revealed, clearing, secs }: { conn: TxConnection; me: 
                 aria-label={`Sit in seat ${seat + 1}`}
                 className={cx(
                   "grid size-11 place-items-center rounded-full border bg-black/25 shadow-[inset_0_1px_3px_oklch(0_0_0/0.45)] transition-[scale,border-color,color] active:scale-95",
-                  canSit && me?.seat === null ? "border-white/25 text-fg/70 hover:border-white/40 hover:text-fg" : canSit ? "border-white/10 text-fg/35" : "border-white/[0.06] text-transparent",
+                  canSit && me?.seat === null ? "border-white/30 text-fg/85 hover:border-white/50 hover:text-fg" : canSit ? "border-white/20 text-fg/75" : "border-white/[0.06] text-transparent",
                 )}
               >
                 <svg aria-hidden width="14" height="14" viewBox="0 0 14 14" fill="none">
@@ -534,7 +537,7 @@ function Seat({
   const dimCard = (c: TxCard | null) => revealed && won && bestOf.length > 0 && c !== null && !bestOf.some((b) => sameCard(b, c));
 
   // Winnings are in the stack already at showdown; hold them back until the winner is called.
-  const shownStack = player.chips - (game.phase === "showdown" && !revealed && player.result ? player.result.won : 0);
+  const shownStack = player.chips - (game.phase === "showdown" && !revealed ? paidOut(player) : 0);
   const faceUp = !mine && player.cards.some((c) => c !== null); // an opponent's hand only arrives face up at showdown
   const size = mine ? "clamp(44px,13vw,54px)" : faceUp ? "clamp(30px,9vw,36px)" : "clamp(22px,6.4vw,28px)";
 
@@ -622,8 +625,8 @@ function Seat({
           mine ? "border-accent/80 bg-accent" : "border-white/10 bg-[oklch(0.15_0.003_260/0.92)]",
         )}
       >
-        <span className={cx("block truncate text-[10.5px] font-semibold", mine ? "text-ink" : "text-fg/85")}>{mine ? "You" : player.name}</span>
-        <span className={cx("block truncate font-display text-[11px] tabular-nums", mine ? "text-ink/80" : line.tone)}>{line.text}</span>
+        <span className={cx("block truncate text-[11px] font-semibold", mine ? "text-ink" : "text-fg/85")}>{mine ? "You" : player.name}</span>
+        <span className={cx("block truncate font-display text-xs tabular-nums", mine ? "text-ink/80" : line.tone)}>{line.text}</span>
       </span>
       {canKick && (
         <button
