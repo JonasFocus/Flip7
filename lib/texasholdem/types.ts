@@ -22,6 +22,7 @@ export interface TxPlayer {
   id: string;
   name: string;
   connected: boolean;
+  droppedAt: number | null; // server ms the socket dropped; null while connected
   seat: number | null; // 0..SEATS-1, null = watching
   chips: number; // stack behind, excluding what is already in the pot
   bet: number; // committed this street
