@@ -523,7 +523,7 @@ function Seat({
   useFly(awardRef, won ? "[data-pot]" : undefined, "from", 150);
   const bubble = useReactionBubble(player.reaction);
   const [armed, setArmed] = useState(false);
-  const canKick = conn.isHost && !mine && !player.gone && canKickTx(game, player.id);
+  const canKick = conn.isHost && !mine && !player.gone && (!player.connected || player.sitOut) && canKickTx(game, player.id);
   useEffect(() => {
     if (!armed) return;
     const t = setTimeout(() => setArmed(false), 3000);
@@ -635,7 +635,7 @@ function Seat({
             conn.removePlayer(player.id);
           }}
           className={cx(
-            "absolute -top-1 -right-3 z-20 grid h-5 min-w-5 place-items-center rounded-full px-1 text-[10px] font-bold shadow-[0_2px_6px_oklch(0_0_0/0.6)]",
+            "absolute -top-1 -right-3 z-20 grid h-6 min-w-6 place-items-center rounded-full px-1 text-[10px] font-bold shadow-[0_2px_6px_oklch(0_0_0/0.6)]",
             armed ? "bg-danger text-ink" : "bg-[oklch(0.15_0.003_260/0.92)] text-fg/80",
           )}
         >
