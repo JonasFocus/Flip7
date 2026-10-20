@@ -298,7 +298,7 @@ function MyResult({ conn, me, secs }: { conn: TxConnection; me: TxPlayer; secs: 
   const won = take > 0;
   const pot = potWon(game.players);
   const onlyLive = game.players.filter((p) => p.cards.length > 0 && !p.folded).length === 1;
-  const canShow = !me.folded && onlyLive && !me.shown;
+  const canShow = !me.folded && onlyLive && !me.shown && result?.hand == null;
 
   useEffect(() => {
     if (won) success();
