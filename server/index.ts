@@ -583,7 +583,7 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
         if (leaving) p.set(p.e.remove(p.game, id, { now }));
         else if (offline) p.set(p.e.setConnected(p.game, id, false, now));
       });
-      if (room.game.players.length === 0) return deleteRoom(room.code);
+      if (room.game.players.length === 0 || (room.mode === "texasholdem" && room.game.players.every((p) => p.gone))) return deleteRoom(room.code);
     } else if (leaving && room.game.phase === "lobby") {
       // Mid-game seats stay so their round history survives; the host can remove them from the board.
       const gone = new Set(room.game.players.filter((p) => p.ownerId === id).map((p) => p.id));
