@@ -223,13 +223,6 @@ test("nextTxBotMove stays quiet on a human's turn and waits out the deal before 
   assert.ok(late && late.atMs >= turnAt + 6000);
 });
 
-test("nextTxBotMove rebuys a bot only at zero chips and sits a benched one back in, only in the lobby", () => {
-  let s = seat(["bot-a", "h"], [5]);
-  assert.equal(nextTxBotMove(s, 5000, mulberry(1)), null);
-  s = { ...s, players: s.players.map((p) => (p.id === "bot-a" ? { ...p, chips: 0 } : p)) };
-  assert.deepEqual(nextTxBotMove(s, 5000, mulberry(1))?.intent, { type: "rebuy" });
-});
-
 test("nextTxBotMove rebuys a busted bot and sits a benched one back in, only in the lobby", () => {
   let s = seat(["bot-a", "bot-b", "h"]);
   assert.equal(nextTxBotMove(s, 5000, mulberry(1)), null);
