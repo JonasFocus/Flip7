@@ -107,6 +107,9 @@ function syncLobby(s: TxState, now: number, delay = START_MS): TxState {
   return { ...s, startAt: s.startAt ?? now + delay };
 }
 
+// Connected players without a seat: the rail beyond the 8 seats.
+export const railWatchers = (players: readonly TxPlayer[]): TxPlayer[] => players.filter((p) => p.seat === null && p.connected && !p.gone);
+
 export function addTxPlayer(s: TxState, p: { id: string; name: string }): TxState {
   if (s.players.length >= MAX_TX_PLAYERS || s.players.some((x) => x.id === p.id)) return s;
   const { [p.id]: kept, ...stacks } = s.stacks;

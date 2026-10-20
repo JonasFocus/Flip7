@@ -26,6 +26,7 @@ import {
   paidOut,
   potWon,
   redactTx,
+  railWatchers,
   removeTxPlayer,
   serverDeadline,
   setTxConnected,
@@ -962,6 +963,14 @@ test("three-handed bust to heads-up: last hand's big blind takes the button and 
   assert.equal(next.bbId, "b");
   assert.equal(next.button, 2);
   assert.equal(next.turnId, "c");
+});
+
+test("railWatchers lists connected unseated players only", () => {
+  let s = createTxGame();
+  for (const id of ["a", "b", "c", "d"]) s = addTxPlayer(s, { id, name: id });
+  s = act(s, "a", { type: "sit", seat: 0 });
+  s = setTxConnected(s, "c", false, NOW);
+  assert.deepEqual(railWatchers(s.players).map((p) => p.id), ["b", "d"]);
 });
 
 const DRY = ["2c", "7d", "9h", "Jc", "3s"];

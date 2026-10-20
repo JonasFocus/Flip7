@@ -30,6 +30,8 @@ import {
   isTxBotId,
   dealAnimMs,
   madeHand,
+  paidOut,
+  railWatchers,
   oddsRunner,
   stackBeforeAward,
   streetAnimMs,
@@ -384,9 +386,12 @@ function Felt({ conn, me, revealed, clearing, secs }: { conn: TxConnection; me: 
           <CardFace key={i} card={null} className="absolute" size={25} style={{ left: i * 1.5, top: -i * 1.5 }} />
         ))}
       </div>
-      <p aria-label={`Blinds ${SMALL_BLIND} and ${BIG_BLIND}`} className="absolute top-[1%] right-[3%] rounded-full border border-white/10 bg-black/40 px-2 py-0.5 font-display text-[10px] tracking-[0.14em] text-fg/70 tabular-nums">
-        {SMALL_BLIND}/{BIG_BLIND}
-      </p>
+      <div className="absolute top-[1%] right-[3%] z-20 flex items-center gap-1.5">
+        <Watchers players={game.players} you={conn.you} />
+        <p aria-label={`Blinds ${SMALL_BLIND} and ${BIG_BLIND}`} className="rounded-full border border-white/10 bg-black/40 px-2 py-0.5 font-display text-[10px] tracking-[0.14em] text-fg/70 tabular-nums">
+          {SMALL_BLIND}/{BIG_BLIND}
+        </p>
+      </div>
 
       <div data-pot className="absolute left-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2" style={{ top: "34%" }}>
         {game.pot > 0 && <Chip key={game.round} amount={game.pot} size="sm" stack className="tx-in" />}
@@ -494,6 +499,36 @@ function Felt({ conn, me, revealed, clearing, secs }: { conn: TxConnection; me: 
         );
       })}
     </section>
+  );
+}
+
+// "+N watching" beside the blinds: everyone on the rail without a seat, listed on tap.
+function Watchers({ players, you }: { players: readonly TxPlayer[]; you: string }) {
+  const [open, setOpen] = useState(false);
+  const watchers = railWatchers(players);
+  if (watchers.length === 0) return null;
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-label={`${watchers.length} watching`}
+        onClick={() => setOpen((o) => !o)}
+        className="min-h-6 rounded-full border border-white/10 bg-black/40 px-2 font-display text-[11px] tracking-[0.1em] text-fg/85 tabular-nums active:bg-black/60"
+      >
+        +{watchers.length} watching
+      </button>
+      {open && (
+        <ul aria-label="Watching" className="absolute top-full right-0 mt-1 flex max-h-48 w-40 flex-col gap-1 overflow-y-auto rounded-xl border border-white/10 bg-[oklch(0.15_0.003_260/0.95)] p-2">
+          {watchers.map((p) => (
+            <li key={p.id} className="flex items-center gap-2 text-xs text-fg/85">
+              <Avatar id={p.id} seat={players.indexOf(p)} name={p.name} size="sm" />
+              <span className="min-w-0 flex-1 truncate">{p.id === you ? `${p.name} (you)` : p.name}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
