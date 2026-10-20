@@ -25,6 +25,8 @@ export {
   addTxPlayer,
   applyTxIntent,
   canKickTx,
+  canRebuyTx,
+  canStandUpTx,
   isTxBotId,
   createTxGame,
   dealAnimMs,

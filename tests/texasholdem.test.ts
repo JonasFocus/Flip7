@@ -15,6 +15,8 @@ import {
   addTxPlayer,
   applyTxIntent,
   canKickTx,
+  canRebuyTx,
+  canStandUpTx,
   createTxGame,
   legalActions,
   newDeck,
@@ -437,6 +439,23 @@ test("busted players rebuy between hands, only when low and not in a hand", () =
   s = act(s, "b", { type: "rebuy" }, s.settleAt ?? NOW);
   assert.equal(player(s, "b").chips, START_CHIPS);
   assert.ok(s.startAt !== null);
+});
+
+test("a broke player left out of a running hand can rebuy and stand up before the next deal", () => {
+  let s = table(["a", "b", "c"], { chips: { c: 0 } });
+  assert.equal(s.phase, "preflop");
+  const c = player(s, "c");
+  assert.equal(c.cards.length, 0);
+  assert.ok(canRebuyTx(c));
+  assert.ok(canStandUpTx(c));
+  assert.ok(!canRebuyTx(player(s, "a")));
+  assert.ok(!canStandUpTx(player(s, "a")));
+  s = act(s, "c", { type: "rebuy" });
+  assert.equal(player(s, "c").chips, START_CHIPS);
+  assert.ok(!canRebuyTx(player(s, "c")));
+  s = act(s, "c", { type: "standUp" });
+  assert.equal(player(s, "c").seat, null);
+  assert.equal(s.phase, "preflop");
 });
 
 test("rebuy is rejected with a short stack and allowed at zero", () => {
