@@ -9,6 +9,7 @@ export const START_CHIPS = 2000; // 100 big blinds
 export const SMALL_BLIND = 10;
 export const BIG_BLIND = 20;
 export const TURN_MS = 25_000; // then the server checks, or folds if there is a bet to face
+export const AWAY_TURN_MS = 2000; // an offline or sitting-out actor gets this short clock instead of TURN_MS
 export const START_MS = 3000; // two funded players are seated: the next hand is dealt after this beat
 export const AFTER_HAND_MS = 1200; // the table is cleared and everyone seated still has chips: the next hand follows after this shorter beat
 export const SHOWDOWN_MS = 5000; // results and the winning hand stay up before the table resets
@@ -317,6 +318,10 @@ export function legalActions(s: TxState, id: string): TxActions | null {
   };
 }
 
+// Rebuy and stand-up depend on whether the player holds cards in the current hand, not on the table phase.
+export const canRebuyTx = (p: TxPlayer): boolean => p.cards.length === 0 && p.chips === 0;
+export const canStandUpTx = (p: TxPlayer): boolean => p.seat !== null && !isLive(p);
+
 // The host may remove someone between hands, or at any time once they are offline, sitting out or a bot.
 export function canKickTx(s: TxState, id: string): boolean {
   const p = s.players.find((x) => x.id === id);
@@ -357,7 +362,7 @@ export function applyTxIntent(s: TxState, actorId: string, intent: TxIntent, opt
     }
     case "standUp":
       if (me.seat === null) return fail("You're not seated");
-      if (isLive(me)) return fail("Finish your hand first");
+      if (!canStandUpTx(me)) return fail("Finish your hand first");
       return lobby(patch(s, actorId, (p) => ({ ...p, seat: null, timedOut: false })));
     case "sitOut":
       return lobby(patch(s, actorId, (p) => ({ ...p, sitOut: true, timedOut: false })));
@@ -366,7 +371,7 @@ export function applyTxIntent(s: TxState, actorId: string, intent: TxIntent, opt
       return lobby(patch(s, actorId, (p) => ({ ...p, sitOut: false, timedOut: false })));
     case "rebuy":
       if (inHand) return fail("Wait for the hand to finish");
-      if (me.chips > 0) return fail("You still have chips");
+      if (!canRebuyTx(me)) return fail("You still have chips");
       return lobby(patch(s, actorId, (p) => ({ ...p, chips: START_CHIPS })));
     case "react":
       if (me.seat === null) return fail("Take a seat first");
@@ -390,12 +395,13 @@ export function applyTxIntent(s: TxState, actorId: string, intent: TxIntent, opt
   const legal = legalActions(s, actorId);
   if (!legal) return fail("It's not your turn");
 
-  if (intent.type === "fold") return done(proceed(patch(s, actorId, (p) => ({ ...p, folded: true })), seatOf(me), now, rng));
+  const base = me.sitOut ? patch(s, actorId, (p) => ({ ...p, sitOut: false, timedOut: false })) : s; // acting is coming back
+  if (intent.type === "fold") return done(proceed(patch(base, actorId, (p) => ({ ...p, folded: true })), seatOf(me), now, rng));
   if (intent.type === "check") {
     if (!legal.canCheck) return fail("You must call or fold");
-    return done(proceed(patch(s, actorId, (p) => ({ ...p, acted: true })), seatOf(me), now, rng));
+    return done(proceed(patch(base, actorId, (p) => ({ ...p, acted: true })), seatOf(me), now, rng));
   }
-  const call = (): TxResult => done(proceed(patch(s, actorId, (p) => ({ ...commit(p, s.currentBet - p.bet), acted: true })), seatOf(me), now, rng));
+  const call = (): TxResult => done(proceed(patch(base, actorId, (p) => ({ ...commit(p, s.currentBet - p.bet), acted: true })), seatOf(me), now, rng));
   if (intent.type === "call") return legal.canCheck ? fail("Nothing to call") : call();
 
   const target = intent.type === "allIn" ? legal.maxRaiseTo : intent.amount;
@@ -407,11 +413,11 @@ export function applyTxIntent(s: TxState, actorId: string, intent: TxIntent, opt
 
   const size = target - s.currentBet;
   const full = size >= s.minRaise; // a short all-in does not reopen the betting for players who already acted
-  const players = s.players.map((p) => {
+  const players = base.players.map((p) => {
     if (p.id === actorId) return { ...commit(p, target - p.bet), acted: true };
     return full && canAct(p) ? { ...p, acted: false } : p;
   });
-  return done(proceed({ ...s, players, currentBet: target, minRaise: full ? size : s.minRaise }, seatOf(me), now, rng));
+  return done(proceed({ ...base, players, currentBet: target, minRaise: full ? size : s.minRaise }, seatOf(me), now, rng));
 }
 
 export function serverDeadline(s: TxState): number | null {
@@ -423,7 +429,10 @@ export function serverDeadline(s: TxState): number | null {
   }
   if (s.phase === "showdown") return s.settleAt;
   if (s.runout) return s.dealAt;
-  return s.turnAt === null ? null : s.turnAt + TURN_MS;
+  if (s.turnAt === null) return null;
+  const actor = s.players.find((p) => p.id === s.turnId);
+  if (!actor || (actor.connected && !actor.sitOut)) return s.turnAt + TURN_MS;
+  return Math.max(s.turnAt, actor.droppedAt ?? 0) + AWAY_TURN_MS; // a socket that drops mid-turn gets the full short clock from the drop
 }
 
 // The clock players see: ghost cleanup in an idle lobby is not a countdown.

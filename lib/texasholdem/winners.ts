@@ -1,4 +1,4 @@
-import type { TxPlayer } from "./types.ts";
+import type { TxPlayer, TxState } from "./types.ts";
 
 export interface WinLine {
   key: string;
@@ -20,6 +20,9 @@ export function winLines(payees: readonly TxPlayer[], you: string): WinLine[] {
 
 // Everything showdown paid into the stack: pot winnings plus an uncalled bet returned to its owner.
 export const paidOut = (p: TxPlayer): number => (p.result ? p.result.net + p.total : 0);
+
+// The stack as the table shows it before the winner is called: at showdown the payout is already in `chips`.
+export const stackBeforeAward = (p: TxPlayer, phase: TxState["phase"]): number => (phase === "showdown" ? p.chips - paidOut(p) : p.chips);
 
 // What showdown actually contested: every chip paid out of the pots, so an uncalled bet returned to its owner is not counted.
 export const potWon = (players: readonly TxPlayer[]): number => players.reduce((n, p) => n + (p.result?.won ?? 0), 0);

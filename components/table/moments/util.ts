@@ -48,6 +48,7 @@ export function useCountUp(to: number, from: number, delay = 0, ms = 700): numbe
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
   }, [to, from, delay, ms, instant]);
+  if (instant && value !== to) setValue(to);
   return instant ? to : value;
 }
 
