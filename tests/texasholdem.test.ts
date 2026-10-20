@@ -377,20 +377,57 @@ test("leaving mid-hand folds and keeps the chips in the pot", () => {
   assert.deepEqual(reset.players.map((p) => p.id), ["a"]);
 });
 
-test("disconnect sits you out for the next hand, reconnect sits you back in", () => {
+test("a disconnected player is not dealt in, and reconnecting before the deal restores them", () => {
   let s = table(["a", "b", "c"]);
   s = setTxConnected(s, "c", false, NOW);
-  assert.equal(player(s, "c").sitOut, true);
-  assert.equal(player(s, "c").cards.length, 2); // current hand untouched
-  s = setTxConnected(s, "c", true, NOW);
   assert.equal(player(s, "c").sitOut, false);
-  s = setTxConnected(s, "c", false, NOW);
+  assert.equal(player(s, "c").cards.length, 2); // current hand untouched
   s = act(s, "a", { type: "fold" });
   s = act(s, "b", { type: "fold" });
   s = onDeadline(s, s.settleAt!, newRng());
   s = onDeadline(s, s.startAt!, newRng());
   assert.equal(s.phase, "preflop");
   assert.equal(player(s, "c").cards.length, 0);
+
+  let t = table(["a", "b", "c"]);
+  t = setTxConnected(t, "c", false, NOW);
+  t = act(t, "a", { type: "fold" });
+  t = act(t, "b", { type: "fold" });
+  t = onDeadline(t, t.settleAt!, newRng());
+  t = setTxConnected(t, "c", true, NOW);
+  t = onDeadline(t, t.startAt!, newRng());
+  assert.equal(player(t, "c").cards.length, 2);
+});
+
+test("a deliberate sit out survives a disconnect and reconnect", () => {
+  let s = table(["a", "b", "c"]);
+  s = act(s, "a", { type: "fold" });
+  s = act(s, "b", { type: "fold" });
+  s = onDeadline(s, s.settleAt!, newRng());
+  s = act(s, "c", { type: "sitOut" });
+  s = setTxConnected(s, "c", false, NOW);
+  s = setTxConnected(s, "c", true, NOW);
+  assert.equal(player(s, "c").sitOut, true);
+  s = onDeadline(s, s.startAt!, newRng());
+  assert.equal(player(s, "c").cards.length, 0);
+});
+
+test("rejoining after leaving mid-hand keeps the seat once the hand resets", () => {
+  let s = table(["a", "b", "c"]);
+  s = removeTxPlayer(s, "c", { now: NOW });
+  assert.equal(player(s, "c").gone, true);
+  s = setTxConnected(s, "c", true, NOW);
+  assert.equal(player(s, "c").gone, false);
+  assert.equal(player(s, "c").connected, true);
+  assert.equal(player(s, "c").folded, true); // still out of this hand
+  s = act(s, "a", { type: "fold" });
+  s = onDeadline(s, s.settleAt!, newRng());
+  assert.deepEqual(s.players.map((p) => p.id).sort(), ["a", "b", "c"]);
+  s = act(s, "c", { type: "sitOut" });
+  s = act(s, "c", { type: "sitIn" });
+  assert.equal(player(s, "c").sitOut, false);
+  s = onDeadline(s, s.startAt!, newRng());
+  assert.equal(player(s, "c").cards.length, 2);
 });
 
 test("adversarial intents are refused without changing state", () => {

@@ -27,7 +27,7 @@ export interface TxPlayer {
   folded: boolean;
   allIn: boolean;
   acted: boolean; // acted since the last full raise; may raise only while false
-  sitOut: boolean; // skipped when dealing the next hand (timed out, disconnected or chose to)
+  sitOut: boolean; // skipped when dealing the next hand (timed out or chose to)
   gone: boolean; // left mid-hand: kept until the hand ends so their chips stay in the pot
   shown: boolean; // turned their hand face up voluntarily
   result: TxHandResult | null; // showdown only
