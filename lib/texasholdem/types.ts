@@ -16,6 +16,7 @@ export interface TxHandResult {
   net: number; // everything you got back minus everything you put in
   hand: string | null; // "Two pair, Kings and Fives"; null when folded or the hand was never shown down
   best: TxCard[]; // the five cards that make `hand`, for highlighting; [] when hand is null
+  second?: { hand: string | null; best: TxCard[]; won: number }; // run twice: the same for the second board, whose share of `won` is this (`hand` and `best` are the first board)
 }
 
 export interface TxPlayer {
@@ -65,6 +66,9 @@ export interface TxState {
   dealAt: number | null; // all-in runout: server ms the next street is dealt
   settleAt: number | null; // showdown: server ms the table resets
   runout: boolean; // betting is over, the board is running out with cards face up
+  runTwice: boolean; // host setting: offer to run the board twice when everyone is all-in before the river
+  ask: { ids: string[]; yes: string[] } | null; // runout: players asked to run it twice and who agreed so far; the vote closes at dealAt
+  second: TxCard[] | null; // run twice: the second board, dealt once the first is complete; the cards both boards share are repeated
   round: number;
   seq: number;
 }
@@ -81,6 +85,8 @@ export type TxIntent =
   | { type: "bet"; amount: number } // raise TO this street total (an opening bet when nothing is bet yet)
   | { type: "allIn" }
   | { type: "react"; emoji: TxReaction } // any phase, never touches the hand
+  | { type: "setRunTwice"; on: boolean } // host, between hands
+  | { type: "runTwice"; yes: boolean } // everyone in the pot is asked once the betting is over; it only runs twice if all say yes
   | { type: "show" }; // showdown: turn your hand face up after everyone else folded
 
 export interface TxActions {

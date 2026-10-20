@@ -16,6 +16,10 @@ export function parseTxIntent(v: unknown): TxIntent | null {
       const emoji = reactionOf(v.emoji);
       return onlyKeys(v, ["emoji"]) && emoji ? { type: "react", emoji } : null;
     }
+    case "setRunTwice":
+      return onlyKeys(v, ["on"]) && typeof v.on === "boolean" ? { type: "setRunTwice", on: v.on } : null;
+    case "runTwice":
+      return onlyKeys(v, ["yes"]) && typeof v.yes === "boolean" ? { type: "runTwice", yes: v.yes } : null;
     case "standUp":
     case "sitOut":
     case "sitIn":
