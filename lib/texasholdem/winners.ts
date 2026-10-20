@@ -1,4 +1,4 @@
-import type { TxPlayer } from "./types.ts";
+import type { TxPlayer, TxState } from "./types.ts";
 
 export interface WinLine {
   key: string;
@@ -20,3 +20,21 @@ export function winLines(payees: readonly TxPlayer[], you: string): WinLine[] {
 
 // Everything showdown paid into the stack: pot winnings plus an uncalled bet returned to its owner.
 export const paidOut = (p: TxPlayer): number => (p.result ? p.result.net + p.total : 0);
+
+export interface Standing {
+  id: string;
+  name: string;
+  buyIn: number;
+  net: number;
+}
+
+// Net winnings tonight, best first: what you hold minus every buy-in. Chips in a live pot still count as yours until the hand is paid, so a bet never reads as a loss.
+export function standings(s: TxState): Standing[] {
+  return s.players
+    .map((p) => {
+      const buyIn = s.buyIns[p.id] ?? 0;
+      const held = p.chips + (s.phase === "showdown" ? 0 : p.total);
+      return { id: p.id, name: p.name, buyIn, net: held - buyIn };
+    })
+    .sort((a, b) => b.net - a.net);
+}

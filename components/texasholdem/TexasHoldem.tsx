@@ -33,6 +33,7 @@ import {
 } from "@/lib/texasholdem";
 import type { TxCard, TxConnection, TxPlayer, TxReaction, TxState } from "@/lib/texasholdem/types";
 import { Panel } from "./Panel";
+import { Standings } from "./Standings";
 
 // Seats are placed by hand (percent of the table) so plates stay clear of the board on a 375px phone; index = seat relative to you, clockwise.
 const SEAT_POS = [
@@ -138,6 +139,7 @@ function useAllInMoment(game: TxState): { key: number; id: string; name: string;
 export function TexasHoldem({ conn }: { conn: TxConnection }) {
   const [toast, setToast] = useState<string | null>(null);
   const [reacting, setReacting] = useState(false);
+  const [board, setBoard] = useState(false);
   const { game } = conn;
   const me = game.players.find((p) => p.id === conn.you);
   const seated = me?.seat != null;
@@ -174,6 +176,14 @@ export function TexasHoldem({ conn }: { conn: TxConnection }) {
         >
           #{conn.code}
         </button>
+        <button
+          type="button"
+          onClick={() => setBoard(true)}
+          aria-label="Tonight's standings"
+          className="min-h-11 rounded-full border border-line px-3 text-xs font-bold tracking-[0.12em] text-muted uppercase active:bg-surface-2"
+        >
+          Net
+        </button>
         {seated && (
           <button
             type="button"
@@ -190,6 +200,8 @@ export function TexasHoldem({ conn }: { conn: TxConnection }) {
           {stack.toLocaleString()}
         </p>
       </header>
+
+      <Standings game={game} you={conn.you} open={board} onClose={() => setBoard(false)} />
 
       {offline && (
         <p role="status" className="mx-3 rounded-full bg-danger/15 px-3 py-1 text-center text-xs font-semibold text-danger">

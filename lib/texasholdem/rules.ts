@@ -77,6 +77,7 @@ export function createTxGame(): TxState {
     board: [],
     deck: [],
     stacks: {},
+    buyIns: {},
     pot: 0,
     button: null,
     sbId: null,
@@ -123,7 +124,9 @@ export function addTxPlayer(s: TxState, p: { id: string; name: string }): TxStat
     result: null,
     reaction: null,
   };
-  return { ...s, players: [...s.players, player], stacks, seq: s.seq + 1 };
+  // A fresh stack is a buy-in; chips restored from an earlier visit were already counted.
+  const buyIns = kept === undefined ? { ...s.buyIns, [p.id]: (s.buyIns[p.id] ?? 0) + START_CHIPS } : s.buyIns;
+  return { ...s, players: [...s.players, player], stacks, buyIns, seq: s.seq + 1 };
 }
 
 // A player offline past the grace period who is not in a hand (no chips in the pot).
@@ -359,7 +362,7 @@ export function applyTxIntent(s: TxState, actorId: string, intent: TxIntent, opt
     case "rebuy":
       if (inHand) return fail("Wait for the hand to finish");
       if (me.chips > 0) return fail("You still have chips");
-      return lobby(patch(s, actorId, (p) => ({ ...p, chips: START_CHIPS })));
+      return lobby({ ...patch(s, actorId, (p) => ({ ...p, chips: START_CHIPS })), buyIns: { ...s.buyIns, [actorId]: (s.buyIns[actorId] ?? 0) + START_CHIPS } });
     case "react":
       if (me.seat === null) return fail("Take a seat first");
       if (me.reaction && now - me.reaction.at < REACTION_COOLDOWN_MS) return fail("Slow down");

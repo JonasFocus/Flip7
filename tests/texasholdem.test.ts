@@ -24,6 +24,7 @@ import {
   removeTxPlayer,
   serverDeadline,
   setTxConnected,
+  standings,
   wentAllIn,
   type Rank,
   type TxCard,
@@ -431,6 +432,44 @@ test("leaving and rejoining keeps a stack above zero, a bust gets a fresh one", 
   s = removeTxPlayer(s, "a", { now: NOW });
   s = addTxPlayer(s, { id: "a", name: "A" });
   assert.equal(player(s, "a").chips, START_CHIPS);
+});
+
+test("standings count the start stack and every rebuy as buy-ins", () => {
+  let s = createTxGame();
+  s = addTxPlayer(s, { id: "a", name: "A" });
+  s = addTxPlayer(s, { id: "b", name: "B" });
+  s = addTxPlayer(s, { id: "c", name: "C" });
+  assert.deepEqual(s.buyIns, { a: START_CHIPS, b: START_CHIPS, c: START_CHIPS });
+  s = { ...s, players: s.players.map((p) => ({ ...p, chips: { a: 3500, b: 0, c: START_CHIPS }[p.id]! })) };
+  s = act(s, "b", { type: "sit", seat: 0 });
+  s = act(s, "b", { type: "rebuy" });
+  assert.equal(s.buyIns["b"], START_CHIPS * 2);
+  s = { ...s, players: s.players.map((p) => (p.id === "b" ? { ...p, chips: 500 } : p)) };
+  assert.deepEqual(
+    standings(s).map((r) => [r.id, r.net]),
+    [
+      ["a", 1500],
+      ["c", 0],
+      ["b", 500 - START_CHIPS * 2],
+    ],
+  );
+  assert.equal(redactTx(s, "a").buyIns["b"], START_CHIPS * 2);
+});
+
+test("standings do not read a live bet as a loss, and a rejoin keeps the tally", () => {
+  let s = table(["a", "b"]);
+  const mid = standings(s);
+  assert.deepEqual(mid.map((r) => r.net), [0, 0]);
+  s = removeTxPlayer(s, "b", { now: NOW });
+  while (s.phase !== "lobby") s = onDeadline(s, serverDeadline(s) ?? s.settleAt ?? NOW, newRng());
+  const won = player(s, "a").chips - START_CHIPS;
+  assert.equal(standings(s).find((r) => r.id === "a")?.net, won);
+  s = addTxPlayer(s, { id: "b", name: "B" });
+  assert.equal(s.buyIns["b"], START_CHIPS);
+  assert.equal(standings(s).find((r) => r.id === "b")?.net, player(s, "b").chips - START_CHIPS);
+  const after = removeTxPlayer(s, "b", { now: NOW });
+  const busted = addTxPlayer({ ...after, stacks: {} }, { id: "b", name: "B" });
+  assert.equal(busted.buyIns["b"], START_CHIPS * 2);
 });
 
 test("a mid-hand leaver keeps their remaining chips for a later rejoin", () => {
