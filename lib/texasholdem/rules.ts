@@ -309,6 +309,10 @@ export function legalActions(s: TxState, id: string): TxActions | null {
   };
 }
 
+// Rebuy and stand-up depend on whether the player holds cards in the current hand, not on the table phase.
+export const canRebuyTx = (p: TxPlayer): boolean => p.cards.length === 0 && p.chips === 0;
+export const canStandUpTx = (p: TxPlayer): boolean => p.seat !== null && !isLive(p);
+
 // The host may remove someone between hands, or at any time once they are offline or sitting out.
 export function canKickTx(s: TxState, id: string): boolean {
   const p = s.players.find((x) => x.id === id);
@@ -349,7 +353,7 @@ export function applyTxIntent(s: TxState, actorId: string, intent: TxIntent, opt
     }
     case "standUp":
       if (me.seat === null) return fail("You're not seated");
-      if (isLive(me)) return fail("Finish your hand first");
+      if (!canStandUpTx(me)) return fail("Finish your hand first");
       return lobby(patch(s, actorId, (p) => ({ ...p, seat: null })));
     case "sitOut":
       return lobby(patch(s, actorId, (p) => ({ ...p, sitOut: true })));
@@ -358,7 +362,7 @@ export function applyTxIntent(s: TxState, actorId: string, intent: TxIntent, opt
       return lobby(patch(s, actorId, (p) => ({ ...p, sitOut: false })));
     case "rebuy":
       if (inHand) return fail("Wait for the hand to finish");
-      if (me.chips > 0) return fail("You still have chips");
+      if (!canRebuyTx(me)) return fail("You still have chips");
       return lobby(patch(s, actorId, (p) => ({ ...p, chips: START_CHIPS })));
     case "react":
       if (me.seat === null) return fail("Take a seat first");

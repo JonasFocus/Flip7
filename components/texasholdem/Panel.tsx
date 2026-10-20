@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { cx } from "@/components/ui/cx";
 import { Chip, shortAmount } from "@/components/casino/Chip";
 import { fail, success, tap } from "@/lib/client/haptics";
-import { BIG_BLIND, FOLD_HOLD_MS, RAISE_CHIPS, START_CHIPS, TURN_MS, clampRaise, legalActions, stackRaise } from "@/lib/texasholdem";
+import { BIG_BLIND, FOLD_HOLD_MS, RAISE_CHIPS, START_CHIPS, TURN_MS, canRebuyTx, canStandUpTx, clampRaise, legalActions, stackRaise } from "@/lib/texasholdem";
 import type { TxConnection, TxIntent, TxPlayer } from "@/lib/texasholdem/types";
 
 export function Panel({
@@ -103,29 +103,28 @@ const linkButton = "min-h-11 text-xs font-bold tracking-[0.16em] text-muted uppe
 // Seated but not in this hand: waiting for the next deal, sitting out, or busted.
 function Idle({ conn, me, secs }: { conn: TxConnection; me: TxPlayer; secs: number | null }) {
   const { game } = conn;
-  const broke = me.chips === 0;
   const send = (intent: TxIntent) => {
     tap();
     conn.send(intent);
   };
 
   let status: ReactNode;
-  if (game.phase !== "lobby") status = "Next hand you're dealt in.";
+  if (canRebuyTx(me)) status = "Out of chips. Rebuy to play the next hand.";
+  else if (game.phase !== "lobby") status = "Next hand you're dealt in.";
   else if (me.sitOut) status = "You're sitting out.";
-  else if (broke) status = "Out of chips. Rebuy to play the next hand.";
   else if (game.startAt !== null) status = `Next hand in ${secs ?? "…"}s`;
   else status = "Waiting for another player to join…";
 
   return (
     <>
       <Status>{status}</Status>
-      {broke && game.phase === "lobby" && (
+      {canRebuyTx(me) && (
         <Button size="lg" block onClick={() => (success(), conn.send({ type: "rebuy" }))}>
           Rebuy {START_CHIPS.toLocaleString()}
         </Button>
       )}
       <div className="flex items-center justify-between">
-        <button type="button" onClick={() => send({ type: "standUp" })} disabled={game.phase !== "lobby"} className={linkButton}>
+        <button type="button" onClick={() => send({ type: "standUp" })} disabled={!canStandUpTx(me)} className={linkButton}>
           Stand up
         </button>
         <button type="button" onClick={() => send({ type: me.sitOut ? "sitIn" : "sitOut" })} className={linkButton}>

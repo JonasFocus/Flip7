@@ -22,6 +22,8 @@ export {
   addTxPlayer,
   applyTxIntent,
   canKickTx,
+  canRebuyTx,
+  canStandUpTx,
   createTxGame,
   dealAnimMs,
   legalActions,
