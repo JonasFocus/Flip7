@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { cx } from "@/components/ui/cx";
 import { Chip, shortAmount } from "@/components/casino/Chip";
 import { fail, success, tap } from "@/lib/client/haptics";
-import { BIG_BLIND, FOLD_HOLD_MS, RAISE_CHIPS, START_CHIPS, TURN_MS, clampRaise, legalActions, stackRaise } from "@/lib/texasholdem";
+import { BIG_BLIND, FOLD_HOLD_MS, RAISE_CHIPS, START_CHIPS, TURN_MS, clampRaise, legalActions, resolvePreAction, samePreAction, stackRaise, type TxPreAction } from "@/lib/texasholdem";
 import type { TxConnection, TxIntent, TxPlayer } from "@/lib/texasholdem/types";
 
 const LOW_SECS = 5; // the clock turns urgent and your phone buzzes again at this many seconds left
@@ -30,6 +30,21 @@ export function Panel({
   const acting = game.players.find((p) => p.id === game.turnId);
   const street = game.phase !== "lobby" && game.phase !== "showdown";
 
+  // A pre-action belongs to one street of one hand, so a new street or hand silently drops it.
+  // A call or check also lapses once the bet moves so it no longer means what was picked.
+  const streetKey = `${game.round}-${game.phase}`;
+  const [picked, setPicked] = useState<{ key: string; pre: TxPreAction } | null>(null);
+  const toCall = me ? Math.max(0, Math.min(game.currentBet - me.bet, me.chips)) : 0;
+  const live = !!me && inHand && !me.folded && !me.allIn && street && !game.runout;
+  let pre = picked && picked.key === streetKey && live ? picked.pre : null;
+  if (pre?.kind === "check" && toCall > 0) pre = null;
+  if (pre?.kind === "call" && pre.amount !== toCall) pre = null;
+
+  const choose = (next: TxPreAction) => {
+    tap();
+    setPicked(samePreAction(pre, next) ? null : { key: streetKey, pre: next });
+  };
+
   let view: string;
   let body: ReactNode;
   if (!me || me.seat === null) {
@@ -50,13 +65,14 @@ export function Panel({
     body = <Status>Dealing…</Status>;
   } else if (myTurn) {
     view = "turn";
-    body = <Actions conn={conn} me={me} secs={secs} />;
+    body = <Actions conn={conn} me={me} secs={secs} pre={pre} onPreFired={() => setPicked(null)} />;
   } else {
     view = "wait";
     body = (
       <>
         <TurnClock label={`${acting?.name ?? "Someone"}'s turn`} secs={secs} />
         <Status>{me.folded ? "You folded. Waiting for the next hand…" : me.allIn ? "You're all in. Waiting on the table…" : "Waiting for your turn…"}</Status>
+        {live && <PreActions pre={pre} toCall={toCall} onChoose={choose} />}
       </>
     );
   }
@@ -87,6 +103,33 @@ function TurnClock({ label, secs }: { label: ReactNode; secs: number | null }) {
       <div className="h-1.5 overflow-hidden rounded-full bg-surface-2">
         <div className={cx("h-full origin-left rounded-full transition-[width] duration-1000 ease-linear", low ? "tx-low bg-danger" : "bg-accent")} style={{ width: `${pct}%` }} />
       </div>
+    </div>
+  );
+}
+
+// Tick a move ahead of your turn; it goes out the moment the turn arrives. At most one is on at a time.
+function PreActions({ pre, toCall, onChoose }: { pre: TxPreAction | null; toCall: number; onChoose: (next: TxPreAction) => void }) {
+  const options: { next: TxPreAction; label: string }[] = [{ next: { kind: "checkFold" }, label: "Check / Fold" }];
+  options.push(toCall > 0 ? { next: { kind: "call", amount: toCall }, label: `Call ${shortAmount(toCall)}` } : { next: { kind: "check" }, label: "Check" });
+  return (
+    <div role="group" aria-label="Pre-action" className="grid grid-cols-2 gap-2">
+      {options.map(({ next, label }) => {
+        const on = samePreAction(pre, next);
+        return (
+          <button
+            key={next.kind}
+            type="button"
+            aria-pressed={on}
+            onClick={() => onChoose(next)}
+            className={cx(
+              "min-h-11 rounded-xl border px-2 text-xs font-bold tracking-wide uppercase transition-[background-color,transform] duration-150 active:scale-[0.97]",
+              on ? "border-accent bg-accent text-ink" : "border-line bg-surface text-muted",
+            )}
+          >
+            {label}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -140,7 +183,7 @@ function Idle({ conn, me, secs }: { conn: TxConnection; me: TxPlayer; secs: numb
   );
 }
 
-function Actions({ conn, me, secs }: { conn: TxConnection; me: TxPlayer; secs: number | null }) {
+function Actions({ conn, me, secs, pre, onPreFired }: { conn: TxConnection; me: TxPlayer; secs: number | null; pre: TxPreAction | null; onPreFired: () => void }) {
   const { game } = conn;
   const legal = legalActions(game, conn.you);
   const [raiseTo, setRaiseTo] = useState(() => legal?.minRaiseTo ?? 0);
@@ -152,6 +195,19 @@ function Actions({ conn, me, secs }: { conn: TxConnection; me: TxPlayer; secs: n
   useEffect(() => {
     if (secs === LOW_SECS) fail();
   }, [secs]);
+
+  // A move ticked ahead of time goes out the moment the turn arrives, through the same intent validation as a tap.
+  const fired = useRef(false);
+  useEffect(() => {
+    if (!pre || fired.current || !legal) return;
+    fired.current = true;
+    const { intent } = resolvePreAction(pre, legal);
+    if (intent) {
+      if (intent.type === "fold") fail();
+      conn.send(intent);
+    }
+    onPreFired();
+  }, [pre, legal, conn, onPreFired]);
 
   if (!legal) return <Status>Waiting…</Status>;
 
