@@ -42,9 +42,13 @@ export function Panel({
   } else if (!inHand) {
     view = `idle-${game.phase}-${me.sitOut}`;
     body = <Idle conn={conn} me={me} secs={secs} />;
+  } else if (game.runout && game.ask?.ids.includes(me.id)) {
+    view = `ask-${game.ask.yes.includes(me.id)}`;
+    body = <RunTwice conn={conn} me={me} secs={secs} />;
   } else if (game.runout) {
     view = "runout";
-    body = <Status>{me.folded ? "Folded. Watching the board run out…" : "All in. Running it out…"}</Status>;
+    const text = me.folded ? "Folded. Watching the board run out…" : game.ask ? "Waiting to hear if the table runs it twice…" : game.second ? "All in. Running it twice…" : "All in. Running it out…";
+    body = <Status>{text}</Status>;
   } else if (street && dealing) {
     view = "dealing";
     body = <Status>Dealing…</Status>;
@@ -88,6 +92,28 @@ function TurnClock({ label, secs }: { label: ReactNode; secs: number | null }) {
         <div className={cx("h-full origin-left rounded-full transition-[width] duration-1000 ease-linear", low ? "tx-low bg-danger" : "bg-accent")} style={{ width: `${pct}%` }} />
       </div>
     </div>
+  );
+}
+
+// Everyone in the pot must say yes within the countdown, otherwise the board runs once.
+function RunTwice({ conn, me, secs }: { conn: TxConnection; me: TxPlayer; secs: number | null }) {
+  const yes = !!conn.game.ask?.yes.includes(me.id);
+  const answer = (agree: boolean) => {
+    tap();
+    conn.send({ type: "runTwice", yes: agree });
+  };
+  return (
+    <>
+      <Status>{yes ? "You said yes. Waiting on the others…" : `Run it twice? Everyone in the pot has to agree${secs === null ? "" : ` · ${secs}s`}`}</Status>
+      <div className="grid grid-cols-2 gap-2.5">
+        <Button size="md" variant="secondary" className="min-h-14 px-2" onClick={() => answer(false)}>
+          No
+        </Button>
+        <Button size="md" className="min-h-14 px-2" disabled={yes} onClick={() => answer(true)}>
+          Yes
+        </Button>
+      </div>
+    </>
   );
 }
 

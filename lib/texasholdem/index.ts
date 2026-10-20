@@ -2,7 +2,7 @@ export * from "./types.ts";
 export { chooseTxIntent, nextTxBotMove, TX_BOT_STYLES, type TxBotMove, type TxPersonality } from "./bot.ts";
 export { FOLD_HOLD_MS, RAISE_CHIPS, clampRaise, stackRaise } from "./betting.ts";
 export { buildPots, evaluate, madeHand } from "./eval.ts";
-export { paidOut, potWon, winLines, type WinLine } from "./winners.ts";
+export { handLabel, paidOut, potWon, winLines, type WinLine } from "./winners.ts";
 export {
   BIG_BLIND,
   CARD_SLIDE_MS,
@@ -14,6 +14,8 @@ export {
   REACTION_COOLDOWN_MS,
   REVEAL_MS,
   RUNOUT_MS,
+  RUN_TWICE_ASK_MS,
+  RUN_TWICE_BEAT_MS,
   SEATS,
   SHOWDOWN_MS,
   SMALL_BLIND,

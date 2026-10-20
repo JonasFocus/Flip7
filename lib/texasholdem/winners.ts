@@ -1,4 +1,4 @@
-import type { TxPlayer } from "./types.ts";
+import type { TxHandResult, TxPlayer } from "./types.ts";
 
 export interface WinLine {
   key: string;
@@ -8,14 +8,23 @@ export interface WinLine {
 
 // One line per payee. "Split" only when another payee made the same hand from the same ranks; a main pot and a side pot won with different hands are separate wins.
 export function winLines(payees: readonly TxPlayer[], you: string): WinLine[] {
-  const signature = (p: TxPlayer) => (p.result?.hand ? `${p.result.hand}|${p.result.best.map((c) => c.rank).join()}` : null);
+  const ranks = (hand: string, best: readonly { rank: string }[]) => `${hand}|${best.map((c) => c.rank).join()}`;
+  const signature = (p: TxPlayer) => (p.result?.hand ? ranks(p.result.hand, p.result.best) + (p.result.second?.hand ? `|${ranks(p.result.second.hand, p.result.second.best)}` : "") : null);
   return payees.map((p) => {
     const sig = signature(p);
     const tied = sig !== null && payees.some((o) => o.id !== p.id && signature(o) === sig);
     const me = p.id === you;
     const verb = tied ? (me ? "split" : "splits") : me ? "win" : "wins";
-    return { key: p.id, text: `${me ? "You" : p.name} ${verb} ${(p.result?.won ?? 0).toLocaleString()}`, hand: p.result?.hand ?? null };
+    return { key: p.id, text: `${me ? "You" : p.name} ${verb} ${(p.result?.won ?? 0).toLocaleString()}`, hand: handLabel(p.result) };
   });
+}
+
+// The hand to name for a player: the board they won on, or both hands when it ran twice and they won on both or neither.
+export function handLabel(r: TxHandResult | null): string | null {
+  if (!r?.second) return r?.hand ?? null;
+  if (r.second.won > 0 && r.second.won === r.won) return r.second.hand;
+  if (r.second.won === 0 && r.won > 0) return r.hand;
+  return r.hand === r.second.hand ? r.hand : [r.hand, r.second.hand].filter(Boolean).join(" / ");
 }
 
 // Everything showdown paid into the stack: pot winnings plus an uncalled bet returned to its owner.

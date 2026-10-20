@@ -27,6 +27,7 @@ import {
   canKickTx,
   isTxBotId,
   dealAnimMs,
+  handLabel,
   madeHand,
   paidOut,
   streetAnimMs,
@@ -66,6 +67,8 @@ const FOLD_RESULT_BEAT_MS = 400;
 const ALL_IN_MS = 2600; // matches the tx-allin animation
 const REACTION_SHOW_MS = 2000;
 const BOARD_SIZE = "clamp(36px,10.4vw,46px)";
+const BOARD_SIZE_TWICE = "clamp(25px,7vw,31px)"; // two boards stacked
+const hostPill = "min-h-11 rounded-full border border-white/20 px-3 font-display text-[11px] tracking-[0.14em] text-fg/85 active:bg-white/10 disabled:opacity-30";
 const STREET: Record<TxState["phase"], string> = { lobby: "", preflop: "PRE-FLOP", flop: "FLOP", turn: "TURN", river: "RIVER", showdown: "SHOWDOWN" };
 
 const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -279,9 +282,41 @@ function Felt({ conn, me, revealed, clearing, secs }: { conn: TxConnection; me: 
   }, [game.players]);
 
   // At showdown, anything not part of a winning five fades back so the winning hand reads at a glance.
-  const winners = game.phase === "showdown" && revealed ? game.players.filter((p) => (p.result?.won ?? 0) > 0 && p.result?.best.length) : [];
-  const winning = (c: TxCard) => winners.some((w) => w.result?.best.some((b) => sameCard(b, c)));
-  const dimBoard = (c: TxCard) => winners.length > 0 && !winning(c);
+  // Run twice: each board lights up only the hands that won on it.
+  const showdownOn = game.phase === "showdown" && revealed;
+  const winnersOf = (run: 0 | 1) =>
+    showdownOn
+      ? game.players.flatMap((p) => {
+          const r = p.result;
+          if (!r) return [];
+          const [won, best] = run === 0 ? [r.won - (r.second?.won ?? 0), r.best] : [r.second?.won ?? 0, r.second?.best ?? []];
+          return won > 0 && best.length > 0 ? [best] : [];
+        })
+      : [];
+  const winning = (c: TxCard, run: 0 | 1) => winnersOf(run).some((best) => best.some((b) => sameCard(b, c)));
+  const dimBoard = (c: TxCard, run: 0 | 1) => winnersOf(run).length > 0 && !winning(c, run);
+  const twice = game.second !== null;
+  const boardSize = twice ? BOARD_SIZE_TWICE : BOARD_SIZE;
+  const boardRow = (cards: readonly TxCard[], run: 0 | 1, top: string) => (
+    <div className="absolute left-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-[clamp(3px,1vw,5px)]" style={{ top }}>
+      {Array.from({ length: 5 }, (_, i) => {
+        const c = cards[i];
+        return c ? (
+          <Dealt
+            key={`${game.round}-${run}-${i}`}
+            card={c}
+            delay={i < 3 ? i * DEAL_STAGGER_MS : 0}
+            sweep={clearing}
+            dim={dimBoard(c, run)}
+            size={boardSize}
+            className={cx(winning(c, run) && "tx-lift ring-2 ring-active", "rounded-[0.12em]")}
+          />
+        ) : (
+          <span key={i} aria-hidden className="rounded-[0.075em] border border-white/10 bg-black/20 shadow-[inset_0_1px_4px_oklch(0_0_0/0.35)]" style={{ fontSize: boardSize, width: "1em", aspectRatio: "5 / 7" }} />
+        );
+      })}
+    </div>
+  );
 
   const payees = game.phase === "showdown" && revealed ? game.players.filter((p) => (p.result?.won ?? 0) > 0) : [];
   const lines = winLines(payees, conn.you);
@@ -318,26 +353,10 @@ function Felt({ conn, me, revealed, clearing, secs }: { conn: TxConnection; me: 
         </p>
       </div>
 
-      <div className="absolute left-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-[clamp(3px,1vw,5px)]" style={{ top: "50%" }}>
-        {Array.from({ length: 5 }, (_, i) => {
-          const c = game.board[i];
-          return c ? (
-            <Dealt
-              key={`${game.round}-${i}`}
-              card={c}
-              delay={i < 3 ? i * DEAL_STAGGER_MS : 0}
-              sweep={clearing}
-              dim={dimBoard(c)}
-              size={BOARD_SIZE}
-              className={cx(winning(c) && "tx-lift ring-2 ring-active", "rounded-[0.12em]")}
-            />
-          ) : (
-            <span key={i} aria-hidden className="rounded-[0.075em] border border-white/10 bg-black/20 shadow-[inset_0_1px_4px_oklch(0_0_0/0.35)]" style={{ fontSize: BOARD_SIZE, width: "1em", aspectRatio: "5 / 7" }} />
-          );
-        })}
-      </div>
+      {boardRow(game.board, 0, twice ? "42%" : "50%")}
+      {game.second && boardRow(game.second, 1, "53%")}
 
-      <div className="absolute left-1/2 flex w-[84%] -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1" style={{ top: "62%" }}>
+      <div className="absolute left-1/2 flex w-[84%] -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1" style={{ top: twice ? "66%" : "62%" }}>
         {lines.length > 0 ? (
           <div key={`${game.round}-banner`} role="status" className="tx-pop flex max-w-full flex-col items-center gap-1 rounded-2xl border border-active/50 bg-[oklch(0.15_0.003_260/0.92)] px-4 py-1.5 text-center shadow-[0_8px_24px_-8px_oklch(0_0_0/0.8)]">
             {shownLines.map((line) => (
@@ -364,12 +383,17 @@ function Felt({ conn, me, revealed, clearing, secs }: { conn: TxConnection; me: 
             ))}
           </p>
         ) : (
-          <p className="font-display text-[11px] tracking-[0.26em] text-fg/80">{STREET[game.phase]}</p>
+          <p className="font-display text-[11px] tracking-[0.26em] text-fg/80">{game.ask ? "RUN IT TWICE?" : twice ? "RUNNING IT TWICE" : STREET[game.phase]}</p>
         )}
         {conn.isHost && game.phase === "lobby" && (
-          <button type="button" disabled={!canAddBot} onClick={() => (tap(), conn.addBot())} className="pointer-events-auto min-h-11 rounded-full border border-white/20 px-3 font-display text-[11px] tracking-[0.14em] text-fg/85 active:bg-white/10 disabled:opacity-30">
-            + BOT
-          </button>
+          <div className="pointer-events-auto flex items-center gap-2">
+            <button type="button" disabled={!canAddBot} onClick={() => (tap(), conn.addBot())} className={hostPill}>
+              + BOT
+            </button>
+            <button type="button" role="switch" aria-checked={game.runTwice} onClick={() => (tap(), conn.send({ type: "setRunTwice", on: !game.runTwice }))} className={hostPill}>
+              RUN TWICE {game.runTwice ? "ON" : "OFF"}
+            </button>
+          </div>
         )}
       </div>
 
@@ -543,7 +567,8 @@ function Seat({
     const t = setTimeout(() => setArmed(false), 3000);
     return () => clearTimeout(t);
   }, [armed]);
-  const bestOf = player.result?.best ?? [];
+  const r = player.result;
+  const bestOf = r?.second ? [...(r.won > r.second.won ? r.best : []), ...(r.second.won > 0 ? r.second.best : [])] : (r?.best ?? []);
   const dimCard = (c: TxCard | null) => revealed && won && bestOf.length > 0 && c !== null && !bestOf.some((b) => sameCard(b, c));
 
   // Winnings are in the stack already at showdown; hold them back until the winner is called.
@@ -662,7 +687,7 @@ function Seat({
         </button>
       )}
       {result?.hand && !mine && (
-        <span className={cx("tx-in absolute top-full mt-1 max-w-[96px] truncate rounded-full bg-[oklch(0.15_0.003_260/0.92)] px-2 py-0.5 text-[10px] font-semibold", won ? "text-active" : "text-fg/65")}>{result.hand}</span>
+        <span className={cx("tx-in absolute top-full mt-1 max-w-[96px] truncate rounded-full bg-[oklch(0.15_0.003_260/0.92)] px-2 py-0.5 text-[10px] font-semibold", won ? "text-active" : "text-fg/65")}>{handLabel(result)}</span>
       )}
     </div>
   );

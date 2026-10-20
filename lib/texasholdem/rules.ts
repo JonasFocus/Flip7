@@ -1,6 +1,6 @@
 import { cryptoRng } from "../blackjack/rules.ts";
 import { buildPots, evaluate } from "./eval.ts";
-import type { Rank, Suit, TxActions, TxCard, TxIntent, TxPhase, TxPlayer, TxState } from "./types.ts";
+import type { Rank, Suit, TxActions, TxCard, TxHandResult, TxIntent, TxPhase, TxPlayer, TxState } from "./types.ts";
 
 export const SEATS = 8;
 export const MAX_TX_PLAYERS = 12; // 8 seats plus rail watchers
@@ -14,6 +14,8 @@ export const SHOWDOWN_MS = 7000; // results and the winning hand stay up before 
 export const FOLD_WIN_MS = 3500; // everyone folded: a shorter beat, no hands to read
 export const REVEAL_MS = 1800; // all-in called: a beat with the hands face up before the next street
 export const RUNOUT_MS = 2200; // between streets of an all-in runout
+export const RUN_TWICE_ASK_MS = 5000; // everyone in the pot gets this long to agree to run it twice
+export const RUN_TWICE_BEAT_MS = 1200; // everyone agreed: a beat before the first board runs out
 export const DEAL_STAGGER_MS = 200; // client deal animation: gap between cards going round the table
 export const CARD_SLIDE_MS = 550; // client deal animation: one card's trip from the deck
 export const REACTION_COOLDOWN_MS = 1500; // between emoji reactions from one player
@@ -93,6 +95,9 @@ export function createTxGame(): TxState {
     dealAt: null,
     settleAt: null,
     runout: false,
+    runTwice: true,
+    ask: null,
+    second: null,
     round: 0,
     seq: 0,
   };
@@ -193,6 +198,8 @@ function startHand(table: TxState, now: number, rng: Rng): TxState {
     dealAt: null,
     settleAt: null,
     runout: false,
+    ask: null,
+    second: null,
     round: s.round + 1,
   };
   return proceed(dealt, seatOf(bb), now + dealAnimMs(order.length), rng);
@@ -227,14 +234,34 @@ function closeStreet(s: TxState, now: number, rng: Rng): TxState {
     turnAt: null,
   };
   if (s.board.length === 5) return showdown(base, now);
-  if (base.players.filter(canAct).length <= 1) return { ...base, runout: true, dealAt: now + REVEAL_MS };
+  if (base.players.filter(canAct).length <= 1) return startRunout(base, now);
   const { state, cards } = dealStreet(base);
   return proceed(state, state.button ?? -1, now + streetAnimMs(cards), rng);
 }
 
+// Bots have no opinion and always agree. Nobody is asked when a human is offline: they cannot answer, so the board runs once.
+function startRunout(s: TxState, now: number): TxState {
+  const voters = s.players.filter((p) => isLive(p) && !isTxBotId(p.id));
+  if (!s.runTwice || voters.length === 0 || !voters.every((p) => p.connected)) return { ...s, runout: true, dealAt: now + REVEAL_MS };
+  return { ...s, runout: true, ask: { ids: voters.map((p) => p.id), yes: [] }, dealAt: now + RUN_TWICE_ASK_MS };
+}
+
+// Anyone who left the hand since the question was asked no longer has a say.
+const allAgreed = (s: TxState): boolean => !!s.ask && s.ask.ids.every((id) => s.ask?.yes.includes(id) || !s.players.some((p) => p.id === id && isLive(p)));
+
+function settleAsk(s: TxState, twice: boolean, now: number): TxState {
+  if (!twice) return runoutStep({ ...s, ask: null }, now);
+  return { ...s, ask: null, second: s.board, dealAt: now + RUN_TWICE_BEAT_MS };
+}
+
+// Deals the next street of the first board, then of the second when running it twice, then pays out.
 function runoutStep(s: TxState, now: number): TxState {
-  if (s.board.length === 5) return showdown({ ...s, dealAt: null }, now);
-  return { ...dealStreet(s).state, dealAt: now + RUNOUT_MS };
+  if (s.board.length < 5) return { ...dealStreet(s).state, dealAt: now + RUNOUT_MS };
+  if (s.second && s.second.length < 5) {
+    const cards = s.second.length === 0 ? 3 : 1;
+    return { ...s, second: [...s.second, ...s.deck.slice(0, cards)], deck: s.deck.slice(cards), dealAt: now + RUNOUT_MS };
+  }
+  return showdown({ ...s, dealAt: null }, now);
 }
 
 function awardUncontested(s: TxState, now: number): TxState {
@@ -244,37 +271,53 @@ function awardUncontested(s: TxState, now: number): TxState {
     const won = isLive(p) ? pot : 0;
     return { ...p, bet: 0, chips: p.chips + won, result: { won, net: won - p.total, hand: null, best: [] } };
   });
-  return { ...s, players, phase: "showdown", turnId: null, turnAt: null, dealAt: null, runout: false, settleAt: now + FOLD_WIN_MS };
+  return { ...s, players, phase: "showdown", turnId: null, turnAt: null, dealAt: null, runout: false, ask: null, second: null, settleAt: now + FOLD_WIN_MS };
 }
 
 function showdown(s: TxState, now: number): TxState {
   const live = s.players.filter(isLive);
-  const hands = new Map(live.map((p) => [p.id, evaluate([...holeOf(p), ...s.board])]));
+  const rank = (board: TxCard[]) => new Map(live.map((p) => [p.id, evaluate([...holeOf(p), ...board])]));
+  const hands = rank(s.board);
+  const hands2 = s.second ? rank(s.second) : null;
+  const runs = hands2 ? [hands, hands2] : [hands];
   const won = new Map<string, number>();
+  const wonSecond = new Map<string, number>();
   const [top, next] = [...s.players].sort((a, b) => b.total - a.total);
   // A bet nobody matched goes back to its owner untouched; it is not a pot win.
   const refund = top && isLive(top) ? top.total - (next?.total ?? 0) : 0;
   const pots = buildPots(s.players.filter((p) => p.total > 0).map((p) => ({ id: p.id, total: p.id === top?.id ? top.total - refund : p.total, folded: !isLive(p) })));
   for (const pot of pots) {
     const contenders = live.filter((p) => pot.eligible.includes(p.id));
-    const top = Math.max(...contenders.map((p) => hands.get(p.id)?.value ?? 0));
-    const winners = after(
-      contenders.filter((p) => hands.get(p.id)?.value === top),
-      s.button ?? -1,
-    );
-    if (winners.length === 0) continue;
-    const share = Math.floor(pot.amount / winners.length);
-    const odd = pot.amount - share * winners.length; // odd chips go one each from the seat left of the button
-    winners.forEach((w, i) => won.set(w.id, (won.get(w.id) ?? 0) + share + (i < odd ? 1 : 0)));
+    // Running it twice splits every pot, side pots included, in half; the odd chip rides the first board.
+    const halves = runs.length === 2 ? [Math.ceil(pot.amount / 2), Math.floor(pot.amount / 2)] : [pot.amount];
+    runs.forEach((ranked, run) => {
+      const top = Math.max(...contenders.map((p) => ranked.get(p.id)?.value ?? 0));
+      const winners = after(
+        contenders.filter((p) => ranked.get(p.id)?.value === top),
+        s.button ?? -1,
+      );
+      const amount = halves[run] ?? 0;
+      if (winners.length === 0) return;
+      const share = Math.floor(amount / winners.length);
+      const odd = amount - share * winners.length; // odd chips go one each from the seat left of the button
+      winners.forEach((w, i) => {
+        const take = share + (i < odd ? 1 : 0);
+        won.set(w.id, (won.get(w.id) ?? 0) + take);
+        if (run === 1) wonSecond.set(w.id, (wonSecond.get(w.id) ?? 0) + take);
+      });
+    });
   }
   const players = s.players.map((p) => {
     if (p.cards.length === 0) return p;
     const take = won.get(p.id) ?? 0;
     const hand = hands.get(p.id);
     const back = p.id === top?.id ? refund : 0;
-    return { ...p, chips: p.chips + take + back, result: { won: take, net: take + back - p.total, hand: hand?.name ?? null, best: hand?.best ?? [] } };
+    const hand2 = hands2?.get(p.id);
+    const result: TxHandResult = { won: take, net: take + back - p.total, hand: hand?.name ?? null, best: hand?.best ?? [] };
+    if (hands2) result.second = { hand: hand2?.name ?? null, best: hand2?.best ?? [], won: wonSecond.get(p.id) ?? 0 };
+    return { ...p, chips: p.chips + take + back, result };
   });
-  return { ...s, players, phase: "showdown", turnId: null, turnAt: null, dealAt: null, runout: false, settleAt: now + SHOWDOWN_MS };
+  return { ...s, players, phase: "showdown", turnId: null, turnAt: null, dealAt: null, runout: false, ask: null, settleAt: now + SHOWDOWN_MS };
 }
 
 function resetTable(s: TxState, now: number): TxState {
@@ -283,7 +326,7 @@ function resetTable(s: TxState, now: number): TxState {
     .filter((p) => !p.gone && !isStale(p, now))
     .map((p) => ({ ...p, bet: 0, total: 0, cards: [], folded: false, allIn: false, acted: false, shown: false, result: null }));
   return syncLobby(
-    { ...s, phase: "lobby", players, stacks, board: [], deck: [], currentBet: 0, minRaise: BIG_BLIND, turnId: null, turnAt: null, dealAt: null, settleAt: null, sbId: null, bbId: null, runout: false, startAt: null },
+    { ...s, phase: "lobby", players, stacks, board: [], deck: [], currentBet: 0, minRaise: BIG_BLIND, turnId: null, turnAt: null, dealAt: null, settleAt: null, sbId: null, bbId: null, runout: false, ask: null, second: null, startAt: null },
     now,
   );
 }
@@ -371,6 +414,18 @@ export function applyTxIntent(s: TxState, actorId: string, intent: TxIntent, opt
     case "show":
       if (s.phase !== "showdown" || !isLive(me)) return fail("Nothing to show");
       return done(patch(s, actorId, (p) => ({ ...p, shown: true })));
+    case "setRunTwice":
+      if (!opts.isHost) return fail("Only the host can change this");
+      if (s.phase !== "lobby") return fail("Change this between hands");
+      return done({ ...s, runTwice: intent.on });
+    case "runTwice": {
+      const { ask } = s;
+      if (!ask || !s.runout) return fail("Nothing to vote on");
+      if (!ask.ids.includes(actorId) || !isLive(me)) return fail("You're not in this pot");
+      if (!intent.yes) return done(settleAsk(s, false, now));
+      const agreed: TxState = { ...s, ask: { ...ask, yes: [...new Set([...ask.yes, actorId])] } };
+      return done(allAgreed(agreed) ? settleAsk(agreed, true, now) : agreed);
+    }
     case "fold":
     case "check":
     case "call":
@@ -433,7 +488,7 @@ export function onDeadline(s: TxState, now: number, rng: Rng = cryptoRng): TxSta
     return seal(startHand(s, now, rng), s);
   }
   if (s.phase === "showdown") return seal(resetTable(s, now), s);
-  if (s.runout) return seal(runoutStep(s, now), s);
+  if (s.runout) return seal(s.ask ? settleAsk(s, allAgreed(s), now) : runoutStep(s, now), s);
   const actor = s.players.find((p) => p.id === s.turnId);
   if (!actor) return s;
   const timedOut = patch(s, actor.id, (p) => ({ ...p, sitOut: true }));
