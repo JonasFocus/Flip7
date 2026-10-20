@@ -60,7 +60,7 @@ export type ClientMessage =
   | { t: "imposter"; intent: ImposterIntent }
   | PartyMessage
   | { t: "addBot" } // host, virtual lobby
-  | { t: "removePlayer"; playerId: string } // host, lobby
+  | { t: "removePlayer"; playerId: string } // host, lobby (holdem: any time for offline or sat-out players)
   | { t: "ping" };
 
 export type ServerMessage =

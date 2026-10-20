@@ -116,7 +116,7 @@ const linkButton = "min-h-11 text-xs font-bold tracking-[0.16em] text-muted uppe
 // Seated but not in this hand: waiting for the next deal, sitting out, or busted.
 function Idle({ conn, me, secs }: { conn: TxConnection; me: TxPlayer; secs: number | null }) {
   const { game } = conn;
-  const broke = me.chips < BIG_BLIND;
+  const broke = me.chips === 0;
   const send = (intent: TxIntent) => {
     tap();
     conn.send(intent);
