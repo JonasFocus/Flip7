@@ -27,6 +27,7 @@ import {
   removeTxPlayer,
   serverDeadline,
   setTxConnected,
+  stackBeforeAward,
   wentAllIn,
   type Rank,
   type TxCard,
@@ -301,6 +302,8 @@ test("an uncalled bet comes back as a refund, not a win for the bigger stack", (
   assert.equal(chipsAndPot(s), 1100);
   // Before the reveal the stacks hold back everything paid out, so the loser shows 0 beside the 1100 pot.
   assert.deepEqual([paidOut(player(s, "a")), paidOut(player(s, "b"))], [900, 200]);
+  assert.deepEqual([stackBeforeAward(player(s, "a"), s.phase), stackBeforeAward(player(s, "b"), s.phase)], [0, 0]);
+  assert.equal(stackBeforeAward(player(s, "b"), "river"), 200);
 });
 
 test("split pot hands the odd chip to the first winner left of the button", () => {
