@@ -27,7 +27,8 @@ export const HAND_CATEGORIES = [
 
 const BASE = 15;
 
-const rv = (c: EvalCard) => RANK_VALUE[c.rank];
+export const rankValue = (c: EvalCard): number => RANK_VALUE[c.rank];
+const rv = rankValue;
 
 function score(category: number, ranks: number[]): number {
   let v = category;
@@ -153,8 +154,10 @@ export function madeHand(cards: EvalCard[]): string {
   return a === b ? `Pair of ${PLURAL[a]}` : `${SINGULAR[a]} high`;
 }
 
+export const categoryIndex = (value: number): number => Math.floor(value / BASE ** 5);
+
 export function handCategory(value: number): string {
-  return HAND_CATEGORIES[Math.floor(value / BASE ** 5)] ?? HAND_CATEGORIES[0];
+  return HAND_CATEGORIES[categoryIndex(value)] ?? HAND_CATEGORIES[0];
 }
 
 // Layers by the distinct totals of live players; dead money from folded players rides in the layers it reaches.
