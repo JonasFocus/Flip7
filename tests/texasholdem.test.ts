@@ -372,6 +372,22 @@ test("hole cards never leak to other viewers and the deck is hidden", () => {
   assert.equal(player(redactTx(folded, "b"), "a").result, null);
 });
 
+test("a player leaving during a contested showdown does not hide the revealed hands", () => {
+  let s = table(["a", "b"], { hole: { a: ["As", "Ah"], b: ["Kc", "Kd"] }, board: ["2c", "7d", "9h", "Jc", "3s"] });
+  s = act(act(s, "a", { type: "call" }), "b", { type: "check" });
+  for (let i = 0; i < 3; i++) s = act(act(s, "b", { type: "check" }), "a", { type: "check" });
+  assert.equal(s.phase, "showdown");
+  const left = removeTxPlayer(s, "b", { now: NOW });
+  for (const viewer of ["a", "watcher"]) {
+    const v = redactTx(left, viewer);
+    assert.ok(player(v, "a").cards.every((c) => c !== null));
+    assert.ok(player(v, "b").cards.every((c) => c !== null));
+  }
+  const winnerLeft = removeTxPlayer(s, "a", { now: NOW });
+  assert.ok(player(redactTx(winnerLeft, "watcher"), "a").cards.every((c) => c !== null));
+  assert.ok(player(redactTx(winnerLeft, "watcher"), "b").cards.every((c) => c !== null));
+});
+
 test("folded players stay mucked at a contested showdown", () => {
   let s = table(["a", "b", "c"], { hole: { a: ["As", "Ah"], b: ["Kc", "Kd"], c: ["Qc", "Qd"] }, board: ["2c", "7d", "9h", "Jc", "3s"] });
   s = act(s, "a", { type: "fold" });
