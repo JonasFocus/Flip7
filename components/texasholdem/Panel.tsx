@@ -87,7 +87,20 @@ export function Panel({
     body = (
       <>
         <TurnClock label={`${acting?.name ?? "Someone"}'s turn`} secs={secs} />
-        <Status>{me.folded ? "You folded. Waiting for the next hand…" : me.allIn ? "You're all in. Waiting on the table…" : "Waiting for your turn…"}</Status>
+        <Status>
+          {me.sitOut
+            ? "You're sitting out. Sit in to get your full clock back."
+            : me.folded
+              ? "You folded. Waiting for the next hand…"
+              : me.allIn
+                ? "You're all in. Waiting on the table…"
+                : "Waiting for your turn…"}
+        </Status>
+        {me.sitOut && (
+          <button type="button" onClick={() => (tap(), conn.send({ type: "sitIn" }))} className={linkButton}>
+            Sit in
+          </button>
+        )}
         {now && <PreActions now={now} pre={pre} onChange={setPre} />}
       </>
     );
