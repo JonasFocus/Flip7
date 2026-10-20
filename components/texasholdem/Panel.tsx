@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { cx } from "@/components/ui/cx";
 import { shortAmount } from "@/components/casino/Chip";
 import { fail, success, tap } from "@/lib/client/haptics";
-import { BIG_BLIND, START_CHIPS, TURN_MS, legalActions } from "@/lib/texasholdem";
+import { BIG_BLIND, START_CHIPS, TURN_MS, legalActions, stepRaise } from "@/lib/texasholdem";
 import type { TxConnection, TxIntent, TxPlayer } from "@/lib/texasholdem/types";
 
 const PRESETS = [
@@ -107,6 +107,8 @@ const presetClass = (on: boolean) =>
     on ? "border-accent/70 bg-accent/15 text-accent" : "border-line bg-surface text-muted active:bg-surface-2 active:text-fg",
   );
 
+const stepClass = cx(presetClass(false), "min-w-11 disabled:opacity-30");
+
 const linkButton = "min-h-11 text-xs font-bold tracking-[0.16em] text-muted uppercase active:text-fg disabled:opacity-30";
 
 // Seated but not in this hand: waiting for the next deal, sitting out, or busted.
@@ -173,6 +175,10 @@ function Actions({ conn, me, secs }: { conn: TxConnection; me: TxPlayer; secs: n
     tap();
     setRaiseTo(presetTarget(fraction));
   };
+  const step = (dir: 1 | -1) => {
+    tap();
+    setRaiseTo(stepRaise(amount, dir, minRaiseTo, maxRaiseTo));
+  };
   const go = (intent: TxIntent) => {
     tap();
     conn.send(intent);
@@ -212,20 +218,28 @@ function Actions({ conn, me, secs }: { conn: TxConnection; me: TxPlayer; secs: n
               <span className="font-display text-[10px] tabular-nums opacity-70">{shortAmount(maxRaiseTo)}</span>
             </button>
           </div>
-          <input
-            type="range"
-            aria-label="Raise amount"
-            min={minRaiseTo}
-            max={maxRaiseTo}
-            step={1}
-            value={amount}
-            onChange={(e) => {
-              const v = Number(e.target.value);
-              // Snap to small-blind steps so the amount reads cleanly; the ends stay exact.
-              setRaiseTo(v >= maxRaiseTo || v <= minRaiseTo ? v : Math.round(v / 10) * 10);
-            }}
-            className="tx-range"
-          />
+          <div className="flex items-center gap-2">
+            <button type="button" aria-label="Lower raise by one big blind" disabled={amount <= minRaiseTo} onClick={() => step(-1)} className={stepClass}>
+              <span className="text-xl leading-none">−</span>
+            </button>
+            <input
+              type="range"
+              aria-label="Raise amount"
+              min={minRaiseTo}
+              max={maxRaiseTo}
+              step={1}
+              value={amount}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                // Snap to small-blind steps so the amount reads cleanly; the ends stay exact.
+                setRaiseTo(v >= maxRaiseTo || v <= minRaiseTo ? v : Math.round(v / 10) * 10);
+              }}
+              className="tx-range min-w-0 flex-1"
+            />
+            <button type="button" aria-label="Raise by one big blind" disabled={amount >= maxRaiseTo} onClick={() => step(1)} className={stepClass}>
+              <span className="text-xl leading-none">+</span>
+            </button>
+          </div>
         </>
       )}
       <div className={cx("grid gap-2.5", canRaise ? "grid-cols-[1fr_1.15fr_1.5fr]" : "grid-cols-2")}>

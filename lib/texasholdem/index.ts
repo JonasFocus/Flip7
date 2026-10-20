@@ -27,6 +27,7 @@ export {
   removeTxPlayer,
   serverDeadline,
   setTxConnected,
+  stepRaise,
   streetAnimMs,
   visibleDeadline,
   wentAllIn,

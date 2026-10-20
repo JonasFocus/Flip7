@@ -281,6 +281,12 @@ export function legalActions(s: TxState, id: string): TxActions | null {
   };
 }
 
+// Next big-blind multiple strictly above or below raiseTo, kept inside [min, max] so the ends stay exact.
+export function stepRaise(raiseTo: number, dir: 1 | -1, min: number, max: number): number {
+  const next = (dir === 1 ? Math.floor(raiseTo / BIG_BLIND) + 1 : Math.ceil(raiseTo / BIG_BLIND) - 1) * BIG_BLIND;
+  return Math.min(max, Math.max(min, next));
+}
+
 export function removeTxPlayer(s: TxState, id: string, opts: { now: number; rng?: Rng }): TxState {
   const me = s.players.find((p) => p.id === id);
   if (!me) return s;

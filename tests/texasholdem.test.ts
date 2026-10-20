@@ -21,6 +21,7 @@ import {
   removeTxPlayer,
   serverDeadline,
   setTxConnected,
+  stepRaise,
   wentAllIn,
   type Rank,
   type TxCard,
@@ -188,6 +189,25 @@ test("min-raise: opening bet, raise size tracks the last full raise", () => {
   assert.equal(legalActions(s, "a")?.callAmount, 80);
   s = act(act(s, "a", { type: "call" }), "b", { type: "check" });
   assert.equal(s.phase, "flop");
+});
+
+test("stepRaise moves one big blind on the grid and clamps", () => {
+  assert.equal(stepRaise(70, 1, 40, 2000), 80);
+  assert.equal(stepRaise(70, -1, 40, 2000), 60);
+  assert.equal(stepRaise(80, 1, 40, 2000), 100);
+  assert.equal(stepRaise(80, -1, 40, 2000), 60);
+  assert.equal(stepRaise(45, -1, 40, 2000), 40);
+  assert.equal(stepRaise(1995, 1, 40, 1995), 1995);
+  assert.equal(stepRaise(1995, -1, 40, 1995), 1980);
+  assert.equal(stepRaise(40, 1, 40, 40), 40);
+  assert.equal(stepRaise(40, -1, 40, 40), 40);
+
+  const s = table(["a", "b"], { chips: { a: 2000, b: 2000 } });
+  const actor = s.turnId!;
+  const legal = legalActions(s, actor)!;
+  const up = stepRaise(legal.minRaiseTo, 1, legal.minRaiseTo, legal.maxRaiseTo);
+  assert.equal(up, legal.minRaiseTo + BIG_BLIND);
+  assert.equal(act(s, actor, { type: "bet", amount: up }).currentBet, up);
 });
 
 test("postflop opening bet must be at least the big blind", () => {
