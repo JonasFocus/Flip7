@@ -123,6 +123,7 @@ export function addTxPlayer(s: TxState, p: { id: string; name: string }): TxStat
     allIn: false,
     acted: false,
     sitOut: false,
+    timedOut: false,
     gone: false,
     shown: false,
     result: null,
@@ -350,17 +351,17 @@ export function applyTxIntent(s: TxState, actorId: string, intent: TxIntent, opt
       if (!Number.isInteger(seat) || seat < 0 || seat >= SEATS) return fail("No such seat");
       if (inHand) return fail("Finish your hand first");
       if (s.players.some((p) => p.seat === seat && p.id !== actorId)) return fail("Seat taken");
-      return lobby(patch(s, actorId, (p) => ({ ...p, seat, sitOut: false })));
+      return lobby(patch(s, actorId, (p) => ({ ...p, seat, sitOut: false, timedOut: false })));
     }
     case "standUp":
       if (me.seat === null) return fail("You're not seated");
       if (isLive(me)) return fail("Finish your hand first");
-      return lobby(patch(s, actorId, (p) => ({ ...p, seat: null })));
+      return lobby(patch(s, actorId, (p) => ({ ...p, seat: null, timedOut: false })));
     case "sitOut":
-      return lobby(patch(s, actorId, (p) => ({ ...p, sitOut: true })));
+      return lobby(patch(s, actorId, (p) => ({ ...p, sitOut: true, timedOut: false })));
     case "sitIn":
       if (me.seat === null) return fail("Take a seat first");
-      return lobby(patch(s, actorId, (p) => ({ ...p, sitOut: false })));
+      return lobby(patch(s, actorId, (p) => ({ ...p, sitOut: false, timedOut: false })));
     case "rebuy":
       if (inHand) return fail("Wait for the hand to finish");
       if (me.chips > 0) return fail("You still have chips");
@@ -387,7 +388,7 @@ export function applyTxIntent(s: TxState, actorId: string, intent: TxIntent, opt
   const legal = legalActions(s, actorId);
   if (!legal) return fail("It's not your turn");
 
-  const base = me.sitOut ? patch(s, actorId, (p) => ({ ...p, sitOut: false })) : s; // acting is coming back
+  const base = me.sitOut ? patch(s, actorId, (p) => ({ ...p, sitOut: false, timedOut: false })) : s; // acting is coming back
   if (intent.type === "fold") return done(proceed(patch(base, actorId, (p) => ({ ...p, folded: true })), seatOf(me), now, rng));
   if (intent.type === "check") {
     if (!legal.canCheck) return fail("You must call or fold");
@@ -441,7 +442,7 @@ export function onDeadline(s: TxState, now: number, rng: Rng = cryptoRng): TxSta
   if (s.runout) return seal(runoutStep(s, now), s);
   const actor = s.players.find((p) => p.id === s.turnId);
   if (!actor) return s;
-  const timedOut = patch(s, actor.id, (p) => ({ ...p, sitOut: true }));
+  const timedOut = patch(s, actor.id, (p) => ({ ...p, sitOut: true, timedOut: true }));
   if (actor.bet >= s.currentBet) return seal(proceed(patch(timedOut, actor.id, (p) => ({ ...p, acted: true })), seatOf(actor), now, rng), s);
   return seal(proceed(patch(timedOut, actor.id, (p) => ({ ...p, folded: true })), seatOf(actor), now, rng), s);
 }

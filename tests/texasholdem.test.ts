@@ -351,11 +351,19 @@ test("auto-action: checks when free, folds to a bet, and sits the player out", (
   assert.equal(folded.phase, "showdown");
   assert.equal(player(folded, "a").folded, true);
   assert.equal(player(folded, "a").sitOut, true);
+  assert.equal(player(folded, "a").timedOut, true);
+  assert.equal(player(folded, "b").timedOut, false);
+  assert.equal(player(act(folded, "a", { type: "standUp" }), "a").timedOut, false);
   s = act(act(s, "a", { type: "call" }), "b", { type: "check" });
   const checked = onDeadline(s, serverDeadline(s)!);
   assert.equal(player(checked, "b").sitOut, true);
   assert.equal(checked.turnId, "a");
   assert.equal(checked.phase, "flop");
+  assert.equal(player(checked, "b").timedOut, true);
+  assert.equal(player(act(checked, "b", { type: "sitIn" }), "b").timedOut, false);
+  const manual = act(act(checked, "b", { type: "sitIn" }), "b", { type: "sitOut" });
+  assert.equal(player(manual, "b").sitOut, true);
+  assert.equal(player(manual, "b").timedOut, false);
 });
 
 test("an offline or sitting-out actor gets the short clock, a connected seated one the full clock", () => {
@@ -387,9 +395,11 @@ test("an offline actor is acted for after the short clock: fold to a bet, check 
 
 test("a sitting-out player who acts comes back in, and a seated player is unchanged", () => {
   const sit = (s: TxState, id: string) => ({ ...s, players: s.players.map((p) => (p.id === id ? { ...p, sitOut: true } : p)) });
+  const timedOutSit = (s: TxState, id: string) => ({ ...s, players: s.players.map((p) => (p.id === id ? { ...p, sitOut: true, timedOut: true } : p)) });
   const s = table(["a", "b"]);
   for (const intent of [{ type: "fold" }, { type: "call" }, { type: "bet", amount: 60 }, { type: "allIn" }] as const) {
     assert.equal(player(act(sit(s, "a"), "a", intent), "a").sitOut, false, intent.type);
+    assert.equal(player(act(timedOutSit(s, "a"), "a", intent), "a").timedOut, false, intent.type);
     assert.equal(player(act(s, "a", intent), "a").sitOut, false, intent.type);
   }
   const free = act(s, "a", { type: "call" });
@@ -758,6 +768,7 @@ const payee = (id: string, name: string, won: number, hand: string | null, best:
   allIn: false,
   acted: true,
   sitOut: false,
+  timedOut: false,
   gone: false,
   shown: false,
   reaction: null,

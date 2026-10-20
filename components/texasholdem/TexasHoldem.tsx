@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type ComponentProps, type RefObject } from "react";
 import "./texasholdem.css";
 import { CardFace } from "@/components/casino/CardFace";
 import { Chip, shortAmount } from "@/components/casino/Chip";
+import { DealtCard, gapTo, reducedMotion } from "@/components/casino/motion";
 import { shareInvite } from "@/components/lobby/Lobby";
 import { useSecondsLeft } from "@/components/table/ActionBar";
 import { Avatar } from "@/components/ui/Avatar";
@@ -34,7 +35,7 @@ import {
   winLines,
 } from "@/lib/texasholdem";
 import type { TxCard, TxConnection, TxPlayer, TxReaction, TxState } from "@/lib/texasholdem/types";
-import { Panel } from "./Panel";
+import { LOW_SECS, Panel } from "./Panel";
 
 // Seats are placed by hand (percent of the table) so plates stay clear of the board on a 375px phone; index = seat relative to you, clockwise.
 const SEAT_POS = [
@@ -68,19 +69,8 @@ const REACTION_SHOW_MS = 2000;
 const BOARD_SIZE = "clamp(36px,10.4vw,46px)";
 const STREET: Record<TxState["phase"], string> = { lobby: "", preflop: "PRE-FLOP", flop: "FLOP", turn: "TURN", river: "RIVER", showdown: "SHOWDOWN" };
 
-const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
-
 const seatPos = (rel: number) => SEAT_POS[rel % SEAT_POS.length] ?? SEAT_POS[0];
 const betPos = (rel: number) => BET_POS[rel % BET_POS.length] ?? BET_POS[0];
-
-// Distance from el's centre to the centre of a landmark on the felt ([data-deck], [data-pot], [data-seat="n"]).
-function gapTo(el: Element, selector: string): { dx: number; dy: number } | null {
-  const target = el.closest("[data-table]")?.querySelector(selector);
-  if (!target) return null;
-  const a = el.getBoundingClientRect();
-  const b = target.getBoundingClientRect();
-  return { dx: b.left + b.width / 2 - (a.left + a.width / 2), dy: b.top + b.height / 2 - (a.top + a.height / 2) };
-}
 
 // "to": carry el to the landmark and fade it. "from": bring el in from the landmark and set it down.
 function useFly(ref: RefObject<HTMLElement | null>, target: string | undefined, dir: "to" | "from", delay = 0, duration = AWARD_MS) {
@@ -444,64 +434,40 @@ function Bet({ amount, seat, pos, sweep = false }: { amount: number; seat: numbe
   );
 }
 
-// Deals out of the deck face down, spinning onto its spot, and turns over as it lands. A hidden card stays down until its face arrives.
-function Dealt({
-  card,
-  delay = 0,
-  sweep = false,
-  dim = false,
-  size,
-  className,
-  style,
-}: {
-  card: TxCard | null;
-  delay?: number;
-  sweep?: boolean;
-  dim?: boolean;
-  size: number | string;
-  className?: string;
-  style?: CSSProperties;
-}) {
-  const ref = useRef<HTMLSpanElement>(null);
-  const [onMount] = useState(() => ({ delay, faceUp: card !== null }));
+// The shared deal animation, dealt out of the deck and swept back into it.
+function Dealt({ dim = false, className, ...props }: Omit<ComponentProps<typeof DealtCard>, "slideMs" | "sweepMs" | "from" | "to" | "pips"> & { dim?: boolean }) {
+  return (
+    <DealtCard
+      {...props}
+      pips
+      from="[data-deck]"
+      to="[data-deck]"
+      slideMs={CARD_SLIDE_MS}
+      sweepMs={SWEEP_MS}
+      className={cx("transition-[filter,opacity,font-size] duration-500 motion-reduce:transition-none", dim && "opacity-40 brightness-75", className)}
+    />
+  );
+}
 
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el || reducedMotion()) return;
-    const gap = gapTo(el, "[data-deck]");
-    if (!gap) return;
-    const timing: KeyframeAnimationOptions = { duration: CARD_SLIDE_MS, delay: onMount.delay, easing: "cubic-bezier(0.22, 0.9, 0.3, 1)", fill: "backwards" };
-    const moves = [
-      el.animate(
-        [
-          { transform: `translate(${gap.dx}px, ${gap.dy}px) rotate(-55deg) scale(0.6)` },
-          { transform: "translate(0, -6%) rotate(4deg) scale(1.06)", offset: 0.75 },
-          { transform: "none" },
-        ],
-        timing,
-      ),
-    ];
-    const inner = el.firstElementChild;
-    if (onMount.faceUp && inner instanceof HTMLElement) {
-      moves.push(inner.animate([{ transform: "rotateY(180deg)" }, { transform: "rotateY(180deg)", offset: 0.55 }, { transform: "rotateY(0deg)" }], timing));
-    }
-    return () => moves.forEach((m) => m.cancel());
-  }, [onMount]);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el || !sweep || reducedMotion()) return;
-    const gap = gapTo(el, "[data-deck]");
-    if (!gap) return;
-    const away = el.animate([{ transform: "none" }, { transform: `translate(${gap.dx}px, ${gap.dy}px) rotate(30deg) scale(0.5)`, opacity: 0 }], {
-      duration: SWEEP_MS - 100,
-      easing: "cubic-bezier(0.5, 0, 0.75, 0)",
-      fill: "forwards",
-    });
-    return () => away.cancel();
-  }, [sweep]);
-
-  return <CardFace ref={ref} card={card} pips size={size} className={cx("transition-[filter,opacity,font-size] duration-500", dim && "opacity-40 brightness-75", className)} style={style} />;
+// The panel's turn clock, drawn round the acting seat so everyone can see whose time is running.
+function TurnRing({ secs }: { secs: number }) {
+  const low = secs <= LOW_SECS;
+  const left = Math.min(1, secs / (TURN_MS / 1000));
+  return (
+    <svg aria-hidden viewBox="0 0 36 36" className="pointer-events-none absolute -top-[7px] -left-[7px] size-[calc(100%+14px)] -rotate-90">
+      <circle
+        cx="18"
+        cy="18"
+        r="17"
+        fill="none"
+        strokeWidth="1.5"
+        pathLength={1}
+        strokeDasharray={1}
+        strokeDashoffset={1 - left}
+        className={cx("transition-[stroke-dashoffset] duration-1000 ease-linear motion-reduce:transition-none", low ? "tx-low stroke-danger" : "stroke-accent")}
+      />
+    </svg>
+  );
 }
 
 function Seat({
@@ -616,6 +582,7 @@ function Seat({
         )}
       >
         <Avatar id={player.id} seat={player.seat ?? undefined} name={player.name} />
+        {turn && secs !== null && <TurnRing secs={secs} />}
         {game.button === player.seat && (
           <span aria-label="Dealer button" className="absolute top-1/2 -left-3.5 z-10 grid size-[18px] -translate-y-1/2 place-items-center rounded-full bg-fg font-display text-[10px] text-ink shadow-[0_2px_6px_oklch(0_0_0/0.6)]">
             D
