@@ -16,6 +16,7 @@ export const RUNOUT_MS = 2200; // between streets of an all-in runout
 export const DEAL_STAGGER_MS = 200; // client deal animation: gap between cards going round the table
 export const CARD_SLIDE_MS = 550; // client deal animation: one card's trip from the deck
 export const REACTION_COOLDOWN_MS = 1500; // between emoji reactions from one player
+export const DROP_GRACE_MS = 75_000; // a dropped player keeps their seat this long; after it they are cleared at the next hand boundary
 
 // Two passes round the table; the first turn's clock starts once the last card lands.
 export const dealAnimMs = (hands: number): number => (2 * hands - 1) * DEAL_STAGGER_MS + CARD_SLIDE_MS;
@@ -107,6 +108,7 @@ export function addTxPlayer(s: TxState, p: { id: string; name: string }): TxStat
     id: p.id,
     name: p.name,
     connected: true,
+    droppedAt: null,
     seat: null,
     chips: kept ?? START_CHIPS,
     bet: 0,
@@ -124,14 +126,24 @@ export function addTxPlayer(s: TxState, p: { id: string; name: string }): TxStat
   return { ...s, players: [...s.players, player], stacks, seq: s.seq + 1 };
 }
 
+// A player offline past the grace period who is not in a hand (no chips in the pot).
+const isStale = (p: TxPlayer, now: number): boolean => !p.connected && p.droppedAt !== null && now - p.droppedAt >= DROP_GRACE_MS;
+
+function pruneDropped(s: TxState, now: number): TxState {
+  const keep = (p: TxPlayer) => p.cards.length > 0 || !isStale(p, now);
+  return s.players.every(keep) ? s : { ...s, players: s.players.filter(keep) };
+}
+
 export function setTxConnected(s: TxState, id: string, connected: boolean, now: number): TxState {
   const p = s.players.find((x) => x.id === id);
   if (!p || p.connected === connected) return s;
   // Rejoining cancels a mid-hand leave: still folded this hand, but kept at the table.
-  return seal(syncLobby(patch(s, id, (x) => ({ ...x, connected, gone: connected ? false : x.gone })), now), s);
+  const next = patch(s, id, (x) => ({ ...x, connected, droppedAt: connected ? null : now, gone: connected ? false : x.gone }));
+  return seal(syncLobby(pruneDropped(next, now), now), s);
 }
 
-function startHand(s: TxState, now: number, rng: Rng): TxState {
+function startHand(table: TxState, now: number, rng: Rng): TxState {
+  const s = pruneDropped(table, now);
   const pool = s.players.filter(isDealable);
   // Heads-up after a bust: last hand's big blind takes the button and small blind, so nobody posts the big blind twice.
   const prevBb = pool.length === 2 ? pool.find((p) => p.id === s.bbId) : undefined;
@@ -235,7 +247,10 @@ function showdown(s: TxState, now: number): TxState {
   const live = s.players.filter(isLive);
   const hands = new Map(live.map((p) => [p.id, evaluate([...holeOf(p), ...s.board])]));
   const won = new Map<string, number>();
-  const pots = buildPots(s.players.filter((p) => p.total > 0).map((p) => ({ id: p.id, total: p.total, folded: !isLive(p) })));
+  const [top, next] = [...s.players].sort((a, b) => b.total - a.total);
+  // A bet nobody matched goes back to its owner untouched; it is not a pot win.
+  const refund = top && isLive(top) ? top.total - (next?.total ?? 0) : 0;
+  const pots = buildPots(s.players.filter((p) => p.total > 0).map((p) => ({ id: p.id, total: p.id === top?.id ? top.total - refund : p.total, folded: !isLive(p) })));
   for (const pot of pots) {
     const contenders = live.filter((p) => pot.eligible.includes(p.id));
     const top = Math.max(...contenders.map((p) => hands.get(p.id)?.value ?? 0));
@@ -252,7 +267,8 @@ function showdown(s: TxState, now: number): TxState {
     if (p.cards.length === 0) return p;
     const take = won.get(p.id) ?? 0;
     const hand = hands.get(p.id);
-    return { ...p, chips: p.chips + take, result: { won: take, net: take - p.total, hand: hand?.name ?? null, best: hand?.best ?? [] } };
+    const back = p.id === top?.id ? refund : 0;
+    return { ...p, chips: p.chips + take + back, result: { won: take, net: take + back - p.total, hand: hand?.name ?? null, best: hand?.best ?? [] } };
   });
   return { ...s, players, phase: "showdown", turnId: null, turnAt: null, dealAt: null, runout: false, settleAt: now + SHOWDOWN_MS };
 }
@@ -260,7 +276,7 @@ function showdown(s: TxState, now: number): TxState {
 function resetTable(s: TxState, now: number): TxState {
   const stacks = s.players.filter((p) => p.gone).reduce(keepStack, s.stacks);
   const players = s.players
-    .filter((p) => !p.gone)
+    .filter((p) => !p.gone && !isStale(p, now))
     .map((p) => ({ ...p, bet: 0, total: 0, cards: [], folded: false, allIn: false, acted: false, shown: false, result: null }));
   return syncLobby(
     { ...s, phase: "lobby", players, stacks, board: [], deck: [], currentBet: 0, minRaise: BIG_BLIND, turnId: null, turnAt: null, dealAt: null, settleAt: null, sbId: null, bbId: null, runout: false, startAt: null },
@@ -293,13 +309,21 @@ export function legalActions(s: TxState, id: string): TxActions | null {
   };
 }
 
+// The host may remove someone between hands, or at any time once they are offline or sitting out.
+export function canKickTx(s: TxState, id: string): boolean {
+  const p = s.players.find((x) => x.id === id);
+  if (!p) return false;
+  if (s.phase === "lobby") return true;
+  return !p.gone && (!p.connected || p.sitOut);
+}
+
 export function removeTxPlayer(s: TxState, id: string, opts: { now: number; rng?: Rng }): TxState {
   const me = s.players.find((p) => p.id === id);
   if (!me) return s;
   const rng = opts.rng ?? cryptoRng;
   if (me.cards.length === 0) return syncLobby({ ...s, players: s.players.filter((p) => p.id !== id), stacks: keepStack(s.stacks, me), seq: s.seq + 1 }, opts.now);
   // Their chips stay in the pot, so the seat lingers (folded) until the hand ends.
-  const folded = patch(s, id, (p) => ({ ...p, folded: true, gone: true, connected: false }));
+  const folded = patch(s, id, (p) => ({ ...p, folded: true, gone: true, connected: false, droppedAt: p.droppedAt ?? opts.now }));
   if (s.phase === "showdown") return { ...folded, seq: s.seq + 1 };
   if (s.turnId === id) return seal(proceed(folded, seatOf(me), opts.now, rng), s);
   return seal(resume(folded, opts.now, rng), s);
@@ -383,18 +407,27 @@ export function applyTxIntent(s: TxState, actorId: string, intent: TxIntent, opt
 }
 
 export function serverDeadline(s: TxState): number | null {
-  if (s.phase === "lobby") return s.startAt;
+  if (s.phase === "lobby") {
+    // An idle lobby still wakes up to clear players who stayed offline past the grace period.
+    const expiries = s.players.flatMap((p) => (!p.connected && p.droppedAt !== null ? [p.droppedAt + DROP_GRACE_MS] : []));
+    const due = [...expiries, ...(s.startAt === null ? [] : [s.startAt])];
+    return due.length === 0 ? null : Math.min(...due);
+  }
   if (s.phase === "showdown") return s.settleAt;
   if (s.runout) return s.dealAt;
   return s.turnAt === null ? null : s.turnAt + TURN_MS;
 }
 
-export const visibleDeadline = serverDeadline;
+// The clock players see: ghost cleanup in an idle lobby is not a countdown.
+export const visibleDeadline = (s: TxState): number | null => (s.phase === "lobby" ? s.startAt : serverDeadline(s));
 
 export function onDeadline(s: TxState, now: number, rng: Rng = cryptoRng): TxState {
   const due = serverDeadline(s);
   if (due === null || now < due) return s;
-  if (s.phase === "lobby") return seal(startHand(s, now, rng), s);
+  if (s.phase === "lobby") {
+    if (s.startAt === null || now < s.startAt) return seal(syncLobby(pruneDropped(s, now), now), s);
+    return seal(startHand(s, now, rng), s);
+  }
   if (s.phase === "showdown") return seal(resetTable(s, now), s);
   if (s.runout) return seal(runoutStep(s, now), s);
   const actor = s.players.find((p) => p.id === s.turnId);

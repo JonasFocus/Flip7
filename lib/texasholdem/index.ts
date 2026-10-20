@@ -2,12 +2,14 @@ export * from "./types.ts";
 export { chooseTxIntent, TX_BOT_STYLES, type TxPersonality } from "./bot.ts";
 export { FOLD_HOLD_MS, RAISE_CHIPS, clampRaise, stackRaise } from "./betting.ts";
 export { buildPots, evaluate, madeHand } from "./eval.ts";
+export { paidOut, winLines, type WinLine } from "./winners.ts";
 export {
   BIG_BLIND,
   CARD_SLIDE_MS,
   DEAL_STAGGER_MS,
   FOLD_WIN_MS,
   MAX_TX_PLAYERS,
+  DROP_GRACE_MS,
   REACTION_COOLDOWN_MS,
   REVEAL_MS,
   RUNOUT_MS,
@@ -19,6 +21,7 @@ export {
   TURN_MS,
   addTxPlayer,
   applyTxIntent,
+  canKickTx,
   createTxGame,
   dealAnimMs,
   legalActions,
