@@ -12,8 +12,8 @@ export const TX_REACTIONS = ["👍", "😂", "😮", "😭", "🔥", "👏", "�
 export type TxReaction = (typeof TX_REACTIONS)[number];
 
 export interface TxHandResult {
-  won: number; // chips collected from the pots
-  net: number; // won minus everything you put in
+  won: number; // chips collected from the pots, not counting an uncalled bet returned to you
+  net: number; // everything you got back minus everything you put in
   hand: string | null; // "Two pair, Kings and Fives"; null when folded or the hand was never shown down
   best: TxCard[]; // the five cards that make `hand`, for highlighting; [] when hand is null
 }
@@ -22,6 +22,7 @@ export interface TxPlayer {
   id: string;
   name: string;
   connected: boolean;
+  droppedAt: number | null; // server ms the socket dropped; null while connected
   seat: number | null; // 0..SEATS-1, null = watching
   chips: number; // stack behind, excluding what is already in the pot
   bet: number; // committed this street
@@ -50,6 +51,7 @@ export interface TxState {
   players: TxPlayer[]; // join order, seat lives on the player
   board: TxCard[];
   deck: TxCard[]; // REDACTED to []
+  stacks: Record<string, number>; // chips kept for players who left with more than 0, restored if they rejoin; REDACTED to {}
   pot: number; // everything committed this hand, including the current street
   button: number | null; // seat of the dealer button
   sbId: string | null;

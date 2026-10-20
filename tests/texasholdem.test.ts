@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   BIG_BLIND,
+  DROP_GRACE_MS,
   FOLD_WIN_MS,
   REACTION_COOLDOWN_MS,
   RUNOUT_MS,
@@ -13,10 +14,12 @@ import {
   TX_REACTIONS,
   addTxPlayer,
   applyTxIntent,
+  canKickTx,
   createTxGame,
   legalActions,
   newDeck,
   onDeadline,
+  paidOut,
   redactTx,
   removeTxPlayer,
   serverDeadline,
@@ -24,7 +27,9 @@ import {
   wentAllIn,
   type Rank,
   type TxCard,
+  winLines,
   type TxIntent,
+  type TxPlayer,
   type TxState,
 } from "../lib/texasholdem/index.ts";
 import { parseTxIntent } from "../lib/texasholdem/validate.ts";
@@ -127,6 +132,22 @@ test("the button moves one seat each hand and skips players who sit out", () => 
   assert.equal(player(s, "b").cards.length, 0);
   assert.equal(s.sbId, "c"); // heads-up: the button is the small blind
   assert.equal(s.bbId, "a");
+});
+
+test("heads-up: a short big blind does not leave the small blind facing a bet", () => {
+  const s = table(["a", "b"], { chips: { a: 2000, b: 5 }, hole: { a: ["As", "Ah"], b: ["Kc", "Kd"] }, board: ["2c", "3d", "7h", "9s", "Jc"] });
+  assert.equal(s.bbId, "b");
+  assert.equal(player(s, "b").total, 5);
+  assert.equal(player(s, "b").allIn, true);
+  assert.equal(player(s, "a").total, SMALL_BLIND);
+  assert.equal(s.turnId, null); // the small blind has nothing to decide, so the hand runs out
+  assert.equal(s.runout, true);
+});
+
+test("multiway: a short big blind still leaves the blind amount to call", () => {
+  const s = table(["a", "b", "c"], { chips: { a: 2000, b: 2000, c: 5 } });
+  assert.equal(s.bbId, "c");
+  assert.equal(s.currentBet, BIG_BLIND);
 });
 
 test("everyone folds: the last player wins the pot unseen", () => {
@@ -263,6 +284,22 @@ test("side pots: short stack can only win what it covered", () => {
   assert.equal(player(s, "c").result?.net, -300);
 });
 
+test("an uncalled bet comes back as a refund, not a win for the bigger stack", () => {
+  let s = table(["a", "b"], {
+    chips: { a: 1000, b: 100 },
+    hole: { a: ["Kc", "Kd"], b: ["As", "Ah"] },
+    board: ["2c", "7d", "9h", "Jc", "3s"],
+  });
+  s = act(s, "a", { type: "allIn" });
+  s = act(s, "b", { type: "call" });
+  while (s.phase !== "showdown") s = onDeadline(s, serverDeadline(s)!);
+  assert.deepEqual([player(s, "b").chips, player(s, "b").result?.won, player(s, "b").result?.net], [200, 200, 100]);
+  assert.deepEqual([player(s, "a").chips, player(s, "a").result?.won, player(s, "a").result?.net], [900, 0, -100]);
+  assert.equal(chipsAndPot(s), 1100);
+  // Before the reveal the stacks hold back everything paid out, so the loser shows 0 beside the 1100 pot.
+  assert.deepEqual([paidOut(player(s, "a")), paidOut(player(s, "b"))], [900, 200]);
+});
+
 test("split pot hands the odd chip to the first winner left of the button", () => {
   let s = table(["a", "b", "c"], {
     chips: { a: 5, b: 2000, c: 2000 },
@@ -348,9 +385,47 @@ test("busted players rebuy between hands, only when low and not in a hand", () =
   s = onDeadline(s, s.settleAt!, newRng());
   assert.equal(s.startAt, null); // b is broke, one funded player cannot play
   assert.equal(err(s, "a", { type: "rebuy" }), "You still have chips");
+  assert.equal(player(s, "b").chips, 0);
   s = act(s, "b", { type: "rebuy" }, s.settleAt ?? NOW);
   assert.equal(player(s, "b").chips, START_CHIPS);
   assert.ok(s.startAt !== null);
+});
+
+test("rebuy is rejected with a short stack and allowed at zero", () => {
+  const lobby = (chips: number): TxState => {
+    let s = createTxGame();
+    s = addTxPlayer(s, { id: "a", name: "A" });
+    return { ...s, players: s.players.map((p) => ({ ...p, chips })) };
+  };
+  assert.equal(err(lobby(1), "a", { type: "rebuy" }), "You still have chips");
+  assert.equal(err(lobby(BIG_BLIND - 1), "a", { type: "rebuy" }), "You still have chips");
+  assert.equal(player(act(lobby(0), "a", { type: "rebuy" }), "a").chips, START_CHIPS);
+});
+
+test("leaving and rejoining keeps a stack above zero, a bust gets a fresh one", () => {
+  let s = createTxGame();
+  s = addTxPlayer(s, { id: "a", name: "A" });
+  s = { ...s, players: s.players.map((p) => ({ ...p, chips: 7 })) };
+  s = removeTxPlayer(s, "a", { now: NOW });
+  assert.equal(s.players.length, 0);
+  s = addTxPlayer(s, { id: "a", name: "A" });
+  assert.equal(player(s, "a").chips, 7);
+  assert.deepEqual(s.stacks, {});
+  s = { ...s, players: s.players.map((p) => ({ ...p, chips: 0 })) };
+  s = removeTxPlayer(s, "a", { now: NOW });
+  s = addTxPlayer(s, { id: "a", name: "A" });
+  assert.equal(player(s, "a").chips, START_CHIPS);
+});
+
+test("a mid-hand leaver keeps their remaining chips for a later rejoin", () => {
+  let s = table(["a", "b", "c"]);
+  s = removeTxPlayer(s, "c", { now: NOW });
+  const kept = player(s, "c").chips;
+  while (s.phase !== "lobby") s = onDeadline(s, serverDeadline(s) ?? s.settleAt ?? NOW, newRng());
+  assert.equal(s.stacks["c"], kept);
+  s = addTxPlayer(s, { id: "c", name: "C" });
+  assert.equal(player(s, "c").chips, kept);
+  assert.deepEqual(redactTx({ ...s, stacks: { z: 5 } }, "a").stacks, {});
 });
 
 test("joiners sit between hands and are dealt in next hand only", () => {
@@ -377,6 +452,22 @@ test("leaving mid-hand folds and keeps the chips in the pot", () => {
   assert.equal(player(won, "a").chips, START_CHIPS - 100 + 130);
   const reset = onDeadline(won, won.settleAt!, newRng());
   assert.deepEqual(reset.players.map((p) => p.id), ["a"]);
+});
+
+test("the host can only remove offline or sat-out players mid-hand, and removal folds them", () => {
+  let s = table(["a", "b", "c"]);
+  assert.equal(canKickTx(s, "c"), false); // live and connected
+  assert.equal(canKickTx(s, "nobody"), false);
+  const offline = setTxConnected(s, "c", false, NOW);
+  assert.equal(canKickTx(offline, "c"), true);
+  const sat = act(s, "b", { type: "sitOut" });
+  assert.equal(canKickTx(sat, "b"), true);
+  const removed = removeTxPlayer(offline, "c", { now: NOW });
+  assert.equal(player(removed, "c").folded, true);
+  assert.equal(player(removed, "c").gone, true);
+  assert.equal(canKickTx(removed, "c"), false); // already gone
+  s = { ...s, phase: "lobby" };
+  assert.equal(canKickTx(s, "a"), true); // between hands anyone can go
 });
 
 test("a disconnected player is not dealt in, and reconnecting before the deal restores them", () => {
@@ -573,6 +664,68 @@ test("fuzz: chips are conserved and the engine never throws across random hands"
   assert.ok(hands >= 10);
 });
 
+const payee = (id: string, name: string, won: number, hand: string | null, best: string[] = []): TxPlayer => ({
+  id,
+  name,
+  connected: true,
+  droppedAt: null,
+  seat: 0,
+  chips: 0,
+  bet: 0,
+  total: 0,
+  cards: [],
+  folded: false,
+  allIn: false,
+  acted: true,
+  sitOut: false,
+  gone: false,
+  shown: false,
+  reaction: null,
+  result: { won, net: won, hand, best: best.map(cd) },
+});
+
+test("winLines: one winner gets one row with their own hand", () => {
+  const sam = payee("s", "Sam", 300, "Flush", ["Ah", "Kh", "9h", "5h", "2h"]);
+  assert.deepEqual(winLines([sam], "me"), [{ key: "s", text: "Sam wins 300", hand: "Flush" }]);
+  assert.equal(winLines([sam], "s")[0]?.text, "You win 300");
+});
+
+test("winLines: main and side pot winners with different hands are not a split", () => {
+  const a = payee("a", "Ann", 600, "Straight", ["9h", "8d", "7c", "6s", "5h"]);
+  const b = payee("b", "Bo", 300, "Pair of Aces", ["Ah", "Ad", "Kc", "9s", "4h"]);
+  assert.deepEqual(winLines([a, b], "me"), [
+    { key: "a", text: "Ann wins 600", hand: "Straight" },
+    { key: "b", text: "Bo wins 300", hand: "Pair of Aces" },
+  ]);
+});
+
+test("winLines: identical hands split, with verb agreement", () => {
+  const board = ["Ah", "Ad", "Kc", "9s", "4h"];
+  const a = payee("a", "Ann", 450, "Pair of Aces", board);
+  const b = payee("b", "Bo", 450, "Pair of Aces", board);
+  assert.deepEqual(
+    winLines([a, b], "a").map((l) => l.text),
+    ["You split 450", "Bo splits 450"],
+  );
+  assert.deepEqual(
+    winLines([a, b], "me").map((l) => l.hand),
+    ["Pair of Aces", "Pair of Aces"],
+  );
+});
+
+test("winLines: same hand name with different kickers is not a split", () => {
+  const a = payee("a", "Ann", 600, "Pair of Aces", ["Ah", "Ad", "Kc", "9s", "4h"]);
+  const b = payee("b", "Bo", 300, "Pair of Aces", ["As", "Ac", "Qc", "9d", "4d"]);
+  assert.deepEqual(
+    winLines([a, b], "me").map((l) => l.text),
+    ["Ann wins 600", "Bo wins 300"],
+  );
+});
+
+test("winLines: a fold win has no hand", () => {
+  assert.deepEqual(winLines([payee("a", "Ann", 30, null)], "me"), [{ key: "a", text: "Ann wins 30", hand: null }]);
+});
+
 test("wentAllIn names the player who just shoved, but not a blind posted all-in at the deal", () => {
   const s = table(["a", "b", "c"]);
   const shover = s.turnId!;
@@ -591,4 +744,75 @@ test("wentAllIn names the player who just shoved, but not a blind posted all-in 
   const dealt = onDeadline(lobby, 1000 + START_MS, newRng());
   assert.ok(dealt.players.some((p) => p.allIn));
   assert.equal(wentAllIn(lobby, dealt), null);
+});
+
+// Everyone but c folds, so the hand ends and the table is about to reset.
+function endedHand(c: { dropAt: number }): TxState {
+  let s = table(["a", "b", "c"]);
+  s = setTxConnected(s, "c", false, c.dropAt);
+  s = act(s, "a", { type: "fold" }, c.dropAt);
+  s = act(s, "b", { type: "fold" }, c.dropAt);
+  return s;
+}
+
+test("a player offline past the grace period is cleared at the next hand boundary", () => {
+  const s = endedHand({ dropAt: NOW });
+  const reset = onDeadline(s, NOW + DROP_GRACE_MS + 1, newRng());
+  assert.equal(reset.phase, "lobby");
+  assert.deepEqual(reset.players.map((p) => p.id), ["a", "b"]);
+});
+
+test("a player who is back within the grace period keeps their seat and chips", () => {
+  let s = endedHand({ dropAt: NOW });
+  s = setTxConnected(s, "c", true, NOW + DROP_GRACE_MS - 1);
+  const chips = player(s, "c").chips;
+  const reset = onDeadline(s, NOW + DROP_GRACE_MS + 1, newRng());
+  assert.equal(player(reset, "c").seat, 2);
+  assert.equal(player(reset, "c").chips, chips);
+  assert.equal(player(reset, "c").droppedAt, null);
+});
+
+test("a drop shorter than the grace period survives the hand boundary", () => {
+  const s = endedHand({ dropAt: NOW });
+  const reset = onDeadline(s, s.settleAt!, newRng());
+  assert.ok(player(reset, "c"));
+  assert.equal(player(reset, "c").connected, false);
+});
+
+test("stale ghosts are cleared in the lobby when someone else connects or drops", () => {
+  let s = addTxPlayer(createTxGame(), { id: "a", name: "A" });
+  s = addTxPlayer(s, { id: "b", name: "B" });
+  s = setTxConnected(s, "a", false, NOW);
+  s = setTxConnected(s, "b", false, NOW + DROP_GRACE_MS + 5);
+  assert.deepEqual(s.players.map((p) => p.id), ["b"]);
+});
+
+test("an idle lobby clears a ghost once the grace period runs out", () => {
+  let s = addTxPlayer(createTxGame(), { id: "a", name: "A" });
+  s = addTxPlayer(s, { id: "b", name: "B" });
+  s = setTxConnected(s, "b", false, NOW);
+  assert.equal(serverDeadline(s), NOW + DROP_GRACE_MS);
+  assert.equal(onDeadline(s, NOW + DROP_GRACE_MS - 1), s);
+  const pruned = onDeadline(s, NOW + DROP_GRACE_MS);
+  assert.deepEqual(pruned.players.map((p) => p.id), ["a"]);
+  assert.equal(serverDeadline(pruned), null);
+});
+
+test("three-handed bust to heads-up: last hand's big blind takes the button and small blind", () => {
+  const s = table(["a", "b", "c"]);
+  assert.equal(s.button, 0);
+  assert.equal(s.sbId, "b");
+  assert.equal(s.bbId, "c");
+  const lobby: TxState = {
+    ...s,
+    phase: "lobby",
+    startAt: 5000,
+    players: s.players.map((p) => ({ ...p, bet: 0, total: 0, folded: false, allIn: false, cards: [], chips: p.id === "a" ? 0 : START_CHIPS })),
+  };
+  const next = onDeadline(lobby, 5000, newRng());
+  assert.equal(next.phase, "preflop");
+  assert.equal(next.sbId, "c");
+  assert.equal(next.bbId, "b");
+  assert.equal(next.button, 2);
+  assert.equal(next.turnId, "c");
 });

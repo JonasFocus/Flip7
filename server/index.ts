@@ -609,7 +609,7 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
         if (leaving) p.set(p.e.remove(p.game, id, { now }));
         else if (offline) p.set(p.e.setConnected(p.game, id, false, now));
       });
-      if (room.game.players.every((p) => tx.isTxBotId(p.id))) return deleteRoom(room.code);
+      if (room.game.players.length === 0 || (room.mode === "texasholdem" && room.game.players.every((p) => p.gone || tx.isTxBotId(p.id)))) return deleteRoom(room.code);
     } else if (leaving && room.game.phase === "lobby") {
       // Mid-game seats stay so their round history survives; the host can remove them from the board.
       const gone = new Set(room.game.players.filter((p) => p.ownerId === id).map((p) => p.id));
@@ -758,8 +758,10 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
     if (players.length >= PARTY.texasholdem.maxPlayers) return fail(c, "Room is full");
     const seat = Array.from({ length: tx.SEATS }, (_, i) => i).find((i) => !players.some((p) => p.seat === i));
     if (seat === undefined) return fail(c, "No free seat");
+    if (players.filter((p) => tx.isTxBotId(p.id) && !p.gone).length >= tx.MAX_TX_BOTS) return fail(c, `A table holds ${tx.MAX_TX_BOTS} bots at most`);
     const taken = new Set(players.map((p) => p.name));
-    const name = tx.TX_BOT_STYLES.find((b) => !taken.has(b.name))?.name ?? `Bot ${players.length + 1}`;
+    const open = tx.TX_BOT_STYLES.filter((b) => !taken.has(b.name));
+    const name = open[Math.floor(Math.random() * open.length)]?.name ?? `Bot ${players.length + 1}`;
     const id = `bot-${randomUUID().slice(0, 8)}`;
     const added = PARTY.texasholdem.add(room.game, { id, name });
     const seated = tx.applyTxIntent(added, id, { type: "sit", seat }, { isHost: false, now: Date.now() });
@@ -772,9 +774,11 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
   function kick(c: Client, live: LiveRoom, playerId: string) {
     const { room } = live;
     if (room.mode === "physical") return fail(c, "Use seat removal in scorekeeper rooms");
-    if (room.game.phase !== "lobby" && !(room.mode === "texasholdem" && tx.isTxBotId(playerId))) return fail(c, "Can only remove players in the lobby");
     if (playerId === c.clientId) return fail(c, "Use leave instead");
     if (!room.game.players.some((p) => p.id === playerId)) return fail(c, "No such player");
+    if (room.mode === "texasholdem") {
+      if (!tx.canKickTx(room.game, playerId)) return fail(c, "Only bots, offline or sitting-out players can be removed mid-hand");
+    } else if (room.game.phase !== "lobby") return fail(c, "Can only remove players in the lobby");
     if (room.mode === "imposter") room.game = removeImposterPlayer(room.game, playerId);
     else if (isParty(room)) withParty(room, (p) => p.set(p.e.remove(p.game, playerId, { now: Date.now() })));
     else room.game = removePlayer(room.game, playerId);

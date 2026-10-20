@@ -1,5 +1,5 @@
 import { categoryIndex, evaluate, rankValue } from "./eval.ts";
-import { BIG_BLIND, legalActions } from "./rules.ts";
+import { isTxBotId, legalActions } from "./rules.ts";
 import type { TxActions, TxCard, TxIntent, TxState } from "./types.ts";
 
 export type TxPersonality = "tight" | "maniac" | "station";
@@ -121,9 +121,6 @@ export function chooseTxIntent(s: TxState, botId: string, personality: TxPersona
   return legalize(worthPlaying && strength > potOdds - knobs.callSlack ? { type: "call" } : { type: "fold" }, legal);
 }
 
-// Human ids are hashes from publicId, so the "bot-" prefix the virtual bots use cannot clash.
-export const isTxBotId = (id: string): boolean => id.startsWith("bot-");
-
 export interface TxBotMove {
   playerId: string;
   intent: TxIntent;
@@ -139,7 +136,7 @@ export function nextTxBotMove(s: TxState, now: number, rng: () => number): TxBot
   if (s.phase === "lobby") {
     for (const p of s.players) {
       if (!isTxBotId(p.id) || p.cards.length > 0) continue;
-      if (p.chips < BIG_BLIND) return { playerId: p.id, intent: { type: "rebuy" }, atMs: now + REBUY_DELAY_MS };
+      if (p.chips === 0) return { playerId: p.id, intent: { type: "rebuy" }, atMs: now + REBUY_DELAY_MS };
       if (p.sitOut && p.seat !== null) return { playerId: p.id, intent: { type: "sitIn" }, atMs: now + REBUY_DELAY_MS };
     }
     return null;

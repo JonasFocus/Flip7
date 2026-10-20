@@ -4,6 +4,7 @@ import type { Rank, Suit, TxActions, TxCard, TxIntent, TxPhase, TxPlayer, TxStat
 
 export const SEATS = 8;
 export const MAX_TX_PLAYERS = 12; // 8 seats plus rail watchers
+export const MAX_TX_BOTS = 7; // a table always keeps a seat for a human
 export const START_CHIPS = 2000; // 100 big blinds
 export const SMALL_BLIND = 10;
 export const BIG_BLIND = 20;
@@ -16,6 +17,7 @@ export const RUNOUT_MS = 2200; // between streets of an all-in runout
 export const DEAL_STAGGER_MS = 200; // client deal animation: gap between cards going round the table
 export const CARD_SLIDE_MS = 550; // client deal animation: one card's trip from the deck
 export const REACTION_COOLDOWN_MS = 1500; // between emoji reactions from one player
+export const DROP_GRACE_MS = 75_000; // a dropped player keeps their seat this long; after it they are cleared at the next hand boundary
 
 // Two passes round the table; the first turn's clock starts once the last card lands.
 export const dealAnimMs = (hands: number): number => (2 * hands - 1) * DEAL_STAGGER_MS + CARD_SLIDE_MS;
@@ -64,12 +66,21 @@ function commit(p: TxPlayer, amount: number): TxPlayer {
   return { ...p, chips: p.chips - pay, bet: p.bet + pay, total: p.total + pay, allIn: p.chips - pay === 0 };
 }
 
+// Human ids are hashes from publicId, so the "bot-" prefix the virtual bots use cannot clash.
+export const isTxBotId = (id: string): boolean => id.startsWith("bot-");
+
+// A player who leaves with chips keeps them for the id; only a bust (0 chips) earns a fresh stack. A removed bot never returns.
+function keepStack(stacks: Record<string, number>, p: TxPlayer): Record<string, number> {
+  return p.chips > 0 && !isTxBotId(p.id) ? { ...stacks, [p.id]: p.chips } : stacks;
+}
+
 export function createTxGame(): TxState {
   return {
     phase: "lobby",
     players: [],
     board: [],
     deck: [],
+    stacks: {},
     pot: 0,
     button: null,
     sbId: null,
@@ -96,12 +107,14 @@ function syncLobby(s: TxState, now: number): TxState {
 
 export function addTxPlayer(s: TxState, p: { id: string; name: string }): TxState {
   if (s.players.length >= MAX_TX_PLAYERS || s.players.some((x) => x.id === p.id)) return s;
+  const { [p.id]: kept, ...stacks } = s.stacks;
   const player: TxPlayer = {
     id: p.id,
     name: p.name,
     connected: true,
+    droppedAt: null,
     seat: null,
-    chips: START_CHIPS,
+    chips: kept ?? START_CHIPS,
     bet: 0,
     total: 0,
     cards: [],
@@ -114,19 +127,31 @@ export function addTxPlayer(s: TxState, p: { id: string; name: string }): TxStat
     result: null,
     reaction: null,
   };
-  return { ...s, players: [...s.players, player], seq: s.seq + 1 };
+  return { ...s, players: [...s.players, player], stacks, seq: s.seq + 1 };
+}
+
+// A player offline past the grace period who is not in a hand (no chips in the pot).
+const isStale = (p: TxPlayer, now: number): boolean => !p.connected && p.droppedAt !== null && now - p.droppedAt >= DROP_GRACE_MS;
+
+function pruneDropped(s: TxState, now: number): TxState {
+  const keep = (p: TxPlayer) => p.cards.length > 0 || !isStale(p, now);
+  return s.players.every(keep) ? s : { ...s, players: s.players.filter(keep) };
 }
 
 export function setTxConnected(s: TxState, id: string, connected: boolean, now: number): TxState {
   const p = s.players.find((x) => x.id === id);
   if (!p || p.connected === connected) return s;
   // Rejoining cancels a mid-hand leave: still folded this hand, but kept at the table.
-  return seal(syncLobby(patch(s, id, (x) => ({ ...x, connected, gone: connected ? false : x.gone })), now), s);
+  const next = patch(s, id, (x) => ({ ...x, connected, droppedAt: connected ? null : now, gone: connected ? false : x.gone }));
+  return seal(syncLobby(pruneDropped(next, now), now), s);
 }
 
-function startHand(s: TxState, now: number, rng: Rng): TxState {
+function startHand(table: TxState, now: number, rng: Rng): TxState {
+  const s = pruneDropped(table, now);
   const pool = s.players.filter(isDealable);
-  const btn = after(pool, s.button ?? -1)[0];
+  // Heads-up after a bust: last hand's big blind takes the button and small blind, so nobody posts the big blind twice.
+  const prevBb = pool.length === 2 ? pool.find((p) => p.id === s.bbId) : undefined;
+  const btn = prevBb ?? after(pool, s.button ?? -1)[0];
   if (pool.length < 2 || !btn) return { ...s, startAt: null };
   const rest = after(pool, seatOf(btn)).filter((p) => p.id !== btn.id);
   const order = [btn, ...rest];
@@ -149,6 +174,8 @@ function startHand(s: TxState, now: number, rng: Rng): TxState {
     if (p.id === bb.id) return commit(fresh, BIG_BLIND);
     return fresh;
   });
+  // Heads-up, a short big blind can post less than the small blind. Nobody owes more than the largest posted blind.
+  const posted = headsUp ? Math.max(...players.map((p) => p.bet)) : BIG_BLIND;
   const dealt: TxState = {
     ...s,
     phase: "preflop",
@@ -158,7 +185,7 @@ function startHand(s: TxState, now: number, rng: Rng): TxState {
     button: seatOf(btn),
     sbId: sb.id,
     bbId: bb.id,
-    currentBet: BIG_BLIND,
+    currentBet: posted,
     minRaise: BIG_BLIND,
     turnId: null,
     turnAt: null,
@@ -224,7 +251,10 @@ function showdown(s: TxState, now: number): TxState {
   const live = s.players.filter(isLive);
   const hands = new Map(live.map((p) => [p.id, evaluate([...holeOf(p), ...s.board])]));
   const won = new Map<string, number>();
-  const pots = buildPots(s.players.filter((p) => p.total > 0).map((p) => ({ id: p.id, total: p.total, folded: !isLive(p) })));
+  const [top, next] = [...s.players].sort((a, b) => b.total - a.total);
+  // A bet nobody matched goes back to its owner untouched; it is not a pot win.
+  const refund = top && isLive(top) ? top.total - (next?.total ?? 0) : 0;
+  const pots = buildPots(s.players.filter((p) => p.total > 0).map((p) => ({ id: p.id, total: p.id === top?.id ? top.total - refund : p.total, folded: !isLive(p) })));
   for (const pot of pots) {
     const contenders = live.filter((p) => pot.eligible.includes(p.id));
     const top = Math.max(...contenders.map((p) => hands.get(p.id)?.value ?? 0));
@@ -241,17 +271,19 @@ function showdown(s: TxState, now: number): TxState {
     if (p.cards.length === 0) return p;
     const take = won.get(p.id) ?? 0;
     const hand = hands.get(p.id);
-    return { ...p, chips: p.chips + take, result: { won: take, net: take - p.total, hand: hand?.name ?? null, best: hand?.best ?? [] } };
+    const back = p.id === top?.id ? refund : 0;
+    return { ...p, chips: p.chips + take + back, result: { won: take, net: take + back - p.total, hand: hand?.name ?? null, best: hand?.best ?? [] } };
   });
   return { ...s, players, phase: "showdown", turnId: null, turnAt: null, dealAt: null, runout: false, settleAt: now + SHOWDOWN_MS };
 }
 
 function resetTable(s: TxState, now: number): TxState {
+  const stacks = s.players.filter((p) => p.gone).reduce(keepStack, s.stacks);
   const players = s.players
-    .filter((p) => !p.gone)
+    .filter((p) => !p.gone && !isStale(p, now))
     .map((p) => ({ ...p, bet: 0, total: 0, cards: [], folded: false, allIn: false, acted: false, shown: false, result: null }));
   return syncLobby(
-    { ...s, phase: "lobby", players, board: [], deck: [], currentBet: 0, minRaise: BIG_BLIND, turnId: null, turnAt: null, dealAt: null, settleAt: null, sbId: null, bbId: null, runout: false, startAt: null },
+    { ...s, phase: "lobby", players, stacks, board: [], deck: [], currentBet: 0, minRaise: BIG_BLIND, turnId: null, turnAt: null, dealAt: null, settleAt: null, sbId: null, bbId: null, runout: false, startAt: null },
     now,
   );
 }
@@ -281,13 +313,21 @@ export function legalActions(s: TxState, id: string): TxActions | null {
   };
 }
 
+// The host may remove someone between hands, or at any time once they are offline, sitting out or a bot.
+export function canKickTx(s: TxState, id: string): boolean {
+  const p = s.players.find((x) => x.id === id);
+  if (!p) return false;
+  if (s.phase === "lobby") return true;
+  return !p.gone && (!p.connected || p.sitOut || isTxBotId(id));
+}
+
 export function removeTxPlayer(s: TxState, id: string, opts: { now: number; rng?: Rng }): TxState {
   const me = s.players.find((p) => p.id === id);
   if (!me) return s;
   const rng = opts.rng ?? cryptoRng;
-  if (me.cards.length === 0) return syncLobby({ ...s, players: s.players.filter((p) => p.id !== id), seq: s.seq + 1 }, opts.now);
+  if (me.cards.length === 0) return syncLobby({ ...s, players: s.players.filter((p) => p.id !== id), stacks: keepStack(s.stacks, me), seq: s.seq + 1 }, opts.now);
   // Their chips stay in the pot, so the seat lingers (folded) until the hand ends.
-  const folded = patch(s, id, (p) => ({ ...p, folded: true, gone: true, connected: false }));
+  const folded = patch(s, id, (p) => ({ ...p, folded: true, gone: true, connected: false, droppedAt: p.droppedAt ?? opts.now }));
   if (s.phase === "showdown") return { ...folded, seq: s.seq + 1 };
   if (s.turnId === id) return seal(proceed(folded, seatOf(me), opts.now, rng), s);
   return seal(resume(folded, opts.now, rng), s);
@@ -322,7 +362,7 @@ export function applyTxIntent(s: TxState, actorId: string, intent: TxIntent, opt
       return lobby(patch(s, actorId, (p) => ({ ...p, sitOut: false })));
     case "rebuy":
       if (inHand) return fail("Wait for the hand to finish");
-      if (me.chips >= BIG_BLIND) return fail("You still have chips");
+      if (me.chips > 0) return fail("You still have chips");
       return lobby(patch(s, actorId, (p) => ({ ...p, chips: START_CHIPS })));
     case "react":
       if (me.seat === null) return fail("Take a seat first");
@@ -371,18 +411,27 @@ export function applyTxIntent(s: TxState, actorId: string, intent: TxIntent, opt
 }
 
 export function serverDeadline(s: TxState): number | null {
-  if (s.phase === "lobby") return s.startAt;
+  if (s.phase === "lobby") {
+    // An idle lobby still wakes up to clear players who stayed offline past the grace period.
+    const expiries = s.players.flatMap((p) => (!p.connected && p.droppedAt !== null ? [p.droppedAt + DROP_GRACE_MS] : []));
+    const due = [...expiries, ...(s.startAt === null ? [] : [s.startAt])];
+    return due.length === 0 ? null : Math.min(...due);
+  }
   if (s.phase === "showdown") return s.settleAt;
   if (s.runout) return s.dealAt;
   return s.turnAt === null ? null : s.turnAt + TURN_MS;
 }
 
-export const visibleDeadline = serverDeadline;
+// The clock players see: ghost cleanup in an idle lobby is not a countdown.
+export const visibleDeadline = (s: TxState): number | null => (s.phase === "lobby" ? s.startAt : serverDeadline(s));
 
 export function onDeadline(s: TxState, now: number, rng: Rng = cryptoRng): TxState {
   const due = serverDeadline(s);
   if (due === null || now < due) return s;
-  if (s.phase === "lobby") return seal(startHand(s, now, rng), s);
+  if (s.phase === "lobby") {
+    if (s.startAt === null || now < s.startAt) return seal(syncLobby(pruneDropped(s, now), now), s);
+    return seal(startHand(s, now, rng), s);
+  }
   if (s.phase === "showdown") return seal(resetTable(s, now), s);
   if (s.runout) return seal(runoutStep(s, now), s);
   const actor = s.players.find((p) => p.id === s.turnId);
@@ -406,5 +455,5 @@ export function redactTx(s: TxState, viewerId: string): TxState {
     const visible = p.id === viewerId || (isLive(p) && (revealed || p.shown));
     return visible ? p : { ...p, cards: p.cards.map(() => null) };
   });
-  return { ...s, players, deck: [] };
+  return { ...s, players, deck: [], stacks: {} };
 }
