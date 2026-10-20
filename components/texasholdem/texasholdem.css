@@ -133,6 +133,40 @@
 .tx-lift { transform: translateY(-3px); transition: transform 300ms var(--ease-out); }
 .tx-in { animation: tx-in 420ms var(--ease-spring) both; }
 .tx-rise { animation: tx-rise 320ms var(--ease-out) both; }
+
+/* All-in: the rail lights up red like an arcade marquee, flickers on, holds, then fades. 2600ms matches ALL_IN_MS. */
+.tx-allin {
+  border-radius: 50% / 40%;
+  box-shadow:
+    0 0 0 2px oklch(0.66 0.25 25),
+    0 0 16px 2px oklch(0.62 0.25 25 / 0.6),
+    inset 0 0 0 2px oklch(0.7 0.24 25),
+    inset 0 0 28px 4px oklch(0.6 0.25 25 / 0.4);
+  animation: tx-allin 2600ms linear both;
+}
+.tx-allin-call {
+  text-shadow: 0 0 10px oklch(0.62 0.25 25 / 0.8), 0 2px 0 oklch(0 0 0 / 0.6);
+  animation: tx-allin-call 2600ms var(--ease-out) both;
+}
+}
+
+@keyframes tx-allin {
+  0% { opacity: 0; }
+  4% { opacity: 1; }
+  7% { opacity: 0.2; }
+  10% { opacity: 1; }
+  13% { opacity: 0.4; }
+  16% { opacity: 1; }
+  40% { opacity: 1; filter: brightness(1.3); }
+  75% { opacity: 0.8; filter: none; }
+  100% { opacity: 0; }
+}
+
+@keyframes tx-allin-call {
+  0% { opacity: 0; transform: scale(1.4); }
+  12% { opacity: 1; transform: scale(1); }
+  80% { opacity: 1; }
+  100% { opacity: 0; }
 }
 
 .tx-range {
@@ -184,5 +218,5 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .tx-glow, .tx-win, .tx-in, .tx-rise, .tx-pop { animation: none; }
+  .tx-glow, .tx-win, .tx-in, .tx-rise, .tx-pop, .tx-allin, .tx-allin-call { animation: none; }
 }

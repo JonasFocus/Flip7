@@ -27,5 +27,6 @@ export {
   setTxConnected,
   streetAnimMs,
   visibleDeadline,
+  wentAllIn,
   type TxResult,
 } from "./rules.ts";

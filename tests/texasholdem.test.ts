@@ -19,6 +19,7 @@ import {
   removeTxPlayer,
   serverDeadline,
   setTxConnected,
+  wentAllIn,
   type Rank,
   type TxCard,
   type TxIntent,
@@ -479,4 +480,24 @@ test("fuzz: chips are conserved and the engine never throws across random hands"
     }
   }
   assert.ok(hands >= 10);
+});
+
+test("wentAllIn names the player who just shoved, but not a blind posted all-in at the deal", () => {
+  const s = table(["a", "b", "c"]);
+  const shover = s.turnId!;
+  const shoved = act(s, shover, { type: "allIn" });
+  assert.equal(wentAllIn(s, shoved)?.id, shover);
+  assert.equal(wentAllIn(s, shoved)?.total, START_CHIPS);
+  assert.equal(wentAllIn(shoved, shoved), null);
+  assert.equal(wentAllIn(s, act(s, shover, { type: "call" })), null);
+
+  let lobby = createTxGame();
+  ["a", "b"].forEach((id, seat) => {
+    lobby = addTxPlayer(lobby, { id, name: id.toUpperCase() });
+    lobby = act(lobby, id, { type: "sit", seat }, 1000);
+  });
+  lobby = { ...lobby, players: lobby.players.map((p) => ({ ...p, chips: 5 })) };
+  const dealt = onDeadline(lobby, 1000 + START_MS, newRng());
+  assert.ok(dealt.players.some((p) => p.allIn));
+  assert.equal(wentAllIn(lobby, dealt), null);
 });
