@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type ComponentProps, type RefObject } from "react";
 import "./texasholdem.css";
 import { CardFace } from "@/components/casino/CardFace";
 import { Chip, shortAmount } from "@/components/casino/Chip";
+import { DealtCard, gapTo, reducedMotion } from "@/components/casino/motion";
 import { shareInvite } from "@/components/lobby/Lobby";
 import { useSecondsLeft } from "@/components/table/ActionBar";
+import { useCountUp } from "@/components/table/moments/util";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { cx } from "@/components/ui/cx";
@@ -30,10 +32,13 @@ import {
   madeHand,
   paidOut,
   railWatchers,
+  oddsRunner,
+  stackBeforeAward,
   streetAnimMs,
   wentAllIn,
   winLines,
 } from "@/lib/texasholdem";
+import type { Odds } from "@/lib/texasholdem/equity";
 import type { TxCard, TxConnection, TxPlayer, TxReaction, TxState } from "@/lib/texasholdem/types";
 import { LOW_SECS, Panel } from "./Panel";
 
@@ -62,6 +67,8 @@ const BET_POS = [
 const SWEEP_MS = 600; // end of the hand: cards slide back to the deck before the table resets
 const SWEEP_BETS_MS = 900; // bets glide to the pot
 const AWARD_MS = 1100;
+const POT_BUMP_DELAY_MS = 500; // the swept bets land at the pot just before SWEEP_BETS_MS
+const COUNT_UP_MS = 600;
 const RESULT_BEAT_MS = 1000; // showdown: hands face up for a beat before the winner is called
 const FOLD_RESULT_BEAT_MS = 400;
 const ALL_IN_MS = 2600; // matches the tx-allin animation
@@ -69,19 +76,8 @@ const REACTION_SHOW_MS = 2000;
 const BOARD_SIZE = "clamp(36px,10.4vw,46px)";
 const STREET: Record<TxState["phase"], string> = { lobby: "", preflop: "PRE-FLOP", flop: "FLOP", turn: "TURN", river: "RIVER", showdown: "SHOWDOWN" };
 
-const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
-
 const seatPos = (rel: number) => SEAT_POS[rel % SEAT_POS.length] ?? SEAT_POS[0];
 const betPos = (rel: number) => BET_POS[rel % BET_POS.length] ?? BET_POS[0];
-
-// Distance from el's centre to the centre of a landmark on the felt ([data-deck], [data-pot], [data-seat="n"]).
-function gapTo(el: Element, selector: string): { dx: number; dy: number } | null {
-  const target = el.closest("[data-table]")?.querySelector(selector);
-  if (!target) return null;
-  const a = el.getBoundingClientRect();
-  const b = target.getBoundingClientRect();
-  return { dx: b.left + b.width / 2 - (a.left + a.width / 2), dy: b.top + b.height / 2 - (a.top + a.height / 2) };
-}
 
 // "to": carry el to the landmark and fade it. "from": bring el in from the landmark and set it down.
 function useFly(ref: RefObject<HTMLElement | null>, target: string | undefined, dir: "to" | "from", delay = 0, duration = AWARD_MS) {
@@ -121,6 +117,52 @@ const MAX_WIN_ROWS = 3;
 
 const sameCard = (a: TxCard, b: TxCard) => a.rank === b.rank && a.suit === b.suit;
 
+const ODDS_SLICE_MS = 8; // keep each slice of the win-odds work well under a frame
+
+type ShownOdds = Odds & { delayMs: number }; // delayMs: wait for the street's cards to land before showing
+
+const cardCode = (c: TxCard): string => `${c.rank}${c.suit}`;
+
+// Once betting is over and every live hand is face up, each contesting seat's chance to win the board so far.
+// Worked out here from the cards on the table only, in slices so a preflop runout never stalls a frame.
+function useRunoutOdds(game: TxState): Map<string, ShownOdds> | null {
+  const contenders = game.runout ? game.players.filter((p) => p.cards.length > 0 && !p.folded) : [];
+  const holes = contenders.map((p) => p.cards.filter((c): c is TxCard => c !== null));
+  const faceUp = holes.length > 1 && holes.every((h) => h.length === 2);
+  const key = faceUp ? `${game.round}|${contenders.map((p, i) => `${p.id}:${holes[i]?.map(cardCode).join(",")}`).join("|")}|${game.board.map(cardCode).join(",")}` : null;
+  const [done, setDone] = useState<{ key: string; round: number; firstLen: number; odds: Map<string, ShownOdds> } | null>(null);
+  const latest = useRef({ ids: contenders.map((p) => p.id), holes, board: game.board, round: game.round });
+  useEffect(() => {
+    latest.current = { ids: contenders.map((p) => p.id), holes, board: game.board, round: game.round };
+  });
+
+  useEffect(() => {
+    if (!key) return;
+    const { ids, holes: hands, board, round } = latest.current;
+    const runner = oddsRunner(hands, board);
+    let timer: ReturnType<typeof setTimeout>;
+    const step = () => {
+      if (!runner.run(ODDS_SLICE_MS)) {
+        timer = setTimeout(step, 0);
+        return;
+      }
+      const result = runner.result();
+      setDone((prev) => {
+        const firstLen = prev?.round === round ? prev.firstLen : board.length;
+        const delayMs = board.length > firstLen ? streetAnimMs(board.length === 3 ? 3 : 1) : 0;
+        return { key, round, firstLen, odds: new Map(ids.map((id, i) => [id, { ...(result[i] ?? { win: 0, tie: 0 }), delayMs }])) };
+      });
+    };
+    timer = setTimeout(step, 0);
+    return () => clearTimeout(timer);
+  }, [key]);
+
+  return key !== null && done?.key === key ? done.odds : null;
+}
+
+// Whole percents, but never claim a sure thing (or none) before the river has settled it.
+const pct = (n: number): string => (n > 0 && n < 1 ? "<1" : n < 100 && n > 99 ? ">99" : String(Math.round(n)));
+
 // A shove lights the table up for a moment: who went in and for how much.
 function useAllInMoment(game: TxState): { key: number; id: string; name: string; amount: number } | null {
   const [prev, setPrev] = useState(game);
@@ -152,8 +194,9 @@ export function TexasHoldem({ conn }: { conn: TxConnection }) {
   const dealing = street && !game.runout && left !== null && left > TURN_MS / 1000;
   const secs = dealing ? null : left;
 
-  // Winnings are already in the stack at showdown; hold them back until the winner is called.
-  const stack = me ? me.chips - (game.phase === "showdown" && !revealed ? paidOut(me) : 0) : 0;
+  // Winnings are already in the stack at showdown; hold them back, then count them up when the winner is called.
+  const held = me ? stackBeforeAward(me, game.phase) : 0;
+  const stack = useCountUp(me && revealed ? me.chips : held, held, 0, COUNT_UP_MS);
   const offline = conn.status !== "open";
 
   async function share() {
@@ -188,7 +231,7 @@ export function TexasHoldem({ conn }: { conn: TxConnection }) {
             <span aria-hidden>😊</span>
           </button>
         )}
-        <p className="flex min-h-11 items-center gap-1.5 rounded-full bg-surface px-3 font-display text-sm tabular-nums text-accent" aria-label={`${stack} chips`}>
+        <p className="flex min-h-11 items-center gap-1.5 rounded-full bg-surface px-3 font-display text-sm tabular-nums text-accent" aria-label={`${me?.chips ?? 0} chips`}>
           <Chip amount={stack} size="xs" label="" color="var(--color-accent)" />
           {stack.toLocaleString()}
         </p>
@@ -268,6 +311,7 @@ function Felt({ conn, me, revealed, clearing, secs }: { conn: TxConnection; me: 
     [...hand].sort((a, b) => ((a.seat ?? 0) - (game.button ?? 0) - 1 + SEATS) % SEATS - ((b.seat ?? 0) - (game.button ?? 0) - 1 + SEATS) % SEATS).indexOf(p);
 
   const sweeps = useBetSweeps(game.players);
+  const odds = useRunoutOdds(game);
   // Blinds of different sizes cut equal-eligibility slices; only a real side pot (someone all-in short) is worth showing.
   const pots = useMemo(() => {
     const merged: { amount: number; eligible: string[] }[] = [];
@@ -317,7 +361,12 @@ function Felt({ conn, me, revealed, clearing, secs }: { conn: TxConnection; me: 
 
       <div data-pot className="absolute left-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2" style={{ top: "34%" }}>
         {game.pot > 0 && <Chip key={game.round} amount={game.pot} size="sm" stack className="tx-in" />}
-        <p aria-label={`Pot ${game.pot}`} className="min-w-6 font-display text-base tabular-nums text-fg">
+        <p
+          key={sweeps[0]?.key}
+          aria-label={`Pot ${game.pot}`}
+          className={cx("min-w-6 font-display text-base tabular-nums text-fg", sweeps.length > 0 && "tx-bump")}
+          style={{ animationDelay: `${POT_BUMP_DELAY_MS}ms` }}
+        >
           {game.pot > 0 ? game.pot.toLocaleString() : ""}
         </p>
       </div>
@@ -392,7 +441,7 @@ function Felt({ conn, me, revealed, clearing, secs }: { conn: TxConnection; me: 
         return (
           <div key={seat} className="absolute z-10 -translate-x-1/2 -translate-y-1/2" style={{ left: `${pos.x}%`, top: `${pos.y}%` }}>
             {p ? (
-              <Seat key={p.id} conn={conn} player={p} below={pos.y < 35} order={dealOrder(p)} handSize={hand.length} revealed={revealed} clearing={clearing} secs={secs} />
+              <Seat key={p.id} conn={conn} player={p} below={pos.y < 35} order={dealOrder(p)} handSize={hand.length} revealed={revealed} clearing={clearing} secs={secs} odds={odds?.get(p.id)} />
             ) : (
               <button
                 type="button"
@@ -478,64 +527,19 @@ function Bet({ amount, seat, pos, sweep = false }: { amount: number; seat: numbe
   );
 }
 
-// Deals out of the deck face down, spinning onto its spot, and turns over as it lands. A hidden card stays down until its face arrives.
-function Dealt({
-  card,
-  delay = 0,
-  sweep = false,
-  dim = false,
-  size,
-  className,
-  style,
-}: {
-  card: TxCard | null;
-  delay?: number;
-  sweep?: boolean;
-  dim?: boolean;
-  size: number | string;
-  className?: string;
-  style?: CSSProperties;
-}) {
-  const ref = useRef<HTMLSpanElement>(null);
-  const [onMount] = useState(() => ({ delay, faceUp: card !== null }));
-
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el || reducedMotion()) return;
-    const gap = gapTo(el, "[data-deck]");
-    if (!gap) return;
-    const timing: KeyframeAnimationOptions = { duration: CARD_SLIDE_MS, delay: onMount.delay, easing: "cubic-bezier(0.22, 0.9, 0.3, 1)", fill: "backwards" };
-    const moves = [
-      el.animate(
-        [
-          { transform: `translate(${gap.dx}px, ${gap.dy}px) rotate(-55deg) scale(0.6)` },
-          { transform: "translate(0, -6%) rotate(4deg) scale(1.06)", offset: 0.75 },
-          { transform: "none" },
-        ],
-        timing,
-      ),
-    ];
-    const inner = el.firstElementChild;
-    if (onMount.faceUp && inner instanceof HTMLElement) {
-      moves.push(inner.animate([{ transform: "rotateY(180deg)" }, { transform: "rotateY(180deg)", offset: 0.55 }, { transform: "rotateY(0deg)" }], timing));
-    }
-    return () => moves.forEach((m) => m.cancel());
-  }, [onMount]);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el || !sweep || reducedMotion()) return;
-    const gap = gapTo(el, "[data-deck]");
-    if (!gap) return;
-    const away = el.animate([{ transform: "none" }, { transform: `translate(${gap.dx}px, ${gap.dy}px) rotate(30deg) scale(0.5)`, opacity: 0 }], {
-      duration: SWEEP_MS - 100,
-      easing: "cubic-bezier(0.5, 0, 0.75, 0)",
-      fill: "forwards",
-    });
-    return () => away.cancel();
-  }, [sweep]);
-
-  return <CardFace ref={ref} card={card} pips size={size} className={cx("transition-[filter,opacity,font-size] duration-500", dim && "opacity-40 brightness-75", className)} style={style} />;
+// The shared deal animation, dealt out of the deck and swept back into it.
+function Dealt({ dim = false, className, ...props }: Omit<ComponentProps<typeof DealtCard>, "slideMs" | "sweepMs" | "from" | "to" | "pips"> & { dim?: boolean }) {
+  return (
+    <DealtCard
+      {...props}
+      pips
+      from="[data-deck]"
+      to="[data-deck]"
+      slideMs={CARD_SLIDE_MS}
+      sweepMs={SWEEP_MS}
+      className={cx("transition-[filter,opacity,font-size] duration-500 motion-reduce:transition-none", dim && "opacity-40 brightness-75", className)}
+    />
+  );
 }
 
 // The panel's turn clock, drawn round the acting seat so everyone can see whose time is running.
@@ -568,6 +572,7 @@ function Seat({
   revealed,
   clearing,
   secs,
+  odds,
 }: {
   conn: TxConnection;
   player: TxPlayer;
@@ -577,6 +582,7 @@ function Seat({
   revealed: boolean;
   clearing: boolean;
   secs: number | null;
+  odds: ShownOdds | undefined; // all-in runout only: this seat's chance to win the board so far
 }) {
   const { game } = conn;
   const mine = player.id === conn.you;
@@ -602,7 +608,8 @@ function Seat({
   const dimCard = (c: TxCard | null) => revealed && won && bestOf.length > 0 && c !== null && !bestOf.some((b) => sameCard(b, c));
 
   // Winnings are in the stack already at showdown; hold them back until the winner is called.
-  const shownStack = player.chips - (game.phase === "showdown" && !revealed ? paidOut(player) : 0);
+  const held = stackBeforeAward(player, game.phase);
+  const shownStack = useCountUp(revealed ? player.chips : held, held, 0, COUNT_UP_MS);
   const faceUp = !mine && player.cards.some((c) => c !== null); // an opponent's hand only arrives face up at showdown
   const size = mine ? "clamp(44px,13vw,54px)" : faceUp ? "clamp(30px,9vw,36px)" : "clamp(22px,6.4vw,28px)";
 
@@ -716,6 +723,15 @@ function Seat({
         >
           {armed ? "Remove?" : "×"}
         </button>
+      )}
+      {odds && (
+        <span
+          key={game.board.length}
+          className="tx-pop absolute top-full z-20 mt-1 rounded-full bg-[oklch(0.15_0.003_260/0.92)] px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap text-fg tabular-nums"
+          style={{ animationDelay: `${odds.delayMs}ms` }}
+        >
+          {pct(odds.win)}%{odds.tie > 0 && <span className="ml-1 text-[11px] font-normal text-fg/80">tie {pct(odds.tie)}%</span>}
+        </span>
       )}
       {result?.hand && !mine && (
         <span className={cx("tx-in absolute top-full mt-1 max-w-[96px] truncate rounded-full bg-[oklch(0.15_0.003_260/0.92)] px-2 py-0.5 text-[10px] font-semibold", won ? "text-active" : "text-fg/65")}>{result.hand}</span>
