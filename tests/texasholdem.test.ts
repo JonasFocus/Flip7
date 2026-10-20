@@ -718,6 +718,7 @@ const payee = (id: string, name: string, won: number, hand: string | null, best:
   acted: true,
   sitOut: false,
   gone: false,
+  droppedAt: null,
   shown: false,
   reaction: null,
   result: { won, net: won, hand, best: best.map(cd) },
