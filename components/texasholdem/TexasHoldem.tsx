@@ -1,18 +1,19 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type ComponentProps, type RefObject } from "react";
 import "./texasholdem.css";
 import { CardFace } from "@/components/casino/CardFace";
 import { Chip, shortAmount } from "@/components/casino/Chip";
+import { DealtCard, gapTo, reducedMotion } from "@/components/casino/motion";
 import { shareInvite } from "@/components/lobby/Lobby";
 import { useSecondsLeft } from "@/components/table/ActionBar";
+import { useCountUp } from "@/components/table/moments/util";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { cx } from "@/components/ui/cx";
 import { Toast } from "@/components/ui/Toast";
 import { tap } from "@/lib/client/haptics";
 import {
-  BIG_BLIND,
   CARD_SLIDE_MS,
   DEAL_STAGGER_MS,
   FOLD_WIN_MS,
@@ -26,14 +27,20 @@ import {
   canKickTx,
   isTxBotId,
   dealAnimMs,
+  handLabel,
   madeHand,
   paidOut,
+  railWatchers,
+  oddsRunner,
+  stackBeforeAward,
   streetAnimMs,
   wentAllIn,
   winLines,
 } from "@/lib/texasholdem";
+import { findBadBeat, type BadBeat } from "@/lib/texasholdem/badbeat";
+import type { Odds } from "@/lib/texasholdem/equity";
 import type { TxCard, TxConnection, TxPlayer, TxReaction, TxState } from "@/lib/texasholdem/types";
-import { Panel } from "./Panel";
+import { LOW_SECS, Panel } from "./Panel";
 
 // Seats are placed by hand (percent of the table) so plates stay clear of the board on a 375px phone; index = seat relative to you, clockwise.
 const SEAT_POS = [
@@ -60,26 +67,19 @@ const BET_POS = [
 const SWEEP_MS = 600; // end of the hand: cards slide back to the deck before the table resets
 const SWEEP_BETS_MS = 900; // bets glide to the pot
 const AWARD_MS = 1100;
+const POT_BUMP_DELAY_MS = 500; // the swept bets land at the pot just before SWEEP_BETS_MS
+const COUNT_UP_MS = 600;
 const RESULT_BEAT_MS = 1000; // showdown: hands face up for a beat before the winner is called
 const FOLD_RESULT_BEAT_MS = 400;
 const ALL_IN_MS = 2600; // matches the tx-allin animation
 const REACTION_SHOW_MS = 2000;
 const BOARD_SIZE = "clamp(36px,10.4vw,46px)";
+const BOARD_SIZE_TWICE = "clamp(25px,7vw,31px)"; // two boards stacked
+const hostPill = "min-h-11 rounded-full border border-white/20 px-3 font-display text-[11px] tracking-[0.14em] text-fg/85 active:bg-white/10 disabled:opacity-30";
 const STREET: Record<TxState["phase"], string> = { lobby: "", preflop: "PRE-FLOP", flop: "FLOP", turn: "TURN", river: "RIVER", showdown: "SHOWDOWN" };
-
-const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 const seatPos = (rel: number) => SEAT_POS[rel % SEAT_POS.length] ?? SEAT_POS[0];
 const betPos = (rel: number) => BET_POS[rel % BET_POS.length] ?? BET_POS[0];
-
-// Distance from el's centre to the centre of a landmark on the felt ([data-deck], [data-pot], [data-seat="n"]).
-function gapTo(el: Element, selector: string): { dx: number; dy: number } | null {
-  const target = el.closest("[data-table]")?.querySelector(selector);
-  if (!target) return null;
-  const a = el.getBoundingClientRect();
-  const b = target.getBoundingClientRect();
-  return { dx: b.left + b.width / 2 - (a.left + a.width / 2), dy: b.top + b.height / 2 - (a.top + a.height / 2) };
-}
 
 // "to": carry el to the landmark and fade it. "from": bring el in from the landmark and set it down.
 function useFly(ref: RefObject<HTMLElement | null>, target: string | undefined, dir: "to" | "from", delay = 0, duration = AWARD_MS) {
@@ -119,6 +119,83 @@ const MAX_WIN_ROWS = 3;
 
 const sameCard = (a: TxCard, b: TxCard) => a.rank === b.rank && a.suit === b.suit;
 
+const BAD_BEAT_MS = 2000; // inside the showdown beat: a callout never adds delay
+
+// A big favorite beaten by the last card. Only a hand that ran out all-in counts, so the river was truly the final card.
+function useBadBeat(game: TxState): BadBeat | null {
+  const [runoutRound, setRunoutRound] = useState<number | null>(null);
+  if (game.runout && runoutRound !== game.round) setRunoutRound(game.round);
+  return useMemo(() => {
+    if (game.phase !== "showdown" || runoutRound !== game.round) return null;
+    const ranked = game.players.filter((p) => p.result?.hand != null).map((p) => ({ id: p.id, hole: p.cards.filter((c): c is TxCard => c !== null) }));
+    return ranked.every((r) => r.hole.length === 2) ? findBadBeat(ranked, game.board) : null;
+  }, [game.phase, game.players, game.board, game.round, runoutRound]);
+}
+
+function BadBeatCallout({ loser, you }: { loser: TxPlayer; you: string }) {
+  const [on, setOn] = useState(true);
+  useEffect(() => {
+    const t = setTimeout(() => setOn(false), BAD_BEAT_MS);
+    return () => clearTimeout(t);
+  }, []);
+  if (!on) return null;
+  return (
+    <p role="status" className="tx-pop absolute left-1/2 z-30 flex max-w-[84%] -translate-x-1/2 flex-col items-center rounded-2xl border border-danger/50 bg-[oklch(0.15_0.003_260/0.92)] px-4 py-1.5 text-center shadow-[0_8px_24px_-8px_oklch(0_0_0/0.8)]" style={{ top: "17%" }}>
+      <span className="font-display text-2xl leading-none tracking-[0.2em] text-danger">BAD BEAT</span>
+      <span className="mt-1 max-w-full truncate text-[12px] text-fg">
+        {loser.id === you ? "You" : loser.name}
+        {loser.result?.hand ? ` · ${loser.result.hand}` : ""}
+      </span>
+    </p>
+  );
+}
+
+const ODDS_SLICE_MS = 8; // keep each slice of the win-odds work well under a frame
+
+type ShownOdds = Odds & { delayMs: number }; // delayMs: wait for the street's cards to land before showing
+
+const cardCode = (c: TxCard): string => `${c.rank}${c.suit}`;
+
+// Once betting is over and every live hand is face up, each contesting seat's chance to win the board so far.
+// Worked out here from the cards on the table only, in slices so a preflop runout never stalls a frame.
+function useRunoutOdds(game: TxState): Map<string, ShownOdds> | null {
+  const contenders = game.runout ? game.players.filter((p) => p.cards.length > 0 && !p.folded) : [];
+  const holes = contenders.map((p) => p.cards.filter((c): c is TxCard => c !== null));
+  const faceUp = holes.length > 1 && holes.every((h) => h.length === 2);
+  const key = faceUp ? `${game.round}|${contenders.map((p, i) => `${p.id}:${holes[i]?.map(cardCode).join(",")}`).join("|")}|${game.board.map(cardCode).join(",")}` : null;
+  const [done, setDone] = useState<{ key: string; round: number; firstLen: number; odds: Map<string, ShownOdds> } | null>(null);
+  const latest = useRef({ ids: contenders.map((p) => p.id), holes, board: game.board, round: game.round });
+  useEffect(() => {
+    latest.current = { ids: contenders.map((p) => p.id), holes, board: game.board, round: game.round };
+  });
+
+  useEffect(() => {
+    if (!key) return;
+    const { ids, holes: hands, board, round } = latest.current;
+    const runner = oddsRunner(hands, board);
+    let timer: ReturnType<typeof setTimeout>;
+    const step = () => {
+      if (!runner.run(ODDS_SLICE_MS)) {
+        timer = setTimeout(step, 0);
+        return;
+      }
+      const result = runner.result();
+      setDone((prev) => {
+        const firstLen = prev?.round === round ? prev.firstLen : board.length;
+        const delayMs = board.length > firstLen ? streetAnimMs(board.length === 3 ? 3 : 1) : 0;
+        return { key, round, firstLen, odds: new Map(ids.map((id, i) => [id, { ...(result[i] ?? { win: 0, tie: 0 }), delayMs }])) };
+      });
+    };
+    timer = setTimeout(step, 0);
+    return () => clearTimeout(timer);
+  }, [key]);
+
+  return key !== null && done?.key === key ? done.odds : null;
+}
+
+// Whole percents, but never claim a sure thing (or none) before the river has settled it.
+const pct = (n: number): string => (n > 0 && n < 1 ? "<1" : n < 100 && n > 99 ? ">99" : String(Math.round(n)));
+
 // A shove lights the table up for a moment: who went in and for how much.
 function useAllInMoment(game: TxState): { key: number; id: string; name: string; amount: number } | null {
   const [prev, setPrev] = useState(game);
@@ -150,8 +227,9 @@ export function TexasHoldem({ conn }: { conn: TxConnection }) {
   const dealing = street && !game.runout && left !== null && left > TURN_MS / 1000;
   const secs = dealing ? null : left;
 
-  // Winnings are already in the stack at showdown; hold them back until the winner is called.
-  const stack = me ? me.chips - (game.phase === "showdown" && !revealed ? paidOut(me) : 0) : 0;
+  // Winnings are already in the stack at showdown; hold them back, then count them up when the winner is called.
+  const held = me ? stackBeforeAward(me, game.phase) : 0;
+  const stack = useCountUp(me && revealed ? me.chips : held, held, 0, COUNT_UP_MS);
   const offline = conn.status !== "open";
 
   async function share() {
@@ -186,7 +264,7 @@ export function TexasHoldem({ conn }: { conn: TxConnection }) {
             <span aria-hidden>😊</span>
           </button>
         )}
-        <p className="flex min-h-11 items-center gap-1.5 rounded-full bg-surface px-3 font-display text-sm tabular-nums text-accent" aria-label={`${stack} chips`}>
+        <p className="flex min-h-11 items-center gap-1.5 rounded-full bg-surface px-3 font-display text-sm tabular-nums text-accent" aria-label={`${me?.chips ?? 0} chips`}>
           <Chip amount={stack} size="xs" label="" color="var(--color-accent)" />
           {stack.toLocaleString()}
         </p>
@@ -266,6 +344,9 @@ function Felt({ conn, me, revealed, clearing, secs }: { conn: TxConnection; me: 
     [...hand].sort((a, b) => ((a.seat ?? 0) - (game.button ?? 0) - 1 + SEATS) % SEATS - ((b.seat ?? 0) - (game.button ?? 0) - 1 + SEATS) % SEATS).indexOf(p);
 
   const sweeps = useBetSweeps(game.players);
+  const odds = useRunoutOdds(game);
+  const badBeat = useBadBeat(game);
+  const badBeatLoser = badBeat && revealed ? game.players.find((p) => p.id === badBeat.loserId) : undefined;
   // Blinds of different sizes cut equal-eligibility slices; only a real side pot (someone all-in short) is worth showing.
   const pots = useMemo(() => {
     const merged: { amount: number; eligible: string[] }[] = [];
@@ -278,9 +359,41 @@ function Felt({ conn, me, revealed, clearing, secs }: { conn: TxConnection; me: 
   }, [game.players]);
 
   // At showdown, anything not part of a winning five fades back so the winning hand reads at a glance.
-  const winners = game.phase === "showdown" && revealed ? game.players.filter((p) => (p.result?.won ?? 0) > 0 && p.result?.best.length) : [];
-  const winning = (c: TxCard) => winners.some((w) => w.result?.best.some((b) => sameCard(b, c)));
-  const dimBoard = (c: TxCard) => winners.length > 0 && !winning(c);
+  // Run twice: each board lights up only the hands that won on it.
+  const showdownOn = game.phase === "showdown" && revealed;
+  const winnersOf = (run: 0 | 1) =>
+    showdownOn
+      ? game.players.flatMap((p) => {
+          const r = p.result;
+          if (!r) return [];
+          const [won, best] = run === 0 ? [r.won - (r.second?.won ?? 0), r.best] : [r.second?.won ?? 0, r.second?.best ?? []];
+          return won > 0 && best.length > 0 ? [best] : [];
+        })
+      : [];
+  const winning = (c: TxCard, run: 0 | 1) => winnersOf(run).some((best) => best.some((b) => sameCard(b, c)));
+  const dimBoard = (c: TxCard, run: 0 | 1) => winnersOf(run).length > 0 && !winning(c, run);
+  const twice = game.second !== null;
+  const boardSize = twice ? BOARD_SIZE_TWICE : BOARD_SIZE;
+  const boardRow = (cards: readonly TxCard[], run: 0 | 1, top: string) => (
+    <div className="absolute left-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-[clamp(3px,1vw,5px)]" style={{ top }}>
+      {Array.from({ length: 5 }, (_, i) => {
+        const c = cards[i];
+        return c ? (
+          <Dealt
+            key={`${game.round}-${run}-${i}`}
+            card={c}
+            delay={i < 3 ? i * DEAL_STAGGER_MS : 0}
+            sweep={clearing}
+            dim={dimBoard(c, run)}
+            size={boardSize}
+            className={cx(winning(c, run) && "tx-lift ring-2 ring-active", "rounded-[0.12em]")}
+          />
+        ) : (
+          <span key={i} aria-hidden className="rounded-[0.075em] border border-white/10 bg-black/20 shadow-[inset_0_1px_4px_oklch(0_0_0/0.35)]" style={{ fontSize: boardSize, width: "1em", aspectRatio: "5 / 7" }} />
+        );
+      })}
+    </div>
+  );
 
   const payees = game.phase === "showdown" && revealed ? game.players.filter((p) => (p.result?.won ?? 0) > 0) : [];
   const lines = winLines(payees, conn.you);
@@ -306,50 +419,45 @@ function Felt({ conn, me, revealed, clearing, secs }: { conn: TxConnection; me: 
           <CardFace key={i} card={null} className="absolute" size={25} style={{ left: i * 1.5, top: -i * 1.5 }} />
         ))}
       </div>
-      <div className="absolute top-[1%] right-[3%] flex flex-col items-end rounded-2xl border border-white/10 bg-black/40 px-2 py-0.5 font-display text-[10px] tracking-[0.14em] text-fg/85 tabular-nums">
-        <p aria-label={`Blinds ${game.blinds.smallBlind} and ${game.blinds.bigBlind}`}>
-          {game.blinds.smallBlind}/{game.blinds.bigBlind}
-        </p>
-        {game.blinds.next && (
-          <p className="max-w-[7.5rem] text-right text-[11px] leading-tight tracking-[0.04em]">
-            Next: {game.blinds.next.smallBlind}/{game.blinds.next.bigBlind} in {game.blinds.next.inHands} {game.blinds.next.inHands === 1 ? "hand" : "hands"}
+      <div className="absolute top-[1%] right-[3%] z-20 flex items-start gap-1.5">
+        <Watchers players={game.players} you={conn.you} />
+        <div className="flex flex-col items-end rounded-2xl border border-white/10 bg-black/40 px-2 py-0.5 font-display text-[10px] tracking-[0.14em] text-fg/85 tabular-nums">
+          <p aria-label={`Blinds ${game.blinds.smallBlind} and ${game.blinds.bigBlind}`}>
+            {game.blinds.smallBlind}/{game.blinds.bigBlind}
           </p>
-        )}
+          {game.blinds.next && (
+            <p className="max-w-[7.5rem] text-right text-[11px] leading-tight tracking-[0.04em]">
+              Next: {game.blinds.next.smallBlind}/{game.blinds.next.bigBlind} in {game.blinds.next.inHands} {game.blinds.next.inHands === 1 ? "hand" : "hands"}
+            </p>
+          )}
+        </div>
       </div>
 
       <div data-pot className="absolute left-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2" style={{ top: "34%" }}>
         {game.pot > 0 && <Chip key={game.round} amount={game.pot} size="sm" stack className="tx-in" />}
-        <p aria-label={`Pot ${game.pot}`} className="min-w-6 font-display text-base tabular-nums text-fg">
+        <p
+          key={sweeps[0]?.key}
+          aria-label={`Pot ${game.pot}`}
+          className={cx("min-w-6 font-display text-base tabular-nums text-fg", sweeps.length > 0 && "tx-bump")}
+          style={{ animationDelay: `${POT_BUMP_DELAY_MS}ms` }}
+        >
           {game.pot > 0 ? game.pot.toLocaleString() : ""}
         </p>
       </div>
 
-      <div className="absolute left-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-[clamp(3px,1vw,5px)]" style={{ top: "50%" }}>
-        {Array.from({ length: 5 }, (_, i) => {
-          const c = game.board[i];
-          return c ? (
-            <Dealt
-              key={`${game.round}-${i}`}
-              card={c}
-              delay={i < 3 ? i * DEAL_STAGGER_MS : 0}
-              sweep={clearing}
-              dim={dimBoard(c)}
-              size={BOARD_SIZE}
-              className={cx(winning(c) && "tx-lift ring-2 ring-active", "rounded-[0.12em]")}
-            />
-          ) : (
-            <span key={i} aria-hidden className="rounded-[0.075em] border border-white/10 bg-black/20 shadow-[inset_0_1px_4px_oklch(0_0_0/0.35)]" style={{ fontSize: BOARD_SIZE, width: "1em", aspectRatio: "5 / 7" }} />
-          );
-        })}
-      </div>
+      {boardRow(game.board, 0, twice ? "42%" : "50%")}
+      {game.second && boardRow(game.second, 1, "53%")}
 
-      <div className="absolute left-1/2 flex w-[84%] -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1" style={{ top: "62%" }}>
+      {badBeatLoser && <BadBeatCallout key={game.round} loser={badBeatLoser} you={conn.you} />}
+
+      <div className="absolute left-1/2 flex w-[84%] -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1" style={{ top: twice ? "66%" : "62%" }}>
         {lines.length > 0 ? (
           <div key={`${game.round}-banner`} role="status" className="tx-pop flex max-w-full flex-col items-center gap-1 rounded-2xl border border-active/50 bg-[oklch(0.15_0.003_260/0.92)] px-4 py-1.5 text-center shadow-[0_8px_24px_-8px_oklch(0_0_0/0.8)]">
             {shownLines.map((line) => (
               <p key={line.key} className="flex max-w-full flex-col items-center">
                 <span className="max-w-full truncate font-display text-sm tracking-wide text-active">{line.text}</span>
                 {line.hand && <span className="max-w-full truncate text-[11px] text-fg/70">{line.hand}</span>}
+                {badBeat?.winnerIds.includes(line.key) && <span className="mt-0.5 rounded-full bg-danger/20 px-2 text-[11px] font-bold tracking-[0.12em] text-danger">RIVERED</span>}
               </p>
             ))}
             {lines.length > shownLines.length && <span className="text-[11px] text-fg/70">+{lines.length - shownLines.length} more</span>}
@@ -370,12 +478,17 @@ function Felt({ conn, me, revealed, clearing, secs }: { conn: TxConnection; me: 
             ))}
           </p>
         ) : (
-          <p className="font-display text-[11px] tracking-[0.26em] text-fg/80">{STREET[game.phase]}</p>
+          <p className="font-display text-[11px] tracking-[0.26em] text-fg/80">{game.ask ? "RUN IT TWICE?" : twice ? "RUNNING IT TWICE" : STREET[game.phase]}</p>
         )}
         {conn.isHost && game.phase === "lobby" && (
-          <button type="button" disabled={!canAddBot} onClick={() => (tap(), conn.addBot())} className="pointer-events-auto min-h-11 rounded-full border border-white/20 px-3 font-display text-[11px] tracking-[0.14em] text-fg/85 active:bg-white/10 disabled:opacity-30">
-            + BOT
-          </button>
+          <div className="pointer-events-auto flex items-center gap-2">
+            <button type="button" disabled={!canAddBot} onClick={() => (tap(), conn.addBot())} className={hostPill}>
+              + BOT
+            </button>
+            <button type="button" role="switch" aria-checked={game.runTwice} onClick={() => (tap(), conn.send({ type: "setRunTwice", on: !game.runTwice }))} className={hostPill}>
+              RUN TWICE {game.runTwice ? "ON" : "OFF"}
+            </button>
+          </div>
         )}
       </div>
 
@@ -394,7 +507,7 @@ function Felt({ conn, me, revealed, clearing, secs }: { conn: TxConnection; me: 
         return (
           <div key={seat} className="absolute z-10 -translate-x-1/2 -translate-y-1/2" style={{ left: `${pos.x}%`, top: `${pos.y}%` }}>
             {p ? (
-              <Seat key={p.id} conn={conn} player={p} below={pos.y < 35} order={dealOrder(p)} handSize={hand.length} revealed={revealed} clearing={clearing} secs={secs} />
+              <Seat key={p.id} conn={conn} player={p} below={pos.y < 35} order={dealOrder(p)} handSize={hand.length} revealed={revealed} clearing={clearing} secs={secs} odds={odds?.get(p.id)} />
             ) : (
               <button
                 type="button"
@@ -415,6 +528,36 @@ function Felt({ conn, me, revealed, clearing, secs }: { conn: TxConnection; me: 
         );
       })}
     </section>
+  );
+}
+
+// "+N watching" beside the blinds: everyone on the rail without a seat, listed on tap.
+function Watchers({ players, you }: { players: readonly TxPlayer[]; you: string }) {
+  const [open, setOpen] = useState(false);
+  const watchers = railWatchers(players);
+  if (watchers.length === 0) return null;
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-label={`${watchers.length} watching`}
+        onClick={() => setOpen((o) => !o)}
+        className="min-h-6 rounded-full border border-white/10 bg-black/40 px-2 font-display text-[11px] tracking-[0.1em] text-fg/85 tabular-nums active:bg-black/60"
+      >
+        +{watchers.length} watching
+      </button>
+      {open && (
+        <ul aria-label="Watching" className="absolute top-full right-0 mt-1 flex max-h-48 w-40 flex-col gap-1 overflow-y-auto rounded-xl border border-white/10 bg-[oklch(0.15_0.003_260/0.95)] p-2">
+          {watchers.map((p) => (
+            <li key={p.id} className="flex items-center gap-2 text-xs text-fg/85">
+              <Avatar id={p.id} seat={players.indexOf(p)} name={p.name} size="sm" />
+              <span className="min-w-0 flex-1 truncate">{p.id === you ? `${p.name} (you)` : p.name}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 
@@ -450,64 +593,40 @@ function Bet({ amount, seat, pos, sweep = false }: { amount: number; seat: numbe
   );
 }
 
-// Deals out of the deck face down, spinning onto its spot, and turns over as it lands. A hidden card stays down until its face arrives.
-function Dealt({
-  card,
-  delay = 0,
-  sweep = false,
-  dim = false,
-  size,
-  className,
-  style,
-}: {
-  card: TxCard | null;
-  delay?: number;
-  sweep?: boolean;
-  dim?: boolean;
-  size: number | string;
-  className?: string;
-  style?: CSSProperties;
-}) {
-  const ref = useRef<HTMLSpanElement>(null);
-  const [onMount] = useState(() => ({ delay, faceUp: card !== null }));
+// The shared deal animation, dealt out of the deck and swept back into it.
+function Dealt({ dim = false, className, ...props }: Omit<ComponentProps<typeof DealtCard>, "slideMs" | "sweepMs" | "from" | "to" | "pips"> & { dim?: boolean }) {
+  return (
+    <DealtCard
+      {...props}
+      pips
+      from="[data-deck]"
+      to="[data-deck]"
+      slideMs={CARD_SLIDE_MS}
+      sweepMs={SWEEP_MS}
+      className={cx("transition-[filter,opacity,font-size] duration-500 motion-reduce:transition-none", dim && "opacity-40 brightness-75", className)}
+    />
+  );
+}
 
-  useLayoutEffect(() => {
-    const el = ref.current;
-    if (!el || reducedMotion()) return;
-    const gap = gapTo(el, "[data-deck]");
-    if (!gap) return;
-    const timing: KeyframeAnimationOptions = { duration: CARD_SLIDE_MS, delay: onMount.delay, easing: "cubic-bezier(0.22, 0.9, 0.3, 1)", fill: "backwards" };
-    const moves = [
-      el.animate(
-        [
-          { transform: `translate(${gap.dx}px, ${gap.dy}px) rotate(-55deg) scale(0.6)` },
-          { transform: "translate(0, -6%) rotate(4deg) scale(1.06)", offset: 0.75 },
-          { transform: "none" },
-        ],
-        timing,
-      ),
-    ];
-    const inner = el.firstElementChild;
-    if (onMount.faceUp && inner instanceof HTMLElement) {
-      moves.push(inner.animate([{ transform: "rotateY(180deg)" }, { transform: "rotateY(180deg)", offset: 0.55 }, { transform: "rotateY(0deg)" }], timing));
-    }
-    return () => moves.forEach((m) => m.cancel());
-  }, [onMount]);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el || !sweep || reducedMotion()) return;
-    const gap = gapTo(el, "[data-deck]");
-    if (!gap) return;
-    const away = el.animate([{ transform: "none" }, { transform: `translate(${gap.dx}px, ${gap.dy}px) rotate(30deg) scale(0.5)`, opacity: 0 }], {
-      duration: SWEEP_MS - 100,
-      easing: "cubic-bezier(0.5, 0, 0.75, 0)",
-      fill: "forwards",
-    });
-    return () => away.cancel();
-  }, [sweep]);
-
-  return <CardFace ref={ref} card={card} pips size={size} className={cx("transition-[filter,opacity,font-size] duration-500", dim && "opacity-40 brightness-75", className)} style={style} />;
+// The panel's turn clock, drawn round the acting seat so everyone can see whose time is running.
+function TurnRing({ secs }: { secs: number }) {
+  const low = secs <= LOW_SECS;
+  const left = Math.min(1, secs / (TURN_MS / 1000));
+  return (
+    <svg aria-hidden viewBox="0 0 36 36" className="pointer-events-none absolute -top-[7px] -left-[7px] size-[calc(100%+14px)] -rotate-90">
+      <circle
+        cx="18"
+        cy="18"
+        r="17"
+        fill="none"
+        strokeWidth="1.5"
+        pathLength={1}
+        strokeDasharray={1}
+        strokeDashoffset={1 - left}
+        className={cx("transition-[stroke-dashoffset] duration-1000 ease-linear motion-reduce:transition-none", low ? "tx-low stroke-danger" : "stroke-accent")}
+      />
+    </svg>
+  );
 }
 
 function Seat({
@@ -519,6 +638,7 @@ function Seat({
   revealed,
   clearing,
   secs,
+  odds,
 }: {
   conn: TxConnection;
   player: TxPlayer;
@@ -528,6 +648,7 @@ function Seat({
   revealed: boolean;
   clearing: boolean;
   secs: number | null;
+  odds: ShownOdds | undefined; // all-in runout only: this seat's chance to win the board so far
 }) {
   const { game } = conn;
   const mine = player.id === conn.you;
@@ -538,7 +659,7 @@ function Seat({
   const inHand = player.cards.length > 0;
   const ranked = game.phase === "showdown" && player.result?.hand != null; // a hand shown at a contested showdown stays up after its owner leaves
   const showCards = inHand && (mine || !player.folded || ranked);
-  const busted = !inHand && player.chips < BIG_BLIND;
+  const busted = !inHand && player.chips < game.blinds.bigBlind;
   const awardRef = useRef<HTMLSpanElement>(null);
   useFly(awardRef, won ? "[data-pot]" : undefined, "from", 150);
   const bubble = useReactionBubble(player.reaction);
@@ -549,11 +670,13 @@ function Seat({
     const t = setTimeout(() => setArmed(false), 3000);
     return () => clearTimeout(t);
   }, [armed]);
-  const bestOf = player.result?.best ?? [];
+  const r = player.result;
+  const bestOf = r?.second ? [...(r.won > r.second.won ? r.best : []), ...(r.second.won > 0 ? r.second.best : [])] : (r?.best ?? []);
   const dimCard = (c: TxCard | null) => revealed && won && bestOf.length > 0 && c !== null && !bestOf.some((b) => sameCard(b, c));
 
   // Winnings are in the stack already at showdown; hold them back until the winner is called.
-  const shownStack = player.chips - (game.phase === "showdown" && !revealed ? paidOut(player) : 0);
+  const held = stackBeforeAward(player, game.phase);
+  const shownStack = useCountUp(revealed ? player.chips : held, held, 0, COUNT_UP_MS);
   const faceUp = !mine && player.cards.some((c) => c !== null); // an opponent's hand only arrives face up at showdown
   const size = mine ? "clamp(44px,13vw,54px)" : faceUp ? "clamp(30px,9vw,36px)" : "clamp(22px,6.4vw,28px)";
 
@@ -622,6 +745,7 @@ function Seat({
         )}
       >
         <Avatar id={player.id} seat={player.seat ?? undefined} name={player.name} />
+        {turn && secs !== null && <TurnRing secs={secs} />}
         {game.button === player.seat && (
           <span aria-label="Dealer button" className="absolute top-1/2 -left-3.5 z-10 grid size-[18px] -translate-y-1/2 place-items-center rounded-full bg-fg font-display text-[10px] text-ink shadow-[0_2px_6px_oklch(0_0_0/0.6)]">
             D
@@ -667,8 +791,17 @@ function Seat({
           {armed ? "Remove?" : "×"}
         </button>
       )}
+      {odds && (
+        <span
+          key={game.board.length}
+          className="tx-pop absolute top-full z-20 mt-1 rounded-full bg-[oklch(0.15_0.003_260/0.92)] px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap text-fg tabular-nums"
+          style={{ animationDelay: `${odds.delayMs}ms` }}
+        >
+          {pct(odds.win)}%{odds.tie > 0 && <span className="ml-1 text-[11px] font-normal text-fg/80">tie {pct(odds.tie)}%</span>}
+        </span>
+      )}
       {result?.hand && !mine && (
-        <span className={cx("tx-in absolute top-full mt-1 max-w-[96px] truncate rounded-full bg-[oklch(0.15_0.003_260/0.92)] px-2 py-0.5 text-[10px] font-semibold", won ? "text-active" : "text-fg/65")}>{result.hand}</span>
+        <span className={cx("tx-in absolute top-full mt-1 max-w-[96px] truncate rounded-full bg-[oklch(0.15_0.003_260/0.92)] px-2 py-0.5 text-[10px] font-semibold", won ? "text-active" : "text-fg/65")}>{handLabel(result)}</span>
       )}
     </div>
   );

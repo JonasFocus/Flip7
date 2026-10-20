@@ -5,10 +5,10 @@ import { Button } from "@/components/ui/Button";
 import { cx } from "@/components/ui/cx";
 import { Chip, shortAmount } from "@/components/casino/Chip";
 import { fail, success, tap } from "@/lib/client/haptics";
-import { FOLD_HOLD_MS, RAISE_CHIPS, START_CHIPS, TURN_MS, clampRaise, legalActions, potWon, stackRaise } from "@/lib/texasholdem";
+import { FOLD_HOLD_MS, RAISE_CHIPS, START_CHIPS, TURN_MS, canRebuyTx, canStandUpTx, clampRaise, facing, legalActions, potWon, preActionIntent, stackRaise, type Facing, type PreAction } from "@/lib/texasholdem";
 import type { TxConnection, TxIntent, TxPace, TxPlayer } from "@/lib/texasholdem/types";
 
-const LOW_SECS = 5; // the clock turns urgent and your phone buzzes again at this many seconds left
+export const LOW_SECS = 5; // the clock turns urgent and your phone buzzes again at this many seconds left
 
 export function Panel({
   conn,
@@ -30,6 +30,34 @@ export function Panel({
   const acting = game.players.find((p) => p.id === game.turnId);
   const street = game.phase !== "lobby" && game.phase !== "showdown";
 
+  // A queued move is dropped when its street or hand ends, or once your turn has come and gone:
+  // the bet it was chosen against is no longer there.
+  const [pre, setPre] = useState<PreAction | null>(null);
+  const [preScope, setPreScope] = useState(`${game.round}-${game.phase}`);
+  const [wasMyTurn, setWasMyTurn] = useState(myTurn);
+  if (preScope !== `${game.round}-${game.phase}`) {
+    setPreScope(`${game.round}-${game.phase}`);
+    setPre(null);
+  }
+  if (wasMyTurn !== myTurn) {
+    setWasMyTurn(myTurn);
+    if (!myTurn) setPre(null);
+  }
+  const canQueue = inHand && !me.folded && !me.allIn && !me.sitOut && street && !game.runout && !myTurn;
+  const now = canQueue ? facing(game, me) : null;
+  if (pre && now && preActionIntent(pre, now) === null) setPre(null);
+
+  // Your turn with a queued move that still fits: it goes out at once instead of showing the buttons.
+  const turnLegal = myTurn && !dealing && conn.status === "open" ? legalActions(game, conn.you) : null;
+  const queued = pre && turnLegal ? preActionIntent(pre, turnLegal) : null;
+  const queuedType = queued?.type ?? null;
+  const { send } = conn;
+  useEffect(() => {
+    if (!queuedType) return;
+    tap();
+    send({ type: queuedType });
+  }, [queuedType, send]);
+
   let view: string;
   let body: ReactNode;
   if (!me || me.seat === null) {
@@ -42,12 +70,19 @@ export function Panel({
   } else if (!inHand) {
     view = `idle-${game.phase}-${me.sitOut}`;
     body = <Idle conn={conn} me={me} secs={secs} />;
+  } else if (game.runout && game.ask?.ids.includes(me.id)) {
+    view = `ask-${game.ask.yes.includes(me.id)}`;
+    body = <RunTwice conn={conn} me={me} secs={secs} />;
   } else if (game.runout) {
     view = "runout";
-    body = <Status>{me.folded ? "Folded. Watching the board run out…" : "All in. Running it out…"}</Status>;
+    const text = me.folded ? "Folded. Watching the board run out…" : game.ask ? "Waiting to hear if the table runs it twice…" : game.second ? "All in. Running it twice…" : "All in. Running it out…";
+    body = <Status>{text}</Status>;
   } else if (street && dealing) {
     view = "dealing";
     body = <Status>Dealing…</Status>;
+  } else if (queued) {
+    view = "queued";
+    body = <Status>Playing your queued move…</Status>;
   } else if (myTurn) {
     view = "turn";
     body = <Actions conn={conn} me={me} secs={secs} />;
@@ -56,7 +91,21 @@ export function Panel({
     body = (
       <>
         <TurnClock label={`${acting?.name ?? "Someone"}'s turn`} secs={secs} />
-        <Status>{me.folded ? "You folded. Waiting for the next hand…" : me.allIn ? "You're all in. Waiting on the table…" : "Waiting for your turn…"}</Status>
+        <Status>
+          {me.sitOut
+            ? "You're sitting out. Sit in to get your full clock back."
+            : me.folded
+              ? "You folded. Waiting for the next hand…"
+              : me.allIn
+                ? "You're all in. Waiting on the table…"
+                : "Waiting for your turn…"}
+        </Status>
+        {me.sitOut && (
+          <button type="button" onClick={() => (tap(), conn.send({ type: "sitIn" }))} className={linkButton}>
+            Sit in
+          </button>
+        )}
+        {now && <PreActions now={now} pre={pre} onChange={setPre} />}
       </>
     );
   }
@@ -69,6 +118,7 @@ export function Panel({
   return (
     <footer className="flex min-h-[calc(226px+env(safe-area-inset-bottom))] flex-col justify-center px-4 pt-1 pb-safe-3">
       <div key={view} className="tx-rise flex flex-col gap-2">
+        {me?.timedOut && <TimedOutNotice conn={conn} />}
         {body}
       </div>
     </footer>
@@ -87,8 +137,46 @@ function TurnClock({ label, secs }: { label: ReactNode; secs: number | null }) {
         {secs !== null && <span className={cx("text-[15px] font-semibold tabular-nums", low ? "tx-low text-danger" : "text-muted")}>{secs}s</span>}
       </div>
       <div className="h-1.5 overflow-hidden rounded-full bg-surface-2">
-        <div className={cx("h-full origin-left rounded-full transition-[width] duration-1000 ease-linear", low ? "tx-low bg-danger" : "bg-accent")} style={{ width: `${pct}%` }} />
+        <div className={cx("h-full origin-left rounded-full transition-[width] duration-1000 ease-linear motion-reduce:transition-none", low ? "tx-low bg-danger" : "bg-accent")} style={{ width: `${pct}%` }} />
       </div>
+    </div>
+  );
+}
+
+// Everyone in the pot must say yes within the countdown, otherwise the board runs once.
+function RunTwice({ conn, me, secs }: { conn: TxConnection; me: TxPlayer; secs: number | null }) {
+  const yes = !!conn.game.ask?.yes.includes(me.id);
+  const answer = (agree: boolean) => {
+    tap();
+    conn.send({ type: "runTwice", yes: agree });
+  };
+  return (
+    <>
+      <Status>{yes ? "You said yes. Waiting on the others…" : `Run it twice? Everyone in the pot has to agree${secs === null ? "" : ` · ${secs}s`}`}</Status>
+      <div className="grid grid-cols-2 gap-2.5">
+        <Button size="md" variant="secondary" className="min-h-14 px-2" onClick={() => answer(false)}>
+          No
+        </Button>
+        <Button size="md" className="min-h-14 px-2" disabled={yes} onClick={() => answer(true)}>
+          Yes
+        </Button>
+      </div>
+    </>
+  );
+}
+
+// Shown on every panel view until they sit back in, so a clock-forced sit out is never a silent surprise.
+function TimedOutNotice({ conn }: { conn: TxConnection }) {
+  return (
+    <div role="status" className="flex items-center justify-between gap-3 rounded-2xl border border-danger px-4 py-2 text-sm">
+      <span>You timed out and were sat out.</span>
+      <button
+        type="button"
+        onClick={() => (tap(), conn.send({ type: "sitIn" }))}
+        className="min-h-11 shrink-0 text-xs font-bold tracking-[0.16em] text-accent uppercase active:text-fg"
+      >
+        Sit back in
+      </button>
     </div>
   );
 }
@@ -128,6 +216,32 @@ function PacePicker({ conn }: { conn: TxConnection }) {
   );
 }
 
+// Moves you can queue while others act: tap again to clear. Check and Call X drop out if the bet changes before your turn.
+function PreActions({ now, pre, onChange }: { now: Facing; pre: PreAction | null; onChange: (pre: PreAction | null) => void }) {
+  const options: { action: PreAction; label: string }[] = [{ action: { type: "checkFold" }, label: "Check / Fold" }];
+  if (now.canCheck) options.push({ action: { type: "check" }, label: "Check" }, { action: { type: "callAny" }, label: "Call any" });
+  else options.push({ action: { type: "call", amount: now.callAmount }, label: `Call ${shortAmount(now.callAmount)}` });
+
+  return (
+    <div className="flex gap-2">
+      {options.map(({ action, label }) => {
+        const on = pre?.type === action.type;
+        return (
+          <button
+            key={action.type}
+            type="button"
+            aria-pressed={on}
+            onClick={() => (tap(), onChange(on ? null : action))}
+            className={cx(chipButton, "flex-1 px-2 text-xs font-bold tracking-wide uppercase", on ? "border-accent bg-accent/15 text-accent" : "text-muted")}
+          >
+            {label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 const chipButton =
   "flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-line bg-surface transition-[background-color,transform,opacity] duration-150 active:scale-[0.96] active:bg-surface-2 disabled:opacity-30";
 
@@ -136,29 +250,28 @@ const linkButton = "min-h-11 text-xs font-bold tracking-[0.16em] text-muted uppe
 // Seated but not in this hand: waiting for the next deal, sitting out, or busted.
 function Idle({ conn, me, secs }: { conn: TxConnection; me: TxPlayer; secs: number | null }) {
   const { game } = conn;
-  const broke = me.chips === 0;
   const send = (intent: TxIntent) => {
     tap();
     conn.send(intent);
   };
 
   let status: ReactNode;
-  if (game.phase !== "lobby") status = "Next hand you're dealt in.";
+  if (canRebuyTx(me)) status = "Out of chips. Rebuy to play the next hand.";
+  else if (game.phase !== "lobby") status = "Next hand you're dealt in.";
   else if (me.sitOut) status = "You're sitting out.";
-  else if (broke) status = "Out of chips. Rebuy to play the next hand.";
   else if (game.startAt !== null) status = `Next hand in ${secs ?? "…"}s`;
   else status = "Waiting for another player to join…";
 
   return (
     <>
       <Status>{status}</Status>
-      {broke && game.phase === "lobby" && (
+      {canRebuyTx(me) && (
         <Button size="lg" block onClick={() => (success(), conn.send({ type: "rebuy" }))}>
           Rebuy {START_CHIPS.toLocaleString()}
         </Button>
       )}
       <div className="flex items-center justify-between">
-        <button type="button" onClick={() => send({ type: "standUp" })} disabled={game.phase !== "lobby"} className={linkButton}>
+        <button type="button" onClick={() => send({ type: "standUp" })} disabled={!canStandUpTx(me)} className={linkButton}>
           Stand up
         </button>
         <button type="button" onClick={() => send({ type: me.sitOut ? "sitIn" : "sitOut" })} className={linkButton}>
