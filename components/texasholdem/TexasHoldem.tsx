@@ -7,6 +7,7 @@ import { Chip, shortAmount } from "@/components/casino/Chip";
 import { DealtCard, gapTo, reducedMotion } from "@/components/casino/motion";
 import { shareInvite } from "@/components/lobby/Lobby";
 import { useSecondsLeft } from "@/components/table/ActionBar";
+import { useCountUp } from "@/components/table/moments/util";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { cx } from "@/components/ui/cx";
@@ -30,7 +31,7 @@ import {
   dealAnimMs,
   madeHand,
   oddsRunner,
-  paidOut,
+  stackBeforeAward,
   streetAnimMs,
   wentAllIn,
   winLines,
@@ -65,6 +66,8 @@ const BET_POS = [
 const SWEEP_MS = 600; // end of the hand: cards slide back to the deck before the table resets
 const SWEEP_BETS_MS = 900; // bets glide to the pot
 const AWARD_MS = 1100;
+const POT_BUMP_DELAY_MS = 500; // the swept bets land at the pot just before SWEEP_BETS_MS
+const COUNT_UP_MS = 600;
 const RESULT_BEAT_MS = 1000; // showdown: hands face up for a beat before the winner is called
 const FOLD_RESULT_BEAT_MS = 400;
 const ALL_IN_MS = 2600; // matches the tx-allin animation
@@ -221,8 +224,9 @@ export function TexasHoldem({ conn }: { conn: TxConnection }) {
   const dealing = street && !game.runout && left !== null && left > TURN_MS / 1000;
   const secs = dealing ? null : left;
 
-  // Winnings are already in the stack at showdown; hold them back until the winner is called.
-  const stack = me ? me.chips - (game.phase === "showdown" && !revealed ? paidOut(me) : 0) : 0;
+  // Winnings are already in the stack at showdown; hold them back, then count them up when the winner is called.
+  const held = me ? stackBeforeAward(me, game.phase) : 0;
+  const stack = useCountUp(me && revealed ? me.chips : held, held, 0, COUNT_UP_MS);
   const offline = conn.status !== "open";
 
   async function share() {
@@ -257,7 +261,7 @@ export function TexasHoldem({ conn }: { conn: TxConnection }) {
             <span aria-hidden>😊</span>
           </button>
         )}
-        <p className="flex min-h-11 items-center gap-1.5 rounded-full bg-surface px-3 font-display text-sm tabular-nums text-accent" aria-label={`${stack} chips`}>
+        <p className="flex min-h-11 items-center gap-1.5 rounded-full bg-surface px-3 font-display text-sm tabular-nums text-accent" aria-label={`${me?.chips ?? 0} chips`}>
           <Chip amount={stack} size="xs" label="" color="var(--color-accent)" />
           {stack.toLocaleString()}
         </p>
@@ -386,7 +390,12 @@ function Felt({ conn, me, revealed, clearing, secs }: { conn: TxConnection; me: 
 
       <div data-pot className="absolute left-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2" style={{ top: "34%" }}>
         {game.pot > 0 && <Chip key={game.round} amount={game.pot} size="sm" stack className="tx-in" />}
-        <p aria-label={`Pot ${game.pot}`} className="min-w-6 font-display text-base tabular-nums text-fg">
+        <p
+          key={sweeps[0]?.key}
+          aria-label={`Pot ${game.pot}`}
+          className={cx("min-w-6 font-display text-base tabular-nums text-fg", sweeps.length > 0 && "tx-bump")}
+          style={{ animationDelay: `${POT_BUMP_DELAY_MS}ms` }}
+        >
           {game.pot > 0 ? game.pot.toLocaleString() : ""}
         </p>
       </div>
@@ -601,7 +610,8 @@ function Seat({
   const dimCard = (c: TxCard | null) => revealed && won && bestOf.length > 0 && c !== null && !bestOf.some((b) => sameCard(b, c));
 
   // Winnings are in the stack already at showdown; hold them back until the winner is called.
-  const shownStack = player.chips - (game.phase === "showdown" && !revealed ? paidOut(player) : 0);
+  const held = stackBeforeAward(player, game.phase);
+  const shownStack = useCountUp(revealed ? player.chips : held, held, 0, COUNT_UP_MS);
   const faceUp = !mine && player.cards.some((c) => c !== null); // an opponent's hand only arrives face up at showdown
   const size = mine ? "clamp(44px,13vw,54px)" : faceUp ? "clamp(30px,9vw,36px)" : "clamp(22px,6.4vw,28px)";
 
