@@ -149,10 +149,17 @@ function Actions({ conn, me, secs }: { conn: TxConnection; me: TxPlayer; secs: n
   const { game } = conn;
   const legal = legalActions(game, conn.you);
   const [raiseTo, setRaiseTo] = useState(() => legal?.minRaiseTo ?? 0);
+  const [armed, setArmed] = useState(false);
 
   useEffect(() => {
     tap();
   }, []);
+
+  useEffect(() => {
+    if (!armed) return;
+    const id = setTimeout(() => setArmed(false), 2000);
+    return () => clearTimeout(id);
+  }, [armed]);
 
   if (!legal) return <Status>Waiting…</Status>;
 
@@ -169,6 +176,16 @@ function Actions({ conn, me, secs }: { conn: TxConnection; me: TxPlayer; secs: n
   const go = (intent: TxIntent) => {
     tap();
     conn.send(intent);
+  };
+  // A fold when checking is free is almost always a mistap, so make it a deliberate second tap.
+  const fold = () => {
+    if (canCheck && !armed) {
+      tap();
+      setArmed(true);
+      return;
+    }
+    fail();
+    conn.send({ type: "fold" });
   };
 
   return (
@@ -212,8 +229,14 @@ function Actions({ conn, me, secs }: { conn: TxConnection; me: TxPlayer; secs: n
         </>
       )}
       <div className={cx("grid gap-2.5", canRaise ? "grid-cols-[1fr_1.15fr_1.5fr]" : "grid-cols-2")}>
-        <Button size="md" variant="danger" className="min-h-14 px-2" onClick={() => (fail(), conn.send({ type: "fold" }))}>
-          Fold
+        <Button
+          size="md"
+          variant={canCheck && !armed ? "ghost" : "danger"}
+          className={cx("min-h-14 px-2", canCheck && !armed && "border border-line")}
+          aria-label={armed ? "Confirm fold" : undefined}
+          onClick={fold}
+        >
+          {armed ? <span className="text-sm leading-tight">Tap to fold</span> : "Fold"}
         </Button>
         <Button size="md" variant="secondary" className="min-h-14 px-2" onClick={() => go({ type: canCheck ? "check" : "call" })}>
           {canCheck ? (
