@@ -170,32 +170,14 @@
   100% { opacity: 0; }
 }
 
-.tx-range {
-  appearance: none;
-  width: 100%;
-  height: 28px;
-  background: transparent;
-  touch-action: pan-y;
+@keyframes tx-hold {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
 }
-.tx-range::-webkit-slider-runnable-track { height: 6px; border-radius: 9999px; background: var(--color-surface-2); }
-.tx-range::-moz-range-track { height: 6px; border-radius: 9999px; background: var(--color-surface-2); }
-.tx-range::-webkit-slider-thumb {
-  appearance: none;
-  width: 26px;
-  height: 26px;
-  margin-top: -10px;
-  border-radius: 9999px;
-  border: 0;
-  background: var(--color-accent);
-  box-shadow: 0 0 0 4px oklch(0.2 0.006 260), 0 2px 8px oklch(0 0 0 / 0.6);
-}
-.tx-range::-moz-range-thumb {
-  width: 26px;
-  height: 26px;
-  border-radius: 9999px;
-  border: 0;
-  background: var(--color-accent);
-  box-shadow: 0 0 0 4px oklch(0.2 0.006 260), 0 2px 8px oklch(0 0 0 / 0.6);
+
+.tx-hold {
+  transform-origin: left;
+  animation: tx-hold 3s linear forwards;
 }
 
 @keyframes tx-glow {
@@ -233,5 +215,6 @@
 
 @media (prefers-reduced-motion: reduce) {
   .tx-glow, .tx-win, .tx-in, .tx-rise, .tx-pop, .tx-allin, .tx-allin-call { animation: none; }
+  .tx-hold { display: none; }
   .tx-react { animation-name: tx-fade; }
 }
