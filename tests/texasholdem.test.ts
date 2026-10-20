@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  AFTER_HAND_MS,
   BIG_BLIND,
   FOLD_WIN_MS,
   REACTION_COOLDOWN_MS,
@@ -22,6 +23,7 @@ import {
   removeTxPlayer,
   serverDeadline,
   setTxConnected,
+  streetAnimMs,
   wentAllIn,
   type Rank,
   type TxCard,
@@ -184,7 +186,26 @@ test("full hand to showdown pays the best hand and resets the table", () => {
   assert.equal(reset.board.length, 0);
   assert.equal(reset.pot, 0);
   assert.ok(reset.players.every((p) => p.cards.length === 0 && p.result === null));
-  assert.equal(reset.startAt, s.settleAt! + START_MS);
+  assert.equal(reset.startAt, s.settleAt! + AFTER_HAND_MS);
+});
+
+test("the gap from the last action to the next deal stays short, and late joiners do not move it", () => {
+  let s = table(["a", "b"], { hole: { a: ["As", "Ah"], b: ["Kc", "Kd"] }, board: ["2c", "7d", "9h", "Jc", "3s"] });
+  s = act(act(s, "a", { type: "call" }), "b", { type: "check" });
+  while (s.phase !== "showdown") s = act(act(s, "b", { type: "check" }), "a", { type: "check" });
+  const reset = onDeadline(s, s.settleAt!, newRng());
+  assert.ok(reset.startAt! - NOW <= 6500);
+  const joined = act(addTxPlayer(reset, { id: "c", name: "C" }), "c", { type: "sit", seat: 4 }, reset.startAt! - 500);
+  assert.equal(joined.startAt, reset.startAt);
+});
+
+test("a rebuy after a hand with one funded player still waits the full join beat", () => {
+  let s = table(["a", "b"], { hole: { a: ["As", "Ah"], b: ["Kc", "Kd"] }, board: ["2c", "7d", "9h", "Jc", "3s"] });
+  s = act(act(s, "a", { type: "allIn" }), "b", { type: "call" });
+  while (s.phase !== "showdown") s = onDeadline(s, serverDeadline(s)!);
+  const at = s.settleAt!;
+  s = onDeadline(s, at, newRng());
+  assert.equal(act(s, "b", { type: "rebuy" }, at + 100).startAt, at + 100 + START_MS);
 });
 
 test("min-raise: opening bet, raise size tracks the last full raise", () => {
@@ -259,7 +280,7 @@ test("all-in and called: hands turn up and the board runs out on the server cloc
   assert.equal(player(s, "a").chips, START_CHIPS * 2);
   assert.equal(player(s, "b").chips, 0);
   assert.equal(s.runout, false);
-  assert.equal(RUNOUT_MS, 2200);
+  assert.ok(RUNOUT_MS >= streetAnimMs(3)); // the flop animation must finish before the turn lands
 });
 
 test("side pots: short stack can only win what it covered", () => {

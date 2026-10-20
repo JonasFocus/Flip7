@@ -3,6 +3,7 @@ export { chooseTxIntent, TX_BOT_STYLES, type TxPersonality } from "./bot.ts";
 export { FOLD_HOLD_MS, RAISE_CHIPS, clampRaise, stackRaise } from "./betting.ts";
 export { buildPots, evaluate, madeHand } from "./eval.ts";
 export {
+  AFTER_HAND_MS,
   BIG_BLIND,
   CARD_SLIDE_MS,
   DEAL_STAGGER_MS,
