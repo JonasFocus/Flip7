@@ -326,11 +326,18 @@ test("auto-action: checks when free, folds to a bet, and sits the player out", (
   assert.equal(folded.phase, "showdown");
   assert.equal(player(folded, "a").folded, true);
   assert.equal(player(folded, "a").sitOut, true);
+  assert.equal(player(folded, "a").timedOut, true);
+  assert.equal(player(folded, "b").timedOut, false);
   s = act(act(s, "a", { type: "call" }), "b", { type: "check" });
   const checked = onDeadline(s, serverDeadline(s)!);
   assert.equal(player(checked, "b").sitOut, true);
   assert.equal(checked.turnId, "a");
   assert.equal(checked.phase, "flop");
+  assert.equal(player(checked, "b").timedOut, true);
+  assert.equal(player(act(checked, "b", { type: "sitIn" }), "b").timedOut, false);
+  const manual = act(act(checked, "b", { type: "sitIn" }), "b", { type: "sitOut" });
+  assert.equal(player(manual, "b").sitOut, true);
+  assert.equal(player(manual, "b").timedOut, false);
 });
 
 test("fold stays legal when checking is free, so the client confirm cannot strand a player", () => {
