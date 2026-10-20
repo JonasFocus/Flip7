@@ -26,6 +26,7 @@ import {
   canKickTx,
   dealAnimMs,
   madeHand,
+  paidOut,
   streetAnimMs,
   wentAllIn,
   winLines,
@@ -149,7 +150,7 @@ export function TexasHoldem({ conn }: { conn: TxConnection }) {
   const secs = dealing ? null : left;
 
   // Winnings are already in the stack at showdown; hold them back until the winner is called.
-  const stack = me ? me.chips - (game.phase === "showdown" && !revealed && me.result ? me.result.won : 0) : 0;
+  const stack = me ? me.chips - (game.phase === "showdown" && !revealed ? paidOut(me) : 0) : 0;
   const offline = conn.status !== "open";
 
   async function share() {
@@ -535,7 +536,7 @@ function Seat({
   const dimCard = (c: TxCard | null) => revealed && won && bestOf.length > 0 && c !== null && !bestOf.some((b) => sameCard(b, c));
 
   // Winnings are in the stack already at showdown; hold them back until the winner is called.
-  const shownStack = player.chips - (game.phase === "showdown" && !revealed && player.result ? player.result.won : 0);
+  const shownStack = player.chips - (game.phase === "showdown" && !revealed ? paidOut(player) : 0);
   const faceUp = !mine && player.cards.some((c) => c !== null); // an opponent's hand only arrives face up at showdown
   const size = mine ? "clamp(44px,13vw,54px)" : faceUp ? "clamp(30px,9vw,36px)" : "clamp(22px,6.4vw,28px)";
 

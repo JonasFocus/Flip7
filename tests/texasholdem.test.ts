@@ -18,6 +18,7 @@ import {
   legalActions,
   newDeck,
   onDeadline,
+  paidOut,
   redactTx,
   removeTxPlayer,
   serverDeadline,
@@ -294,6 +295,8 @@ test("an uncalled bet comes back as a refund, not a win for the bigger stack", (
   assert.deepEqual([player(s, "b").chips, player(s, "b").result?.won, player(s, "b").result?.net], [200, 200, 100]);
   assert.deepEqual([player(s, "a").chips, player(s, "a").result?.won, player(s, "a").result?.net], [900, 0, -100]);
   assert.equal(chipsAndPot(s), 1100);
+  // Before the reveal the stacks hold back everything paid out, so the loser shows 0 beside the 1100 pot.
+  assert.deepEqual([paidOut(player(s, "a")), paidOut(player(s, "b"))], [900, 200]);
 });
 
 test("split pot hands the odd chip to the first winner left of the button", () => {

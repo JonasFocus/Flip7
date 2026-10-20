@@ -17,3 +17,6 @@ export function winLines(payees: readonly TxPlayer[], you: string): WinLine[] {
     return { key: p.id, text: `${me ? "You" : p.name} ${verb} ${(p.result?.won ?? 0).toLocaleString()}`, hand: p.result?.hand ?? null };
   });
 }
+
+// Everything showdown paid into the stack: pot winnings plus an uncalled bet returned to its owner.
+export const paidOut = (p: TxPlayer): number => (p.result ? p.result.net + p.total : 0);
