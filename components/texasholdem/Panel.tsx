@@ -1,18 +1,12 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/Button";
 import { cx } from "@/components/ui/cx";
-import { shortAmount } from "@/components/casino/Chip";
+import { Chip, shortAmount } from "@/components/casino/Chip";
 import { fail, success, tap } from "@/lib/client/haptics";
-import { BIG_BLIND, START_CHIPS, TURN_MS, legalActions } from "@/lib/texasholdem";
+import { BIG_BLIND, FOLD_HOLD_MS, RAISE_CHIPS, START_CHIPS, TURN_MS, clampRaise, legalActions, stackRaise } from "@/lib/texasholdem";
 import type { TxConnection, TxIntent, TxPlayer } from "@/lib/texasholdem/types";
-
-const PRESETS = [
-  { label: "Min", fraction: null },
-  { label: "½ pot", fraction: 0.5 },
-  { label: "Pot", fraction: 1 },
-] as const;
 
 export function Panel({
   conn,
@@ -101,18 +95,15 @@ function Status({ children }: { children: ReactNode }) {
   );
 }
 
-const presetClass = (on: boolean) =>
-  cx(
-    "flex min-h-11 flex-col items-center justify-center rounded-xl border text-xs leading-tight font-semibold transition-[background-color,color,transform] duration-150 active:scale-[0.96]",
-    on ? "border-accent/70 bg-accent/15 text-accent" : "border-line bg-surface text-muted active:bg-surface-2 active:text-fg",
-  );
+const chipButton =
+  "flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-line bg-surface transition-[background-color,transform,opacity] duration-150 active:scale-[0.96] active:bg-surface-2 disabled:opacity-30";
 
 const linkButton = "min-h-11 text-xs font-bold tracking-[0.16em] text-muted uppercase active:text-fg disabled:opacity-30";
 
 // Seated but not in this hand: waiting for the next deal, sitting out, or busted.
 function Idle({ conn, me, secs }: { conn: TxConnection; me: TxPlayer; secs: number | null }) {
   const { game } = conn;
-  const broke = me.chips < BIG_BLIND;
+  const broke = me.chips === 0;
   const send = (intent: TxIntent) => {
     tap();
     conn.send(intent);
@@ -149,43 +140,19 @@ function Actions({ conn, me, secs }: { conn: TxConnection; me: TxPlayer; secs: n
   const { game } = conn;
   const legal = legalActions(game, conn.you);
   const [raiseTo, setRaiseTo] = useState(() => legal?.minRaiseTo ?? 0);
-  const [armed, setArmed] = useState(false);
 
   useEffect(() => {
     tap();
   }, []);
 
-  useEffect(() => {
-    if (!armed) return;
-    const id = setTimeout(() => setArmed(false), 2000);
-    return () => clearTimeout(id);
-  }, [armed]);
-
   if (!legal) return <Status>Waiting…</Status>;
 
   const { callAmount, canCheck, canRaise, minRaiseTo, maxRaiseTo } = legal;
-  const amount = Math.min(maxRaiseTo, Math.max(minRaiseTo, raiseTo));
+  const amount = clampRaise(raiseTo, minRaiseTo, maxRaiseTo);
   const allIn = amount >= maxRaiseTo;
-  const potAfterCall = game.pot + callAmount;
-  const clamp = (n: number) => Math.min(maxRaiseTo, Math.max(minRaiseTo, n));
-  const presetTarget = (fraction: number | null) => clamp(fraction === null ? minRaiseTo : game.currentBet + Math.round(potAfterCall * fraction));
-  const preset = (fraction: number | null) => {
-    tap();
-    setRaiseTo(presetTarget(fraction));
-  };
   const go = (intent: TxIntent) => {
     tap();
     conn.send(intent);
-  };
-  // A fold when checking is free is almost always a mistap, so make it a deliberate second tap.
-  const fold = () => {
-    if (canCheck && !armed) {
-      tap();
-      setArmed(true);
-      return;
-    }
-    fail();
-    conn.send({ type: "fold" });
   };
 
   return (
@@ -199,45 +166,31 @@ function Actions({ conn, me, secs }: { conn: TxConnection; me: TxPlayer; secs: n
         secs={secs}
       />
       {canRaise && (
-        <>
-          <div className="grid grid-cols-4 gap-2">
-            {PRESETS.map((p) => (
-              <button key={p.label} type="button" onClick={() => preset(p.fraction)} className={presetClass(amount === presetTarget(p.fraction))}>
-                <span>{p.label}</span>
-                <span className="font-display text-[10px] tabular-nums opacity-70">{shortAmount(presetTarget(p.fraction))}</span>
+        <div className="grid grid-cols-5 items-center gap-2">
+          {RAISE_CHIPS.map((bb) => {
+            const add = bb * BIG_BLIND;
+            return (
+              <button
+                key={bb}
+                type="button"
+                aria-label={`Add ${bb} big blind${bb === 1 ? "" : "s"}, ${add} chips`}
+                disabled={allIn}
+                onClick={() => (tap(), setRaiseTo(stackRaise(amount, bb, minRaiseTo, maxRaiseTo)))}
+                className={chipButton}
+              >
+                <Chip amount={add} label={`+${shortAmount(add)}`} />
               </button>
-            ))}
-            <button type="button" onClick={() => preset(Infinity)} className={presetClass(amount === maxRaiseTo)}>
-              <span>All-in</span>
-              <span className="font-display text-[10px] tabular-nums opacity-70">{shortAmount(maxRaiseTo)}</span>
-            </button>
-          </div>
-          <input
-            type="range"
-            aria-label="Raise amount"
-            min={minRaiseTo}
-            max={maxRaiseTo}
-            step={1}
-            value={amount}
-            onChange={(e) => {
-              const v = Number(e.target.value);
-              // Snap to small-blind steps so the amount reads cleanly; the ends stay exact.
-              setRaiseTo(v >= maxRaiseTo || v <= minRaiseTo ? v : Math.round(v / 10) * 10);
-            }}
-            className="tx-range"
-          />
-        </>
+            );
+          })}
+          <button type="button" onClick={() => (tap(), setRaiseTo(maxRaiseTo))} disabled={allIn} className={cx(chipButton, "text-xs font-bold tracking-wide text-accent uppercase")}>
+            All-in
+          </button>
+          <button type="button" onClick={() => (tap(), setRaiseTo(minRaiseTo))} disabled={amount === minRaiseTo} className={cx(chipButton, "text-xs font-bold tracking-wide text-muted uppercase")}>
+            Min
+          </button>
+        </div>
       )}
-      <div className={cx("grid gap-2.5", canRaise ? "grid-cols-[1fr_1.15fr_1.5fr]" : "grid-cols-2")}>
-        <Button
-          size="md"
-          variant={canCheck && !armed ? "ghost" : "danger"}
-          className={cx("min-h-14 px-2", canCheck && !armed && "border border-line")}
-          aria-label={armed ? "Confirm fold" : undefined}
-          onClick={fold}
-        >
-          {armed ? <span className="text-sm leading-tight">Tap to fold</span> : "Fold"}
-        </Button>
+      <div className={cx("grid gap-2.5", canRaise ? "grid-cols-2" : "grid-cols-1")}>
         <Button size="md" variant="secondary" className="min-h-14 px-2" onClick={() => go({ type: canCheck ? "check" : "call" })}>
           {canCheck ? (
             "Check"
@@ -251,7 +204,72 @@ function Actions({ conn, me, secs }: { conn: TxConnection; me: TxPlayer; secs: n
           </Button>
         )}
       </div>
+      <HoldToFold onFold={() => (fail(), conn.send({ type: "fold" }))} />
     </>
+  );
+}
+
+// Fold only goes through after a deliberate hold, so a stray tap can't throw the hand away.
+// Works with touch, mouse and the keyboard (hold Space or Enter); letting go early cancels.
+function HoldToFold({ onFold }: { onFold: () => void }) {
+  const [held, setHeld] = useState<number | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tick = useRef<ReturnType<typeof setInterval> | null>(null);
+  const onFoldRef = useRef(onFold);
+  useEffect(() => {
+    onFoldRef.current = onFold;
+  });
+
+  const stop = useCallback(() => {
+    if (timer.current) clearTimeout(timer.current);
+    if (tick.current) clearInterval(tick.current);
+    timer.current = null;
+    tick.current = null;
+    setHeld(null);
+  }, []);
+
+  const start = useCallback(() => {
+    if (timer.current) return;
+    const t0 = Date.now();
+    tap();
+    setHeld(0);
+    tick.current = setInterval(() => setHeld(Math.min(FOLD_HOLD_MS, Date.now() - t0)), 100);
+    timer.current = setTimeout(() => {
+      stop();
+      onFoldRef.current();
+    }, FOLD_HOLD_MS);
+  }, [stop]);
+
+  useEffect(() => stop, [stop]);
+
+  const left = held === null ? null : Math.max(1, Math.ceil((FOLD_HOLD_MS - held) / 1000));
+  return (
+    <button
+      type="button"
+      aria-label="Fold, hold for 3 seconds"
+      onPointerDown={(e) => {
+        if (e.button !== 0) return;
+        e.currentTarget.setPointerCapture(e.pointerId);
+        start();
+      }}
+      onPointerUp={stop}
+      onPointerCancel={stop}
+      onLostPointerCapture={stop}
+      onKeyDown={(e) => {
+        if (e.key !== " " && e.key !== "Enter") return;
+        e.preventDefault();
+        if (!e.repeat) start();
+      }}
+      onKeyUp={(e) => {
+        if (e.key === " " || e.key === "Enter") stop();
+      }}
+      onBlur={stop}
+      onContextMenu={(e) => e.preventDefault()}
+      className="press relative min-h-14 touch-none overflow-hidden rounded-2xl border border-danger/60 bg-surface font-display text-sm tracking-wide text-danger uppercase select-none [--press-shadow:var(--color-danger-deep)]"
+    >
+      {held !== null && <span aria-hidden className="tx-hold absolute inset-y-0 left-0 w-full bg-danger/70" />}
+      <span className={cx("relative", held !== null && "text-ink")}>{left === null ? "Hold to fold" : `Keep holding… ${left}s`}</span>
+    </button>
   );
 }
 

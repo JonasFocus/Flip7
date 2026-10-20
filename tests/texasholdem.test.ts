@@ -129,6 +129,22 @@ test("the button moves one seat each hand and skips players who sit out", () => 
   assert.equal(s.bbId, "a");
 });
 
+test("heads-up: a short big blind does not leave the small blind facing a bet", () => {
+  const s = table(["a", "b"], { chips: { a: 2000, b: 5 }, hole: { a: ["As", "Ah"], b: ["Kc", "Kd"] }, board: ["2c", "3d", "7h", "9s", "Jc"] });
+  assert.equal(s.bbId, "b");
+  assert.equal(player(s, "b").total, 5);
+  assert.equal(player(s, "b").allIn, true);
+  assert.equal(player(s, "a").total, SMALL_BLIND);
+  assert.equal(s.turnId, null); // the small blind has nothing to decide, so the hand runs out
+  assert.equal(s.runout, true);
+});
+
+test("multiway: a short big blind still leaves the blind amount to call", () => {
+  const s = table(["a", "b", "c"], { chips: { a: 2000, b: 2000, c: 5 } });
+  assert.equal(s.bbId, "c");
+  assert.equal(s.currentBet, BIG_BLIND);
+});
+
 test("everyone folds: the last player wins the pot unseen", () => {
   let s = table(["a", "b"], { hole: { a: ["As", "Ah"], b: ["Kc", "Kd"] } });
   s = act(s, "a", { type: "fold" });
@@ -348,9 +364,47 @@ test("busted players rebuy between hands, only when low and not in a hand", () =
   s = onDeadline(s, s.settleAt!, newRng());
   assert.equal(s.startAt, null); // b is broke, one funded player cannot play
   assert.equal(err(s, "a", { type: "rebuy" }), "You still have chips");
+  assert.equal(player(s, "b").chips, 0);
   s = act(s, "b", { type: "rebuy" }, s.settleAt ?? NOW);
   assert.equal(player(s, "b").chips, START_CHIPS);
   assert.ok(s.startAt !== null);
+});
+
+test("rebuy is rejected with a short stack and allowed at zero", () => {
+  const lobby = (chips: number): TxState => {
+    let s = createTxGame();
+    s = addTxPlayer(s, { id: "a", name: "A" });
+    return { ...s, players: s.players.map((p) => ({ ...p, chips })) };
+  };
+  assert.equal(err(lobby(1), "a", { type: "rebuy" }), "You still have chips");
+  assert.equal(err(lobby(BIG_BLIND - 1), "a", { type: "rebuy" }), "You still have chips");
+  assert.equal(player(act(lobby(0), "a", { type: "rebuy" }), "a").chips, START_CHIPS);
+});
+
+test("leaving and rejoining keeps a stack above zero, a bust gets a fresh one", () => {
+  let s = createTxGame();
+  s = addTxPlayer(s, { id: "a", name: "A" });
+  s = { ...s, players: s.players.map((p) => ({ ...p, chips: 7 })) };
+  s = removeTxPlayer(s, "a", { now: NOW });
+  assert.equal(s.players.length, 0);
+  s = addTxPlayer(s, { id: "a", name: "A" });
+  assert.equal(player(s, "a").chips, 7);
+  assert.deepEqual(s.stacks, {});
+  s = { ...s, players: s.players.map((p) => ({ ...p, chips: 0 })) };
+  s = removeTxPlayer(s, "a", { now: NOW });
+  s = addTxPlayer(s, { id: "a", name: "A" });
+  assert.equal(player(s, "a").chips, START_CHIPS);
+});
+
+test("a mid-hand leaver keeps their remaining chips for a later rejoin", () => {
+  let s = table(["a", "b", "c"]);
+  s = removeTxPlayer(s, "c", { now: NOW });
+  const kept = player(s, "c").chips;
+  while (s.phase !== "lobby") s = onDeadline(s, serverDeadline(s) ?? s.settleAt ?? NOW, newRng());
+  assert.equal(s.stacks["c"], kept);
+  s = addTxPlayer(s, { id: "c", name: "C" });
+  assert.equal(player(s, "c").chips, kept);
+  assert.deepEqual(redactTx({ ...s, stacks: { z: 5 } }, "a").stacks, {});
 });
 
 test("joiners sit between hands and are dealt in next hand only", () => {
@@ -591,4 +645,23 @@ test("wentAllIn names the player who just shoved, but not a blind posted all-in 
   const dealt = onDeadline(lobby, 1000 + START_MS, newRng());
   assert.ok(dealt.players.some((p) => p.allIn));
   assert.equal(wentAllIn(lobby, dealt), null);
+});
+
+test("three-handed bust to heads-up: last hand's big blind takes the button and small blind", () => {
+  const s = table(["a", "b", "c"]);
+  assert.equal(s.button, 0);
+  assert.equal(s.sbId, "b");
+  assert.equal(s.bbId, "c");
+  const lobby: TxState = {
+    ...s,
+    phase: "lobby",
+    startAt: 5000,
+    players: s.players.map((p) => ({ ...p, bet: 0, total: 0, folded: false, allIn: false, cards: [], chips: p.id === "a" ? 0 : START_CHIPS })),
+  };
+  const next = onDeadline(lobby, 5000, newRng());
+  assert.equal(next.phase, "preflop");
+  assert.equal(next.sbId, "c");
+  assert.equal(next.bbId, "b");
+  assert.equal(next.button, 2);
+  assert.equal(next.turnId, "c");
 });
