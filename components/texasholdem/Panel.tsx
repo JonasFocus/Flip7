@@ -60,8 +60,10 @@ export function Panel({
   }
 
   // Re-keyed per state so each change (your move, a result, between hands) eases in instead of snapping.
+  // The floor is the tallest view (your move, 210px of content) plus the home-indicator inset that pb-safe-3 adds,
+  // so the felt above never resizes when your turn starts.
   return (
-    <footer className="flex min-h-[196px] flex-col justify-center px-4 pt-1 pb-safe-3">
+    <footer className="flex min-h-[calc(226px+env(safe-area-inset-bottom))] flex-col justify-center px-4 pt-1 pb-safe-3">
       <div key={view} className="tx-rise flex flex-col gap-2">
         {body}
       </div>
