@@ -129,6 +129,22 @@ test("the button moves one seat each hand and skips players who sit out", () => 
   assert.equal(s.bbId, "a");
 });
 
+test("heads-up: a short big blind does not leave the small blind facing a bet", () => {
+  const s = table(["a", "b"], { chips: { a: 2000, b: 5 }, hole: { a: ["As", "Ah"], b: ["Kc", "Kd"] }, board: ["2c", "3d", "7h", "9s", "Jc"] });
+  assert.equal(s.bbId, "b");
+  assert.equal(player(s, "b").total, 5);
+  assert.equal(player(s, "b").allIn, true);
+  assert.equal(player(s, "a").total, SMALL_BLIND);
+  assert.equal(s.turnId, null); // the small blind has nothing to decide, so the hand runs out
+  assert.equal(s.runout, true);
+});
+
+test("multiway: a short big blind still leaves the blind amount to call", () => {
+  const s = table(["a", "b", "c"], { chips: { a: 2000, b: 2000, c: 5 } });
+  assert.equal(s.bbId, "c");
+  assert.equal(s.currentBet, BIG_BLIND);
+});
+
 test("everyone folds: the last player wins the pot unseen", () => {
   let s = table(["a", "b"], { hole: { a: ["As", "Ah"], b: ["Kc", "Kd"] } });
   s = act(s, "a", { type: "fold" });
