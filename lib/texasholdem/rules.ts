@@ -385,6 +385,12 @@ export function onDeadline(s: TxState, now: number, rng: Rng = cryptoRng): TxSta
   return seal(proceed(patch(timedOut, actor.id, (p) => ({ ...p, folded: true })), seatOf(actor), now, rng), s);
 }
 
+// The player who just shoved, for the table's all-in moment. A blind posted all-in at the deal doesn't count.
+export function wentAllIn(prev: TxState, next: TxState): TxPlayer | null {
+  if (prev.round !== next.round) return null;
+  return next.players.filter((p) => p.allIn && !p.folded && !prev.players.find((q) => q.id === p.id)?.allIn).at(-1) ?? null;
+}
+
 // Your own cards always show; everyone else's stay face down until they are shown down (or run out all-in).
 export function redactTx(s: TxState, viewerId: string): TxState {
   const contested = s.players.filter(isLive).length > 1;

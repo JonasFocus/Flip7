@@ -24,6 +24,7 @@ import {
   dealAnimMs,
   madeHand,
   streetAnimMs,
+  wentAllIn,
 } from "@/lib/texasholdem";
 import type { TxCard, TxConnection, TxPlayer, TxState } from "@/lib/texasholdem/types";
 import { Panel } from "./Panel";
@@ -55,6 +56,7 @@ const SWEEP_BETS_MS = 900; // bets glide to the pot
 const AWARD_MS = 1100;
 const RESULT_BEAT_MS = 1000; // showdown: hands face up for a beat before the winner is called
 const FOLD_RESULT_BEAT_MS = 400;
+const ALL_IN_MS = 2600; // matches the tx-allin animation
 const BOARD_SIZE = "clamp(36px,10.4vw,46px)";
 const STREET: Record<TxState["phase"], string> = { lobby: "", preflop: "PRE-FLOP", flop: "FLOP", turn: "TURN", river: "RIVER", showdown: "SHOWDOWN" };
 
@@ -114,6 +116,23 @@ function winBanner(payees: readonly TxPlayer[], you: string): { title: string; h
 }
 
 const sameCard = (a: TxCard, b: TxCard) => a.rank === b.rank && a.suit === b.suit;
+
+// A shove lights the table up for a moment: who went in and for how much.
+function useAllInMoment(game: TxState): { key: number; id: string; name: string; amount: number } | null {
+  const [prev, setPrev] = useState(game);
+  const [moment, setMoment] = useState<{ key: number; id: string; name: string; amount: number } | null>(null);
+  if (game !== prev) {
+    const shover = wentAllIn(prev, game);
+    setPrev(game);
+    if (shover) setMoment({ key: game.seq, id: shover.id, name: shover.name, amount: shover.total });
+  }
+  useEffect(() => {
+    if (!moment) return;
+    const t = setTimeout(() => setMoment(null), ALL_IN_MS);
+    return () => clearTimeout(t);
+  }, [moment]);
+  return moment;
+}
 
 export function TexasHoldem({ conn }: { conn: TxConnection }) {
   const [toast, setToast] = useState<string | null>(null);
@@ -200,6 +219,7 @@ function Felt({ conn, me, revealed, clearing, secs }: { conn: TxConnection; me: 
 
   const payees = game.phase === "showdown" && revealed ? game.players.filter((p) => (p.result?.won ?? 0) > 0) : [];
   const banner = payees.length > 0 ? winBanner(payees, conn.you) : null;
+  const allIn = useAllInMoment(game);
 
   function sit(seat: number) {
     if (!canSit) return;
@@ -210,6 +230,7 @@ function Felt({ conn, me, revealed, clearing, secs }: { conn: TxConnection; me: 
   return (
     <section aria-label="Table" data-table className="tx-table relative mx-2 min-h-0 flex-1">
       <div aria-hidden className="tx-felt absolute inset-x-0 top-[3%] bottom-[3%]" />
+      {allIn && <div key={allIn.key} aria-hidden className="tx-allin pointer-events-none absolute inset-x-0 top-[3%] bottom-[3%]" />}
 
       <div aria-hidden data-deck className="absolute top-[1%] left-[2%] h-[38px] w-[27px]">
         {[0, 1, 2].map((i) => (
@@ -251,6 +272,13 @@ function Felt({ conn, me, revealed, clearing, secs }: { conn: TxConnection; me: 
           <p key={`${game.round}-banner`} role="status" className="tx-pop flex max-w-full flex-col items-center rounded-2xl border border-active/50 bg-[oklch(0.15_0.003_260/0.92)] px-4 py-1.5 text-center shadow-[0_8px_24px_-8px_oklch(0_0_0/0.8)]">
             <span className="max-w-full truncate font-display text-sm tracking-wide text-active">{banner.title}</span>
             {banner.hand && <span className="max-w-full truncate text-[11px] text-fg/70">{banner.hand}</span>}
+          </p>
+        ) : allIn ? (
+          <p key={allIn.key} role="status" className="tx-allin-call flex flex-col items-center text-center">
+            <span className="font-display text-xl leading-none tracking-[0.18em] tabular-nums">
+              <span className="text-[oklch(0.7_0.24_25)]">ALL IN</span> <span className="text-fg">{allIn.amount.toLocaleString()}</span>
+            </span>
+            <span className="mt-1 max-w-full truncate font-display text-[11px] tracking-[0.14em] text-fg/80">{allIn.id === conn.you ? "YOU" : allIn.name.toUpperCase()}</span>
           </p>
         ) : pots.length > 1 && game.players.some((p) => p.allIn && p.total > 0) ? (
           <p className="font-display text-[10px] tracking-[0.1em] text-fg/50 tabular-nums">
