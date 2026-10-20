@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 
 const panel = readFileSync(new URL("../components/texasholdem/Panel.tsx", import.meta.url), "utf8");
+const table = readFileSync(new URL("../components/texasholdem/TexasHoldem.tsx", import.meta.url), "utf8");
 const css = readFileSync(new URL("../components/texasholdem/texasholdem.css", import.meta.url), "utf8");
 
 test("your turn buzzes with the success pattern, not the 10ms tap", () => {
@@ -26,4 +27,18 @@ test("the low pulse stops under reduced motion", () => {
   assert.match(css, /\.tx-low \{ animation: tx-low /);
   const reduced = css.slice(css.indexOf("prefers-reduced-motion: reduce"));
   assert.match(reduced, /\.tx-low/);
+});
+
+const ring = table.slice(table.indexOf("function TurnRing"), table.indexOf("function Seat("));
+
+test("the acting seat gets a countdown ring that shares the panel's clock and low threshold", () => {
+  assert.match(ring, /secs \/ \(TURN_MS \/ 1000\)/);
+  assert.match(ring, /secs <= LOW_SECS/);
+  assert.match(ring, /strokeDashoffset=\{1 - left\}/);
+  assert.match(table, /\{turn && secs !== null && <TurnRing secs=\{secs\} \/>\}/);
+});
+
+test("the countdown ring stops easing and pulsing under reduced motion", () => {
+  assert.match(ring, /motion-reduce:transition-none/);
+  assert.match(ring, /tx-low/);
 });

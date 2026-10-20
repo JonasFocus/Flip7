@@ -23,3 +23,6 @@ export const paidOut = (p: TxPlayer): number => (p.result ? p.result.net + p.tot
 
 // The stack as the table shows it before the winner is called: at showdown the payout is already in `chips`.
 export const stackBeforeAward = (p: TxPlayer, phase: TxState["phase"]): number => (phase === "showdown" ? p.chips - paidOut(p) : p.chips);
+
+// What showdown actually contested: every chip paid out of the pots, so an uncalled bet returned to its owner is not counted.
+export const potWon = (players: readonly TxPlayer[]): number => players.reduce((n, p) => n + (p.result?.won ?? 0), 0);

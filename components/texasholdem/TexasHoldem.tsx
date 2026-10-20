@@ -18,6 +18,7 @@ import {
   CARD_SLIDE_MS,
   DEAL_STAGGER_MS,
   FOLD_WIN_MS,
+  MAX_TX_BOTS,
   REACTION_COOLDOWN_MS,
   SEATS,
   SHOWDOWN_MS,
@@ -26,6 +27,7 @@ import {
   TX_REACTIONS,
   buildPots,
   canKickTx,
+  isTxBotId,
   dealAnimMs,
   madeHand,
   stackBeforeAward,
@@ -34,7 +36,7 @@ import {
   winLines,
 } from "@/lib/texasholdem";
 import type { TxCard, TxConnection, TxPlayer, TxReaction, TxState } from "@/lib/texasholdem/types";
-import { Panel } from "./Panel";
+import { LOW_SECS, Panel } from "./Panel";
 
 // Seats are placed by hand (percent of the table) so plates stay clear of the board on a 375px phone; index = seat relative to you, clockwise.
 const SEAT_POS = [
@@ -280,6 +282,9 @@ function Felt({ conn, me, revealed, clearing, secs }: { conn: TxConnection; me: 
   const shownLines = lines.slice(0, MAX_WIN_ROWS);
   const allIn = useAllInMoment(game);
 
+  const bots = game.players.filter((p) => isTxBotId(p.id) && !p.gone).length;
+  const canAddBot = bots < MAX_TX_BOTS && game.players.filter((p) => p.seat !== null).length < SEATS;
+
   function sit(seat: number) {
     if (!canSit) return;
     tap();
@@ -359,6 +364,11 @@ function Felt({ conn, me, revealed, clearing, secs }: { conn: TxConnection; me: 
           </p>
         ) : (
           <p className="font-display text-[11px] tracking-[0.26em] text-fg/80">{STREET[game.phase]}</p>
+        )}
+        {conn.isHost && game.phase === "lobby" && (
+          <button type="button" disabled={!canAddBot} onClick={() => (tap(), conn.addBot())} className="pointer-events-auto min-h-11 rounded-full border border-white/20 px-3 font-display text-[11px] tracking-[0.14em] text-fg/85 active:bg-white/10 disabled:opacity-30">
+            + BOT
+          </button>
         )}
       </div>
 
@@ -493,6 +503,27 @@ function Dealt({
   return <CardFace ref={ref} card={card} pips size={size} className={cx("transition-[filter,opacity,font-size] duration-500", dim && "opacity-40 brightness-75", className)} style={style} />;
 }
 
+// The panel's turn clock, drawn round the acting seat so everyone can see whose time is running.
+function TurnRing({ secs }: { secs: number }) {
+  const low = secs <= LOW_SECS;
+  const left = Math.min(1, secs / (TURN_MS / 1000));
+  return (
+    <svg aria-hidden viewBox="0 0 36 36" className="pointer-events-none absolute -top-[7px] -left-[7px] size-[calc(100%+14px)] -rotate-90">
+      <circle
+        cx="18"
+        cy="18"
+        r="17"
+        fill="none"
+        strokeWidth="1.5"
+        pathLength={1}
+        strokeDasharray={1}
+        strokeDashoffset={1 - left}
+        className={cx("transition-[stroke-dashoffset] duration-1000 ease-linear motion-reduce:transition-none", low ? "tx-low stroke-danger" : "stroke-accent")}
+      />
+    </svg>
+  );
+}
+
 function Seat({
   conn,
   player,
@@ -606,6 +637,7 @@ function Seat({
         )}
       >
         <Avatar id={player.id} seat={player.seat ?? undefined} name={player.name} />
+        {turn && secs !== null && <TurnRing secs={secs} />}
         {game.button === player.seat && (
           <span aria-label="Dealer button" className="absolute top-1/2 -left-3.5 z-10 grid size-[18px] -translate-y-1/2 place-items-center rounded-full bg-fg font-display text-[10px] text-ink shadow-[0_2px_6px_oklch(0_0_0/0.6)]">
             D
@@ -614,6 +646,11 @@ function Seat({
         {(game.sbId === player.id || game.bbId === player.id) && inHand && (
           <span aria-label={game.sbId === player.id ? "Small blind" : "Big blind"} className="absolute top-1/2 -right-3.5 z-10 -translate-y-1/2 rounded-full bg-accent px-1 font-display text-[9px] leading-4 text-ink shadow-[0_2px_6px_oklch(0_0_0/0.6)]">
             {game.sbId === player.id ? "SB" : "BB"}
+          </span>
+        )}
+        {isTxBotId(player.id) && (
+          <span aria-label="Bot" className="absolute -top-1.5 -left-3 z-10 rounded-full bg-fg px-1 font-display text-[9px] leading-4 text-ink shadow-[0_2px_6px_oklch(0_0_0/0.6)]">
+            BOT
           </span>
         )}
         {won && result && <Chip ref={awardRef} amount={result.won} size="sm" className="absolute -top-4 -right-6 z-20" />}

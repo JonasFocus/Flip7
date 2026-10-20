@@ -5,10 +5,10 @@ import { Button } from "@/components/ui/Button";
 import { cx } from "@/components/ui/cx";
 import { Chip, shortAmount } from "@/components/casino/Chip";
 import { fail, success, tap } from "@/lib/client/haptics";
-import { BIG_BLIND, FOLD_HOLD_MS, RAISE_CHIPS, START_CHIPS, TURN_MS, clampRaise, legalActions, stackRaise } from "@/lib/texasholdem";
+import { BIG_BLIND, FOLD_HOLD_MS, RAISE_CHIPS, START_CHIPS, TURN_MS, clampRaise, legalActions, potWon, stackRaise } from "@/lib/texasholdem";
 import type { TxConnection, TxIntent, TxPlayer } from "@/lib/texasholdem/types";
 
-const LOW_SECS = 5; // the clock turns urgent and your phone buzzes again at this many seconds left
+export const LOW_SECS = 5; // the clock turns urgent and your phone buzzes again at this many seconds left
 
 export function Panel({
   conn,
@@ -67,6 +67,7 @@ export function Panel({
   return (
     <footer className="flex min-h-[calc(226px+env(safe-area-inset-bottom))] flex-col justify-center px-4 pt-1 pb-safe-3">
       <div key={view} className="tx-rise flex flex-col gap-2">
+        {me?.timedOut && <TimedOutNotice conn={conn} />}
         {body}
       </div>
     </footer>
@@ -87,6 +88,22 @@ function TurnClock({ label, secs }: { label: ReactNode; secs: number | null }) {
       <div className="h-1.5 overflow-hidden rounded-full bg-surface-2">
         <div className={cx("h-full origin-left rounded-full transition-[width] duration-1000 ease-linear motion-reduce:transition-none", low ? "tx-low bg-danger" : "bg-accent")} style={{ width: `${pct}%` }} />
       </div>
+    </div>
+  );
+}
+
+// Shown on every panel view until they sit back in, so a clock-forced sit out is never a silent surprise.
+function TimedOutNotice({ conn }: { conn: TxConnection }) {
+  return (
+    <div role="status" className="flex items-center justify-between gap-3 rounded-2xl border border-danger px-4 py-2 text-sm">
+      <span>You timed out and were sat out.</span>
+      <button
+        type="button"
+        onClick={() => (tap(), conn.send({ type: "sitIn" }))}
+        className="min-h-11 shrink-0 text-xs font-bold tracking-[0.16em] text-accent uppercase active:text-fg"
+      >
+        Sit back in
+      </button>
     </div>
   );
 }
@@ -294,7 +311,9 @@ function MyResult({ conn, me, secs }: { conn: TxConnection; me: TxPlayer; secs: 
   const { game } = conn;
   const result = me.result;
   const net = result?.net ?? 0;
-  const won = (result?.won ?? 0) > 0;
+  const take = result?.won ?? 0;
+  const won = take > 0;
+  const pot = potWon(game.players);
   const onlyLive = game.players.filter((p) => p.cards.length > 0 && !p.folded).length === 1;
   const canShow = !me.folded && onlyLive && !me.shown && result?.hand == null;
 
@@ -309,6 +328,8 @@ function MyResult({ conn, me, secs }: { conn: TxConnection; me: TxPlayer; secs: 
         <p className={cx("font-display text-3xl", won ? "text-active" : me.folded ? "text-muted" : "text-danger")}>{won ? (net > 0 ? "YOU WIN" : "SPLIT POT") : me.folded ? "FOLDED" : "LOST"}</p>
         {result?.hand && <p className="text-sm text-muted">{result.hand}</p>}
         <p className="font-display text-lg tabular-nums">{net > 0 ? `+${net.toLocaleString()}` : net < 0 ? `−${(-net).toLocaleString()}` : "Even"}</p>
+        {won && take < pot && <p className="text-sm text-muted tabular-nums">{`Won ${take.toLocaleString()} of ${pot.toLocaleString()}`}</p>}
+        <p className="text-sm text-muted tabular-nums">Stack {me.chips.toLocaleString()}</p>
         {secs !== null && <p className="text-xs text-muted tabular-nums">Next hand in {secs}s</p>}
       </div>
       {canShow && (
