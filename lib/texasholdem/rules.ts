@@ -42,7 +42,7 @@ const seatOf = (p: TxPlayer): number => p.seat ?? -1;
 const bySeat = (a: TxPlayer, b: TxPlayer) => seatOf(a) - seatOf(b);
 const isLive = (p: TxPlayer): boolean => p.cards.length > 0 && !p.folded;
 const canAct = (p: TxPlayer): boolean => isLive(p) && !p.allIn;
-const isDealable = (p: TxPlayer): boolean => p.seat !== null && !p.sitOut && !p.gone && p.chips > 0;
+const isDealable = (p: TxPlayer): boolean => p.seat !== null && p.connected && !p.sitOut && !p.gone && p.chips > 0;
 const isStreet = (phase: TxPhase): boolean => phase === "preflop" || phase === "flop" || phase === "turn" || phase === "river";
 const holeOf = (p: TxPlayer): TxCard[] => p.cards.filter((c): c is TxCard => c !== null);
 
@@ -118,7 +118,8 @@ export function addTxPlayer(s: TxState, p: { id: string; name: string }): TxStat
 export function setTxConnected(s: TxState, id: string, connected: boolean, now: number): TxState {
   const p = s.players.find((x) => x.id === id);
   if (!p || p.connected === connected) return s;
-  return seal(syncLobby(patch(s, id, (x) => ({ ...x, connected, sitOut: !connected })), now), s);
+  // Rejoining cancels a mid-hand leave: still folded this hand, but kept at the table.
+  return seal(syncLobby(patch(s, id, (x) => ({ ...x, connected, gone: connected ? false : x.gone })), now), s);
 }
 
 function startHand(s: TxState, now: number, rng: Rng): TxState {
@@ -284,7 +285,7 @@ export function removeTxPlayer(s: TxState, id: string, opts: { now: number; rng?
   const rng = opts.rng ?? cryptoRng;
   if (me.cards.length === 0) return syncLobby({ ...s, players: s.players.filter((p) => p.id !== id), seq: s.seq + 1 }, opts.now);
   // Their chips stay in the pot, so the seat lingers (folded) until the hand ends.
-  const folded = patch(s, id, (p) => ({ ...p, folded: true, gone: true, connected: false, sitOut: true }));
+  const folded = patch(s, id, (p) => ({ ...p, folded: true, gone: true, connected: false }));
   if (s.phase === "showdown") return { ...folded, seq: s.seq + 1 };
   if (s.turnId === id) return seal(proceed(folded, seatOf(me), opts.now, rng), s);
   return seal(resume(folded, opts.now, rng), s);
