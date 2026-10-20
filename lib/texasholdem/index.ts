@@ -2,6 +2,7 @@ export * from "./types.ts";
 export { chooseTxIntent, TX_BOT_STYLES, type TxPersonality } from "./bot.ts";
 export { FOLD_HOLD_MS, RAISE_CHIPS, clampRaise, stackRaise } from "./betting.ts";
 export { buildPots, evaluate, madeHand } from "./eval.ts";
+export { facing, preActionIntent, type Facing, type PreAction } from "./preaction.ts";
 export { paidOut, winLines, type WinLine } from "./winners.ts";
 export {
   BIG_BLIND,
