@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  AFTER_HAND_MS,
   BIG_BLIND,
   DROP_GRACE_MS,
   FOLD_WIN_MS,
@@ -190,7 +191,7 @@ test("full hand to showdown pays the best hand and resets the table", () => {
   assert.equal(reset.board.length, 0);
   assert.equal(reset.pot, 0);
   assert.ok(reset.players.every((p) => p.cards.length === 0 && p.result === null));
-  assert.equal(reset.startAt, s.settleAt! + START_MS);
+  assert.equal(reset.startAt, s.settleAt! + AFTER_HAND_MS);
 });
 
 test("a busted player in a three-handed game keeps the full beat to rebuy and is dealt in", () => {
