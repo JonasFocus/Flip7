@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { cx } from "@/components/ui/cx";
 import { shortAmount } from "@/components/casino/Chip";
 import { fail, success, tap } from "@/lib/client/haptics";
-import { BIG_BLIND, START_CHIPS, TURN_MS, legalActions } from "@/lib/texasholdem";
+import { BIG_BLIND, LOW_TURN_SECS, START_CHIPS, TURN_MS, legalActions } from "@/lib/texasholdem";
 import type { TxConnection, TxIntent, TxPlayer } from "@/lib/texasholdem/types";
 
 const PRESETS = [
@@ -79,15 +79,15 @@ export function Panel({
 function TurnClock({ label, secs }: { label: ReactNode; secs: number | null }) {
   const total = TURN_MS / 1000;
   const pct = secs === null ? 100 : Math.min(100, (secs / total) * 100);
-  const low = secs !== null && secs <= 5;
+  const low = secs !== null && secs <= LOW_TURN_SECS;
   return (
     <div className="flex flex-col gap-1.5" role="timer" aria-label={secs === null ? undefined : `${secs} seconds left`}>
       <div className="flex items-baseline justify-between font-display text-[13px] tracking-wide">
         <span className="truncate">{label}</span>
-        {secs !== null && <span className={cx("tabular-nums", low ? "text-danger" : "text-muted")}>{secs}s</span>}
+        {secs !== null && <span className={cx("text-[15px] font-semibold tabular-nums", low ? "tx-low text-danger" : "text-muted")}>{secs}s</span>}
       </div>
-      <div className="h-1 overflow-hidden rounded-full bg-surface-2">
-        <div className={cx("h-full origin-left rounded-full transition-[width] duration-1000 ease-linear", low ? "bg-danger" : "bg-accent")} style={{ width: `${pct}%` }} />
+      <div className="h-1.5 overflow-hidden rounded-full bg-surface-2">
+        <div className={cx("h-full origin-left rounded-full transition-[width] duration-1000 ease-linear", low ? "tx-low bg-danger" : "bg-accent")} style={{ width: `${pct}%` }} />
       </div>
     </div>
   );
@@ -152,8 +152,12 @@ function Actions({ conn, me, secs }: { conn: TxConnection; me: TxPlayer; secs: n
   const [armed, setArmed] = useState(false);
 
   useEffect(() => {
-    tap();
+    success();
   }, []);
+
+  useEffect(() => {
+    if (secs === LOW_TURN_SECS) fail();
+  }, [secs]);
 
   useEffect(() => {
     if (!armed) return;
