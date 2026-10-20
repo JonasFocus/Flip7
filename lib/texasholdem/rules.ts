@@ -283,6 +283,14 @@ export function legalActions(s: TxState, id: string): TxActions | null {
   };
 }
 
+// The host may remove someone between hands, or at any time once they are offline or sitting out.
+export function canKickTx(s: TxState, id: string): boolean {
+  const p = s.players.find((x) => x.id === id);
+  if (!p) return false;
+  if (s.phase === "lobby") return true;
+  return !p.gone && (!p.connected || p.sitOut);
+}
+
 export function removeTxPlayer(s: TxState, id: string, opts: { now: number; rng?: Rng }): TxState {
   const me = s.players.find((p) => p.id === id);
   if (!me) return s;
