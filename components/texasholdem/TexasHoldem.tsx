@@ -32,7 +32,7 @@ import {
   winLines,
 } from "@/lib/texasholdem";
 import type { TxCard, TxConnection, TxPlayer, TxReaction, TxState } from "@/lib/texasholdem/types";
-import { Panel } from "./Panel";
+import { LOW_SECS, Panel } from "./Panel";
 
 // Seats are placed by hand (percent of the table) so plates stay clear of the board on a 375px phone; index = seat relative to you, clockwise.
 const SEAT_POS = [
@@ -494,6 +494,27 @@ function Dealt({
   return <CardFace ref={ref} card={card} pips size={size} className={cx("transition-[filter,opacity,font-size] duration-500", dim && "opacity-40 brightness-75", className)} style={style} />;
 }
 
+// The panel's turn clock, drawn round the acting seat so everyone can see whose time is running.
+function TurnRing({ secs }: { secs: number }) {
+  const low = secs <= LOW_SECS;
+  const left = Math.min(1, secs / (TURN_MS / 1000));
+  return (
+    <svg aria-hidden viewBox="0 0 36 36" className="pointer-events-none absolute -top-[7px] -left-[7px] size-[calc(100%+14px)] -rotate-90">
+      <circle
+        cx="18"
+        cy="18"
+        r="17"
+        fill="none"
+        strokeWidth="1.5"
+        pathLength={1}
+        strokeDasharray={1}
+        strokeDashoffset={1 - left}
+        className={cx("transition-[stroke-dashoffset] duration-1000 ease-linear motion-reduce:transition-none", low ? "tx-low stroke-danger" : "stroke-accent")}
+      />
+    </svg>
+  );
+}
+
 function Seat({
   conn,
   player,
@@ -606,6 +627,7 @@ function Seat({
         )}
       >
         <Avatar id={player.id} seat={player.seat ?? undefined} name={player.name} />
+        {turn && secs !== null && <TurnRing secs={secs} />}
         {game.button === player.seat && (
           <span aria-label="Dealer button" className="absolute top-1/2 -left-3.5 z-10 grid size-[18px] -translate-y-1/2 place-items-center rounded-full bg-fg font-display text-[10px] text-ink shadow-[0_2px_6px_oklch(0_0_0/0.6)]">
             D
