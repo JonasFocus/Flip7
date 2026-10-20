@@ -1,5 +1,5 @@
 import { categoryIndex, evaluate, rankValue } from "./eval.ts";
-import { legalActions } from "./rules.ts";
+import { isTxBotId, legalActions } from "./rules.ts";
 import type { TxActions, TxCard, TxIntent, TxState } from "./types.ts";
 
 export type TxPersonality = "tight" | "maniac" | "station";
@@ -119,4 +119,33 @@ export function chooseTxIntent(s: TxState, botId: string, personality: TxPersona
   const potOdds = legal.callAmount / (s.pot + legal.callAmount);
   const worthPlaying = s.board.length > 0 || tier >= knobs.openTier;
   return legalize(worthPlaying && strength > potOdds - knobs.callSlack ? { type: "call" } : { type: "fold" }, legal);
+}
+
+export interface TxBotMove {
+  playerId: string;
+  intent: TxIntent;
+  atMs: number; // server ms to apply it
+}
+
+const THINK_MIN_MS = 1000; // after the turn clock starts, so a bot never acts during the deal animation
+const THINK_SPREAD_MS = 1000;
+const REBUY_DELAY_MS = 1500;
+
+// The one bot action that is due next, or null when no bot has anything to do. Pure: the server owns the timer.
+export function nextTxBotMove(s: TxState, now: number, rng: () => number): TxBotMove | null {
+  if (s.phase === "lobby") {
+    for (const p of s.players) {
+      if (!isTxBotId(p.id) || p.cards.length > 0) continue;
+      if (p.chips === 0) return { playerId: p.id, intent: { type: "rebuy" }, atMs: now + REBUY_DELAY_MS };
+      if (p.sitOut && p.seat !== null) return { playerId: p.id, intent: { type: "sitIn" }, atMs: now + REBUY_DELAY_MS };
+    }
+    return null;
+  }
+  const legal = s.turnId === null ? null : legalActions(s, s.turnId);
+  const bot = s.players.find((p) => p.id === s.turnId && isTxBotId(p.id));
+  if (!bot || !legal) return null;
+  const personality = TX_BOT_STYLES.find((b) => b.name === bot.name)?.personality ?? "station";
+  // A turn must never stall: when the brain has no answer, take the free check or give up the hand.
+  const intent = chooseTxIntent(s, bot.id, personality, rng) ?? (legal.canCheck ? { type: "check" } : { type: "fold" });
+  return { playerId: bot.id, intent, atMs: Math.max(now, s.turnAt ?? now) + THINK_MIN_MS + rng() * THINK_SPREAD_MS };
 }
