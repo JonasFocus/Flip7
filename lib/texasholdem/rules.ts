@@ -161,6 +161,8 @@ function startHand(table: TxState, now: number, rng: Rng): TxState {
     if (p.id === bb.id) return commit(fresh, BIG_BLIND);
     return fresh;
   });
+  // Heads-up, a short big blind can post less than the small blind. Nobody owes more than the largest posted blind.
+  const posted = headsUp ? Math.max(...players.map((p) => p.bet)) : BIG_BLIND;
   const dealt: TxState = {
     ...s,
     phase: "preflop",
@@ -170,7 +172,7 @@ function startHand(table: TxState, now: number, rng: Rng): TxState {
     button: seatOf(btn),
     sbId: sb.id,
     bbId: bb.id,
-    currentBet: BIG_BLIND,
+    currentBet: posted,
     minRaise: BIG_BLIND,
     turnId: null,
     turnAt: null,
