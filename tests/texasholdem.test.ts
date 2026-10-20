@@ -865,3 +865,175 @@ test("three-handed bust to heads-up: last hand's big blind takes the button and 
   assert.equal(next.button, 2);
   assert.equal(next.turnId, "c");
 });
+
+const DRY = ["2c", "7d", "9h", "Jc", "3s"];
+const ROYAL = ["As", "Ks", "Qs", "Js", "10s"];
+
+test("multi-level side pots: a folded player's chips are dead money in the pots they reached", () => {
+  let s = table(["a", "b", "c", "d"], {
+    chips: { a: 1000, b: 150, c: 400, d: 1000 },
+    hole: { a: ["Qc", "Qd"], b: ["As", "Ah"], c: ["Kc", "Kd"], d: ["4c", "5d"] },
+    board: DRY,
+  });
+  s = act(s, "d", { type: "bet", amount: 100 });
+  s = act(s, "a", { type: "call" });
+  s = act(s, "b", { type: "allIn" }); // 150, short of a full raise
+  s = act(s, "c", { type: "allIn" }); // 400
+  s = act(s, "d", { type: "fold" }); // 100 stays in the middle
+  s = act(s, "a", { type: "call" });
+  assert.equal(s.runout, true);
+  while (s.phase !== "showdown") s = onDeadline(s, serverDeadline(s)!);
+  assert.equal(player(s, "b").chips, 150 * 3 + 100); // main pot: 150 each from a, b, c plus d's 100
+  assert.equal(player(s, "c").chips, 250 * 2); // side pot between a and c
+  assert.equal(player(s, "a").chips, 600);
+  assert.equal(player(s, "d").chips, 900);
+  assert.equal(player(s, "d").result?.won, 0);
+  assert.equal(chipsAndPot(s), 2550);
+});
+
+test("odd chips are dealt pot by pot from the seat left of the button in a three-way tie", () => {
+  let s = table(["a", "b", "c", "d", "e"], {
+    chips: { a: 1000, b: 150, c: 400, d: 1000, e: 1000 },
+    hole: { a: ["2c", "3d"], b: ["2h", "3h"], c: ["4c", "5d"] },
+    board: ROYAL,
+  });
+  s = act(s, "d", { type: "bet", amount: 101 });
+  s = act(s, "e", { type: "bet", amount: 301 });
+  s = act(s, "a", { type: "call" });
+  s = act(s, "b", { type: "allIn" }); // 150
+  s = act(s, "c", { type: "allIn" }); // 400, short of a full re-raise
+  s = act(s, "d", { type: "fold" });
+  s = act(s, "e", { type: "fold" });
+  s = act(s, "a", { type: "call" });
+  assert.equal(s.runout, true);
+  while (s.phase !== "showdown") s = onDeadline(s, serverDeadline(s)!);
+  // main pot 701 over a, b, c: 233 each and two odd chips to b then c (button is a)
+  // side pot 651 over a, c: c is first left of the button and takes the odd chip
+  assert.equal(player(s, "b").chips, 234);
+  assert.equal(player(s, "c").chips, 234 + 326);
+  assert.equal(player(s, "a").chips, 600 + 233 + 325);
+  assert.equal(player(s, "d").chips, 899);
+  assert.equal(player(s, "e").chips, 699);
+  assert.equal(chipsAndPot(s), 3550);
+});
+
+test("blinds: a short small blind posts what it has and the big blind still owes the full blind", () => {
+  const multi = table(["a", "b", "c"], { chips: { a: 2000, b: 5, c: 2000 } });
+  assert.equal(multi.sbId, "b");
+  assert.equal(player(multi, "b").total, 5);
+  assert.equal(player(multi, "b").allIn, true);
+  assert.equal(player(multi, "c").total, BIG_BLIND);
+  assert.equal(multi.currentBet, BIG_BLIND);
+  assert.equal(multi.turnId, "a");
+  const both = table(["a", "b", "c"], { chips: { a: 2000, b: 5, c: 15 } });
+  assert.equal(player(both, "b").allIn && player(both, "c").allIn, true);
+  assert.equal(both.currentBet, BIG_BLIND);
+  assert.equal(both.turnId, "a");
+  assert.equal(legalActions(both, "a")?.callAmount, BIG_BLIND);
+  const headsUp = table(["a", "b"], { chips: { a: 5, b: 2000 }, board: DRY });
+  assert.equal(headsUp.sbId, "a");
+  assert.equal(player(headsUp, "a").total, 5);
+  assert.equal(player(headsUp, "b").total, BIG_BLIND);
+  assert.equal(headsUp.turnId, null); // the big blind has nobody left to bet against
+  assert.equal(headsUp.runout, true);
+  let s = headsUp;
+  while (s.phase !== "showdown") s = onDeadline(s, serverDeadline(s)!);
+  assert.equal(chipsAndPot(s), 2005);
+});
+
+test("a short all-in then a full re-raise reopens the betting for the original bettor", () => {
+  let s = table(["a", "b", "c"], { chips: { a: 2000, b: 150, c: 2000 } });
+  s = act(s, "a", { type: "bet", amount: 100 });
+  s = act(s, "b", { type: "allIn" }); // 150: a 50 raise on an 80 minimum, so no reopen
+  assert.equal(s.minRaise, 80);
+  assert.equal(player(s, "a").acted, true);
+  s = act(s, "c", { type: "bet", amount: 400 }); // a full raise of 250
+  assert.equal(s.currentBet, 400);
+  assert.equal(s.minRaise, 250);
+  assert.equal(player(s, "a").acted, false);
+  assert.equal(s.turnId, "a");
+  const legal = legalActions(s, "a");
+  assert.equal(legal?.canRaise, true);
+  assert.equal(legal?.callAmount, 300);
+  assert.equal(legal?.minRaiseTo, 650);
+  assert.equal(err(s, "a", { type: "bet", amount: 649 }), "Minimum raise is to 650");
+  s = act(s, "a", { type: "bet", amount: 650 });
+  assert.equal(s.currentBet, 650);
+  assert.equal(s.turnId, "c"); // b is all-in and skipped
+  assert.equal(player(s, "c").acted, false);
+});
+
+test("leaving mid-runout folds the leaver, and the board still runs out for the rest", () => {
+  let s = table(["a", "b", "c"], { hole: { a: ["As", "Ah"], b: ["Kc", "Kd"], c: ["Qc", "Qd"] }, board: DRY });
+  s = act(s, "a", { type: "allIn" });
+  s = act(s, "b", { type: "allIn" });
+  s = act(s, "c", { type: "call" });
+  assert.equal(s.runout, true);
+  s = onDeadline(s, s.dealAt!);
+  assert.equal(s.board.length, 3);
+  const left = removeTxPlayer(s, "a", { now: NOW });
+  assert.equal(player(left, "a").folded, true);
+  assert.equal(left.runout, true);
+  assert.equal(left.phase, "flop");
+  let done = left;
+  while (done.phase !== "showdown") done = onDeadline(done, serverDeadline(done)!);
+  assert.equal(player(done, "a").chips, 0);
+  assert.equal(player(done, "b").chips, START_CHIPS * 3); // b's kings beat c, and a's chips are dead
+  assert.equal(chipsAndPot(done), START_CHIPS * 3);
+  // everyone but one leaving mid-runout ends the hand at once
+  const last = removeTxPlayer(removeTxPlayer(s, "a", { now: NOW }), "b", { now: NOW });
+  assert.equal(last.phase, "showdown");
+  assert.equal(player(last, "c").chips, START_CHIPS * 3);
+});
+
+test("the button moves on when the button player busts or stands up", () => {
+  const nextHand = (mutate: (s: TxState) => TxState): TxState => {
+    let s = table(["a", "b", "c", "d"]);
+    assert.equal(s.button, 0);
+    s = act(s, "d", { type: "fold" });
+    s = act(s, "a", { type: "fold" });
+    s = act(s, "b", { type: "fold" });
+    assert.equal(s.phase, "showdown");
+    const lobby = onDeadline(s, s.settleAt!, newRng());
+    assert.equal(lobby.phase, "lobby");
+    const ready = mutate(lobby);
+    return onDeadline(ready, ready.startAt!, newRng());
+  };
+  const bust = nextHand((s) => ({ ...s, players: s.players.map((p) => (p.id === "a" ? { ...p, chips: 0 } : p)) }));
+  assert.deepEqual([bust.button, bust.sbId, bust.bbId], [1, "c", "d"]);
+  assert.equal(bust.players.find((p) => p.id === "a")?.cards.length, 0);
+  const stood = nextHand((s) => act(s, "a", { type: "standUp" }, s.startAt! - 1));
+  assert.deepEqual([stood.button, stood.sbId, stood.bbId], [1, "c", "d"]);
+  // the seat after a button who has left is skipped too
+  const gap = nextHand((s) => act(act(s, "a", { type: "standUp" }, s.startAt! - 1), "b", { type: "standUp" }, s.startAt! - 1));
+  assert.deepEqual([gap.button, gap.sbId, gap.bbId], [2, "c", "d"]); // heads-up: last hand's big blind takes the button
+});
+
+test("an all-in big blind has no option, and a covered big blind does", () => {
+  let s = table(["a", "b", "c"], { chips: { a: 2000, b: 2000, c: BIG_BLIND }, board: DRY });
+  assert.equal(player(s, "c").allIn, true);
+  s = act(s, "a", { type: "call" });
+  s = act(s, "b", { type: "call" });
+  assert.equal(s.phase, "flop"); // the all-in blind is never asked to act
+  assert.equal(s.turnId, "b");
+  const covered = table(["a", "b", "c"]);
+  let o = act(act(covered, "a", { type: "call" }), "b", { type: "call" });
+  assert.equal(o.phase, "preflop");
+  assert.equal(o.turnId, "c");
+  assert.equal(legalActions(o, "c")?.canCheck, true);
+  assert.equal(legalActions(o, "c")?.canRaise, true);
+  o = act(o, "c", { type: "check" });
+  assert.equal(o.phase, "flop");
+});
+
+test("onDeadline checks a big blind who faces no bet instead of folding it", () => {
+  let s = table(["a", "b", "c"]);
+  s = act(act(s, "a", { type: "call" }), "b", { type: "call" });
+  assert.equal(s.turnId, "c");
+  const timed = onDeadline(s, serverDeadline(s)!);
+  assert.equal(player(timed, "c").folded, false);
+  assert.equal(player(timed, "c").sitOut, true);
+  assert.equal(timed.phase, "flop");
+  assert.equal(player(timed, "c").total, BIG_BLIND);
+  assert.equal(chipsAndPot(timed), START_CHIPS * 3);
+});
