@@ -8,6 +8,7 @@ export const START_CHIPS = 2000; // 100 big blinds
 export const SMALL_BLIND = 10;
 export const BIG_BLIND = 20;
 export const TURN_MS = 25_000; // then the server checks, or folds if there is a bet to face
+export const AWAY_TURN_MS = 3000; // an offline or sitting-out player gets a short clock, long enough to ride out a page reload
 export const START_MS = 3000; // two funded players are seated: the next hand is dealt after this beat
 export const SHOWDOWN_MS = 7000; // results and the winning hand stay up before the table resets
 export const FOLD_WIN_MS = 3500; // everyone folded: a shorter beat, no hands to read
@@ -346,12 +347,13 @@ export function applyTxIntent(s: TxState, actorId: string, intent: TxIntent, opt
   const legal = legalActions(s, actorId);
   if (!legal) return fail("It's not your turn");
 
-  if (intent.type === "fold") return done(proceed(patch(s, actorId, (p) => ({ ...p, folded: true })), seatOf(me), now, rng));
+  const base = me.sitOut ? patch(s, actorId, (p) => ({ ...p, sitOut: false })) : s; // acting is coming back
+  if (intent.type === "fold") return done(proceed(patch(base, actorId, (p) => ({ ...p, folded: true })), seatOf(me), now, rng));
   if (intent.type === "check") {
     if (!legal.canCheck) return fail("You must call or fold");
-    return done(proceed(patch(s, actorId, (p) => ({ ...p, acted: true })), seatOf(me), now, rng));
+    return done(proceed(patch(base, actorId, (p) => ({ ...p, acted: true })), seatOf(me), now, rng));
   }
-  const call = (): TxResult => done(proceed(patch(s, actorId, (p) => ({ ...commit(p, s.currentBet - p.bet), acted: true })), seatOf(me), now, rng));
+  const call = (): TxResult => done(proceed(patch(base, actorId, (p) => ({ ...commit(p, s.currentBet - p.bet), acted: true })), seatOf(me), now, rng));
   if (intent.type === "call") return legal.canCheck ? fail("Nothing to call") : call();
 
   const target = intent.type === "allIn" ? legal.maxRaiseTo : intent.amount;
@@ -363,18 +365,20 @@ export function applyTxIntent(s: TxState, actorId: string, intent: TxIntent, opt
 
   const size = target - s.currentBet;
   const full = size >= s.minRaise; // a short all-in does not reopen the betting for players who already acted
-  const players = s.players.map((p) => {
+  const players = base.players.map((p) => {
     if (p.id === actorId) return { ...commit(p, target - p.bet), acted: true };
     return full && canAct(p) ? { ...p, acted: false } : p;
   });
-  return done(proceed({ ...s, players, currentBet: target, minRaise: full ? size : s.minRaise }, seatOf(me), now, rng));
+  return done(proceed({ ...base, players, currentBet: target, minRaise: full ? size : s.minRaise }, seatOf(me), now, rng));
 }
 
 export function serverDeadline(s: TxState): number | null {
   if (s.phase === "lobby") return s.startAt;
   if (s.phase === "showdown") return s.settleAt;
   if (s.runout) return s.dealAt;
-  return s.turnAt === null ? null : s.turnAt + TURN_MS;
+  if (s.turnAt === null) return null;
+  const actor = s.players.find((p) => p.id === s.turnId);
+  return s.turnAt + (actor && (!actor.connected || actor.sitOut) ? AWAY_TURN_MS : TURN_MS);
 }
 
 export const visibleDeadline = serverDeadline;

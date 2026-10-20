@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  AWAY_TURN_MS,
   BIG_BLIND,
   FOLD_WIN_MS,
   REACTION_COOLDOWN_MS,
@@ -294,6 +295,45 @@ test("auto-action: checks when free, folds to a bet, and sits the player out", (
   assert.equal(player(checked, "b").sitOut, true);
   assert.equal(checked.turnId, "a");
   assert.equal(checked.phase, "flop");
+});
+
+test("an offline or sitting-out actor gets the short clock, a connected seated one the full clock", () => {
+  const s = table(["a", "b", "c"]);
+  const actor = s.turnId!;
+  assert.equal(serverDeadline(s), s.turnAt! + TURN_MS);
+  const offline = setTxConnected(s, actor, false, NOW);
+  assert.equal(serverDeadline(offline), s.turnAt! + AWAY_TURN_MS);
+  const sitting = { ...s, players: s.players.map((p) => (p.id === actor ? { ...p, sitOut: true } : p)) };
+  assert.equal(serverDeadline(sitting), s.turnAt! + AWAY_TURN_MS);
+  assert.equal(serverDeadline(setTxConnected(offline, actor, true, NOW)), s.turnAt! + TURN_MS);
+});
+
+test("an offline actor is acted for after the short clock: fold to a bet, check when free", () => {
+  const s = table(["a", "b"]);
+  const offline = setTxConnected(s, "a", false, NOW);
+  const due = s.turnAt! + AWAY_TURN_MS;
+  assert.equal(onDeadline(offline, due - 1), offline);
+  const folded = onDeadline(offline, due);
+  assert.equal(player(folded, "a").folded, true);
+  assert.equal(player(folded, "a").sitOut, true);
+
+  const free = setTxConnected(act(s, "a", { type: "call" }), "b", false, NOW);
+  const checked = onDeadline(free, free.turnAt! + AWAY_TURN_MS);
+  assert.equal(player(checked, "b").folded, false);
+  assert.equal(player(checked, "b").sitOut, true);
+  assert.equal(checked.phase, "flop");
+});
+
+test("a sitting-out player who acts comes back in, and a seated player is unchanged", () => {
+  const sit = (s: TxState, id: string) => ({ ...s, players: s.players.map((p) => (p.id === id ? { ...p, sitOut: true } : p)) });
+  const s = table(["a", "b"]);
+  for (const intent of [{ type: "fold" }, { type: "call" }, { type: "bet", amount: 60 }, { type: "allIn" }] as const) {
+    assert.equal(player(act(sit(s, "a"), "a", intent), "a").sitOut, false, intent.type);
+    assert.equal(player(act(s, "a", intent), "a").sitOut, false, intent.type);
+  }
+  const free = act(s, "a", { type: "call" });
+  assert.equal(player(act(sit(free, "b"), "b", { type: "check" }), "b").sitOut, false);
+  assert.equal(player(act(s, "a", { type: "fold" }), "b").sitOut, false);
 });
 
 test("fold stays legal when checking is free, so the client confirm cannot strand a player", () => {
