@@ -39,7 +39,7 @@ export function Panel({
   if (!me || me.seat === null) {
     view = "rail";
     const open = game.players.filter((p) => p.seat !== null).length < 8;
-    body = <Status>{open ? <>Tap a glowing <b className="text-accent">SIT</b> to take a seat</> : "Every seat is taken. You're watching from the rail."}</Status>;
+    body = <Status>{open ? "Tap an open seat to sit down" : "Every seat is taken. You're watching from the rail."}</Status>;
   } else if (game.phase === "showdown" && inHand) {
     view = `showdown-${revealed}`;
     body = revealed ? <MyResult conn={conn} me={me} secs={secs} /> : <Status>Showdown…</Status>;
