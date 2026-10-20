@@ -382,11 +382,13 @@ function Felt({ conn, me, revealed, clearing, secs }: { conn: TxConnection; me: 
                 onClick={() => sit(seat)}
                 aria-label={`Sit in seat ${seat + 1}`}
                 className={cx(
-                  "grid size-[clamp(40px,12vw,50px)] place-items-center rounded-full border-2 border-dashed font-display text-[10px] tracking-[0.12em] transition-transform active:scale-95",
-                  canSit && me?.seat === null ? "tx-glow border-accent bg-accent/10 text-accent" : "border-fg/20 text-fg/30",
+                  "grid size-11 place-items-center rounded-full border bg-black/25 shadow-[inset_0_1px_3px_oklch(0_0_0/0.45)] transition-[scale,border-color,color] active:scale-95",
+                  canSit && me?.seat === null ? "border-white/25 text-fg/70 hover:border-white/40 hover:text-fg" : canSit ? "border-white/10 text-fg/35" : "border-white/[0.06] text-transparent",
                 )}
               >
-                {canSit ? "SIT" : seat + 1}
+                <svg aria-hidden width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <path d="M7 2.5v9M2.5 7h9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                </svg>
               </button>
             )}
           </div>
