@@ -131,6 +131,7 @@
 .tx-win { animation: tx-win 900ms ease-out 3 both; }
 .tx-pop { animation: tx-pop 480ms var(--ease-spring) both; }
 .tx-lift { transform: translateY(-3px); transition: transform 300ms var(--ease-out); }
+.tx-bump { animation: tx-bump 400ms var(--ease-out) backwards; }
 .tx-in { animation: tx-in 420ms var(--ease-spring) both; }
 .tx-rise { animation: tx-rise 320ms var(--ease-out) both; }
 .tx-react { animation: tx-float 2s ease-out both; }
@@ -197,6 +198,10 @@
   from { opacity: 0; transform: translateY(8px) scale(0.92); }
 }
 
+@keyframes tx-bump {
+  40% { transform: scale(1.3); color: var(--color-accent); }
+}
+
 @keyframes tx-in {
   from { opacity: 0; transform: translateY(-40%) scale(0.85); }
 }
@@ -219,7 +224,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .tx-glow, .tx-win, .tx-in, .tx-rise, .tx-pop, .tx-allin, .tx-allin-call, .tx-low { animation: none; }
+  .tx-glow, .tx-win, .tx-in, .tx-bump, .tx-rise, .tx-pop, .tx-allin, .tx-allin-call, .tx-low { animation: none; }
   .tx-lift { transition: none; }
   .tx-hold { display: none; }
   .tx-react { animation-name: tx-fade; }
