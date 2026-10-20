@@ -67,6 +67,7 @@ export function Panel({
   return (
     <footer className="flex min-h-[calc(226px+env(safe-area-inset-bottom))] flex-col justify-center px-4 pt-1 pb-safe-3">
       <div key={view} className="tx-rise flex flex-col gap-2">
+        {me?.timedOut && <TimedOutNotice conn={conn} />}
         {body}
       </div>
     </footer>
@@ -87,6 +88,22 @@ function TurnClock({ label, secs }: { label: ReactNode; secs: number | null }) {
       <div className="h-1.5 overflow-hidden rounded-full bg-surface-2">
         <div className={cx("h-full origin-left rounded-full transition-[width] duration-1000 ease-linear", low ? "tx-low bg-danger" : "bg-accent")} style={{ width: `${pct}%` }} />
       </div>
+    </div>
+  );
+}
+
+// Shown on every panel view until they sit back in, so a clock-forced sit out is never a silent surprise.
+function TimedOutNotice({ conn }: { conn: TxConnection }) {
+  return (
+    <div role="status" className="flex items-center justify-between gap-3 rounded-2xl border border-danger px-4 py-2 text-sm">
+      <span>You timed out and were sat out.</span>
+      <button
+        type="button"
+        onClick={() => (tap(), conn.send({ type: "sitIn" }))}
+        className="min-h-11 shrink-0 text-xs font-bold tracking-[0.16em] text-accent uppercase active:text-fg"
+      >
+        Sit back in
+      </button>
     </div>
   );
 }
