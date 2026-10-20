@@ -8,7 +8,7 @@ import { fail, success, tap } from "@/lib/client/haptics";
 import { BIG_BLIND, FOLD_HOLD_MS, RAISE_CHIPS, START_CHIPS, TURN_MS, clampRaise, legalActions, potWon, stackRaise } from "@/lib/texasholdem";
 import type { TxConnection, TxIntent, TxPlayer } from "@/lib/texasholdem/types";
 
-const LOW_SECS = 5; // the clock turns urgent and your phone buzzes again at this many seconds left
+export const LOW_SECS = 5; // the clock turns urgent and your phone buzzes again at this many seconds left
 
 export function Panel({
   conn,
