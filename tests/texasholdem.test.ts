@@ -20,6 +20,7 @@ import {
   newDeck,
   onDeadline,
   paidOut,
+  potWon,
   redactTx,
   removeTxPlayer,
   serverDeadline,
@@ -315,6 +316,29 @@ test("split pot hands the odd chip to the first winner left of the button", () =
   assert.equal(player(s, "c").chips, 1980 + 8 + 10 + 10);
   assert.equal(player(s, "b").chips, 1990);
   assert.equal(chipsAndPot(s), 5 + 4000);
+});
+
+test("potWon counts what the pots paid, so a split shows each winner a share of the whole and an uncalled bet is left out", () => {
+  let s = table(["a", "b", "c"], {
+    chips: { a: 5, b: 2000, c: 2000 },
+    hole: { a: ["2c", "3d"], b: ["2h", "3h"], c: ["2s", "3s"] },
+    board: ["10c", "Jd", "Qh", "Ks", "Ac"],
+  });
+  s = act(s, "a", { type: "allIn" });
+  s = act(s, "b", { type: "fold" });
+  while (s.phase !== "showdown") s = onDeadline(s, serverDeadline(s)!);
+  assert.deepEqual([player(s, "a").result?.won, player(s, "c").result?.won], [7, 18]);
+  assert.equal(potWon(s.players), 25);
+
+  let u = table(["a", "b"], {
+    chips: { a: 1000, b: 100 },
+    hole: { a: ["Kc", "Kd"], b: ["As", "Ah"] },
+    board: ["2c", "7d", "9h", "Jc", "3s"],
+  });
+  u = act(u, "a", { type: "allIn" });
+  u = act(u, "b", { type: "call" });
+  while (u.phase !== "showdown") u = onDeadline(u, serverDeadline(u)!);
+  assert.equal(potWon(u.players), 200); // the 900 returned to a is not part of the pot
 });
 
 test("auto-action: checks when free, folds to a bet, and sits the player out", () => {

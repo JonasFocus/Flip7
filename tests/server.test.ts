@@ -478,3 +478,36 @@ test("head-to-head 21: two seats, the match starts on the second join, a third i
   assert.equal(await late.waitError(), "Room is full");
   [...phones, late].forEach((c) => c.ws.close());
 });
+
+test("hold'em: the host seats and removes bots, a guest cannot, a full table refuses, bots do not keep a room alive", async () => {
+  const [host, guest] = await Promise.all([connect(), connect()]);
+  host.send({ t: "create", mode: "texasholdem", name: "Mom", clientId: "tx-bot-0" });
+  const code = (await host.waitRoom(() => true)).room.code;
+  host.send({ t: "texasholdem", intent: { type: "sit", seat: 0 } });
+  guest.send({ t: "join", code, name: "Kid", clientId: "tx-bot-1" });
+  await guest.waitRoom(() => true);
+  guest.send({ t: "addBot" });
+  assert.equal(await guest.waitError(), "Only the host can add bots");
+
+  host.send({ t: "addBot" });
+  const withBot = await host.waitRoom((m) => m.room.game.players.some((p) => p.id.startsWith("bot-")));
+  assert.ok(withBot.room.mode === "texasholdem");
+  const bot = withBot.room.game.players.find((p) => p.id.startsWith("bot-"));
+  assert.ok(bot && bot.seat !== null && bot.connected);
+
+  for (let i = 0; i < 6; i++) host.send({ t: "addBot" });
+  await host.waitRoom((m) => m.room.mode === "texasholdem" && m.room.game.players.filter((p) => p.seat !== null).length === 8);
+  host.send({ t: "addBot" });
+  assert.equal(await host.waitError(), "No free seat");
+
+  host.send({ t: "removePlayer", playerId: bot.id });
+  await host.waitRoom((m) => !m.room.game.players.some((p) => p.id === bot.id));
+
+  host.send({ t: "leave" });
+  await guest.waitRoom((m) => m.room.hostId === P("tx-bot-1"));
+  guest.send({ t: "leave" });
+  await new Promise((r) => setTimeout(r, 50));
+  const rooms: { code: string }[] = await (await fetch(`http://localhost:${server.port}/rooms`)).json();
+  assert.ok(!rooms.some((r) => r.code === code));
+  [host, guest].forEach((c) => c.ws.close());
+});
