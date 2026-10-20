@@ -6,6 +6,7 @@ export { oddsRunner, type Odds } from "./equity.ts";
 export { facing, preActionIntent, type Facing, type PreAction } from "./preaction.ts";
 export { handLabel, paidOut, potWon, stackBeforeAward, winLines, type WinLine } from "./winners.ts";
 export {
+  AFTER_HAND_MS,
   AWAY_TURN_MS,
   BIG_BLIND,
   CARD_SLIDE_MS,

@@ -37,6 +37,7 @@ import {
   wentAllIn,
   winLines,
 } from "@/lib/texasholdem";
+import { findBadBeat, type BadBeat } from "@/lib/texasholdem/badbeat";
 import type { Odds } from "@/lib/texasholdem/equity";
 import type { TxCard, TxConnection, TxPlayer, TxReaction, TxState } from "@/lib/texasholdem/types";
 import { LOW_SECS, Panel } from "./Panel";
@@ -117,6 +118,37 @@ function useShowdown(conn: TxConnection): { revealed: boolean; clearing: boolean
 const MAX_WIN_ROWS = 3;
 
 const sameCard = (a: TxCard, b: TxCard) => a.rank === b.rank && a.suit === b.suit;
+
+const BAD_BEAT_MS = 2000; // inside the showdown beat: a callout never adds delay
+
+// A big favorite beaten by the last card. Only a hand that ran out all-in counts, so the river was truly the final card.
+function useBadBeat(game: TxState): BadBeat | null {
+  const [runoutRound, setRunoutRound] = useState<number | null>(null);
+  if (game.runout && runoutRound !== game.round) setRunoutRound(game.round);
+  return useMemo(() => {
+    if (game.phase !== "showdown" || runoutRound !== game.round) return null;
+    const ranked = game.players.filter((p) => p.result?.hand != null).map((p) => ({ id: p.id, hole: p.cards.filter((c): c is TxCard => c !== null) }));
+    return ranked.every((r) => r.hole.length === 2) ? findBadBeat(ranked, game.board) : null;
+  }, [game.phase, game.players, game.board, game.round, runoutRound]);
+}
+
+function BadBeatCallout({ loser, you }: { loser: TxPlayer; you: string }) {
+  const [on, setOn] = useState(true);
+  useEffect(() => {
+    const t = setTimeout(() => setOn(false), BAD_BEAT_MS);
+    return () => clearTimeout(t);
+  }, []);
+  if (!on) return null;
+  return (
+    <p role="status" className="tx-pop absolute left-1/2 z-30 flex max-w-[84%] -translate-x-1/2 flex-col items-center rounded-2xl border border-danger/50 bg-[oklch(0.15_0.003_260/0.92)] px-4 py-1.5 text-center shadow-[0_8px_24px_-8px_oklch(0_0_0/0.8)]" style={{ top: "17%" }}>
+      <span className="font-display text-2xl leading-none tracking-[0.2em] text-danger">BAD BEAT</span>
+      <span className="mt-1 max-w-full truncate text-[12px] text-fg">
+        {loser.id === you ? "You" : loser.name}
+        {loser.result?.hand ? ` · ${loser.result.hand}` : ""}
+      </span>
+    </p>
+  );
+}
 
 const ODDS_SLICE_MS = 8; // keep each slice of the win-odds work well under a frame
 
@@ -313,6 +345,8 @@ function Felt({ conn, me, revealed, clearing, secs }: { conn: TxConnection; me: 
 
   const sweeps = useBetSweeps(game.players);
   const odds = useRunoutOdds(game);
+  const badBeat = useBadBeat(game);
+  const badBeatLoser = badBeat && revealed ? game.players.find((p) => p.id === badBeat.loserId) : undefined;
   // Blinds of different sizes cut equal-eligibility slices; only a real side pot (someone all-in short) is worth showing.
   const pots = useMemo(() => {
     const merged: { amount: number; eligible: string[] }[] = [];
@@ -404,6 +438,8 @@ function Felt({ conn, me, revealed, clearing, secs }: { conn: TxConnection; me: 
       {boardRow(game.board, 0, twice ? "42%" : "50%")}
       {game.second && boardRow(game.second, 1, "53%")}
 
+      {badBeatLoser && <BadBeatCallout key={game.round} loser={badBeatLoser} you={conn.you} />}
+
       <div className="absolute left-1/2 flex w-[84%] -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1" style={{ top: twice ? "66%" : "62%" }}>
         {lines.length > 0 ? (
           <div key={`${game.round}-banner`} role="status" className="tx-pop flex max-w-full flex-col items-center gap-1 rounded-2xl border border-active/50 bg-[oklch(0.15_0.003_260/0.92)] px-4 py-1.5 text-center shadow-[0_8px_24px_-8px_oklch(0_0_0/0.8)]">
@@ -411,6 +447,7 @@ function Felt({ conn, me, revealed, clearing, secs }: { conn: TxConnection; me: 
               <p key={line.key} className="flex max-w-full flex-col items-center">
                 <span className="max-w-full truncate font-display text-sm tracking-wide text-active">{line.text}</span>
                 {line.hand && <span className="max-w-full truncate text-[11px] text-fg/70">{line.hand}</span>}
+                {badBeat?.winnerIds.includes(line.key) && <span className="mt-0.5 rounded-full bg-danger/20 px-2 text-[11px] font-bold tracking-[0.12em] text-danger">RIVERED</span>}
               </p>
             ))}
             {lines.length > shownLines.length && <span className="text-[11px] text-fg/70">+{lines.length - shownLines.length} more</span>}
