@@ -29,7 +29,8 @@ export function Standings({ game, you, open, onClose }: { game: TxState; you: st
         ))}
       </ol>
       <h3 className="mt-5 mb-2 text-xs font-bold tracking-[0.12em] text-muted uppercase">Last hands</h3>
-      <Recap history={game.history} you={you} />
+      {/* An older server sends no history: show the empty recap rather than crash. */}
+      <Recap history={game.history ?? []} you={you} />
     </Sheet>
   );
 }
