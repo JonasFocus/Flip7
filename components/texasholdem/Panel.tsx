@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { cx } from "@/components/ui/cx";
 import { Chip, shortAmount } from "@/components/casino/Chip";
 import { fail, success, tap } from "@/lib/client/haptics";
-import { FOLD_HOLD_MS, RAISE_CHIPS, START_CHIPS, TURN_MS, canRebuyTx, canStandUpTx, clampRaise, facing, legalActions, potWon, preActionIntent, stackRaise, type Facing, type PreAction } from "@/lib/texasholdem";
+import { FOLD_HOLD_MS, RAISE_CHIPS, START_CHIPS, TURN_MS, canRebuyTx, canStandUpTx, clampRaise, facing, handLabel, legalActions, potWon, preActionIntent, stackRaise, type Facing, type PreAction } from "@/lib/texasholdem";
 import type { TxConnection, TxIntent, TxPace, TxPlayer } from "@/lib/texasholdem/types";
 
 export const LOW_SECS = 5; // the clock turns urgent and your phone buzzes again at this many seconds left
@@ -435,6 +435,7 @@ function Label({ top, bottom }: { top: string; bottom: string }) {
 function MyResult({ conn, me, secs }: { conn: TxConnection; me: TxPlayer; secs: number | null }) {
   const { game } = conn;
   const result = me.result;
+  const hand = handLabel(result);
   const net = result?.net ?? 0;
   const take = result?.won ?? 0;
   const won = take > 0;
@@ -451,7 +452,7 @@ function MyResult({ conn, me, secs }: { conn: TxConnection; me: TxPlayer; secs: 
     <>
       <div className="tx-in flex flex-col items-center gap-1 rounded-2xl border border-line bg-surface py-4">
         <p className={cx("font-display text-3xl", won ? "text-active" : me.folded ? "text-muted" : "text-danger")}>{won ? (net > 0 ? "YOU WIN" : "SPLIT POT") : me.folded ? "FOLDED" : "LOST"}</p>
-        {result?.hand && <p className="text-sm text-muted">{result.hand}</p>}
+        {hand && <p className="text-sm text-muted">{hand}</p>}
         <p className="font-display text-lg tabular-nums">{net > 0 ? `+${net.toLocaleString()}` : net < 0 ? `−${(-net).toLocaleString()}` : "Even"}</p>
         {won && take < pot && <p className="text-sm text-muted tabular-nums">{`Won ${take.toLocaleString()} of ${pot.toLocaleString()}`}</p>}
         <p className="text-sm text-muted tabular-nums">Stack {me.chips.toLocaleString()}</p>
