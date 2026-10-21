@@ -1,5 +1,3 @@
-import { BIG_BLIND } from "./rules.ts";
-
 // Chip buttons add whole big blinds to the raise: +1 BB, +5 BB, +10 BB.
 export const RAISE_CHIPS = [1, 5, 10] as const;
 
@@ -13,6 +11,6 @@ export function clampRaise(amount: number, minRaiseTo: number, maxRaiseTo: numbe
 }
 
 // Stack a chip of `bigBlinds` big blinds onto the current amount, never leaving the legal range.
-export function stackRaise(current: number, bigBlinds: number, minRaiseTo: number, maxRaiseTo: number): number {
-  return clampRaise(clampRaise(current, minRaiseTo, maxRaiseTo) + bigBlinds * BIG_BLIND, minRaiseTo, maxRaiseTo);
+export function stackRaise(current: number, bigBlinds: number, minRaiseTo: number, maxRaiseTo: number, bigBlind: number): number {
+  return clampRaise(clampRaise(current, minRaiseTo, maxRaiseTo) + bigBlinds * bigBlind, minRaiseTo, maxRaiseTo);
 }

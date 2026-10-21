@@ -1,18 +1,24 @@
 import { cryptoRng } from "../blackjack/rules.ts";
+import { BLIND_LEVELS, blindsFor } from "./blinds.ts";
 import { buildPots, evaluate } from "./eval.ts";
-import type { Rank, Suit, TxActions, TxCard, TxIntent, TxPhase, TxPlayer, TxState } from "./types.ts";
+import type { Rank, Suit, TxActions, TxCard, TxHandResult, TxIntent, TxPhase, TxPlayer, TxState } from "./types.ts";
 
 export const SEATS = 8;
 export const MAX_TX_PLAYERS = 12; // 8 seats plus rail watchers
+export const MAX_TX_BOTS = 7; // a table always keeps a seat for a human
 export const START_CHIPS = 2000; // 100 big blinds
-export const SMALL_BLIND = 10;
-export const BIG_BLIND = 20;
+export const SMALL_BLIND = BLIND_LEVELS[0][0]; // the opening blinds; a turbo table raises them
+export const BIG_BLIND = BLIND_LEVELS[0][1];
 export const TURN_MS = 25_000; // then the server checks, or folds if there is a bet to face
+export const AWAY_TURN_MS = 2000; // an offline or sitting-out actor gets this short clock instead of TURN_MS
 export const START_MS = 3000; // two funded players are seated: the next hand is dealt after this beat
-export const SHOWDOWN_MS = 7000; // results and the winning hand stay up before the table resets
+export const AFTER_HAND_MS = 1200; // the table is cleared and everyone seated still has chips: the next hand follows after this shorter beat
+export const SHOWDOWN_MS = 5000; // results and the winning hand stay up before the table resets
 export const FOLD_WIN_MS = 3500; // everyone folded: a shorter beat, no hands to read
 export const REVEAL_MS = 1800; // all-in called: a beat with the hands face up before the next street
-export const RUNOUT_MS = 2200; // between streets of an all-in runout
+export const RUNOUT_MS = 1500; // between streets of an all-in runout
+export const RUN_TWICE_ASK_MS = 5000; // everyone in the pot gets this long to agree to run it twice
+export const RUN_TWICE_BEAT_MS = 1200; // everyone agreed: a beat before the first board runs out
 export const DEAL_STAGGER_MS = 200; // client deal animation: gap between cards going round the table
 export const CARD_SLIDE_MS = 550; // client deal animation: one card's trip from the deck
 export const REACTION_COOLDOWN_MS = 1500; // between emoji reactions from one player
@@ -65,9 +71,12 @@ function commit(p: TxPlayer, amount: number): TxPlayer {
   return { ...p, chips: p.chips - pay, bet: p.bet + pay, total: p.total + pay, allIn: p.chips - pay === 0 };
 }
 
-// A player who leaves with chips keeps them for the id; only a bust (0 chips) earns a fresh stack.
+// Human ids are hashes from publicId, so the "bot-" prefix the virtual bots use cannot clash.
+export const isTxBotId = (id: string): boolean => id.startsWith("bot-");
+
+// A player who leaves with chips keeps them for the id; only a bust (0 chips) earns a fresh stack. A removed bot never returns.
 function keepStack(stacks: Record<string, number>, p: TxPlayer): Record<string, number> {
-  return p.chips > 0 ? { ...stacks, [p.id]: p.chips } : stacks;
+  return p.chips > 0 && !isTxBotId(p.id) ? { ...stacks, [p.id]: p.chips } : stacks;
 }
 
 export function createTxGame(): TxState {
@@ -83,6 +92,9 @@ export function createTxGame(): TxState {
     sbId: null,
     bbId: null,
     currentBet: 0,
+    pace: "casual",
+    paceRound: 0,
+    blinds: blindsFor("casual", 0),
     minRaise: BIG_BLIND,
     turnId: null,
     turnAt: null,
@@ -90,17 +102,23 @@ export function createTxGame(): TxState {
     dealAt: null,
     settleAt: null,
     runout: false,
+    runTwice: true,
+    ask: null,
+    second: null,
     round: 0,
     seq: 0,
   };
 }
 
 // The next hand starts once two funded players are seated; the clock is set once and survives further joins.
-function syncLobby(s: TxState, now: number): TxState {
+function syncLobby(s: TxState, now: number, delay = START_MS): TxState {
   if (s.phase !== "lobby") return s;
   if (s.players.filter(isDealable).length < 2) return { ...s, startAt: null };
-  return { ...s, startAt: s.startAt ?? now + START_MS };
+  return { ...s, startAt: s.startAt ?? now + delay };
 }
+
+// Connected players without a seat: the rail beyond the 8 seats.
+export const railWatchers = (players: readonly TxPlayer[]): TxPlayer[] => players.filter((p) => p.seat === null && p.connected && !p.gone);
 
 export function addTxPlayer(s: TxState, p: { id: string; name: string }): TxState {
   if (s.players.length >= MAX_TX_PLAYERS || s.players.some((x) => x.id === p.id)) return s;
@@ -119,6 +137,7 @@ export function addTxPlayer(s: TxState, p: { id: string; name: string }): TxStat
     allIn: false,
     acted: false,
     sitOut: false,
+    timedOut: false,
     gone: false,
     shown: false,
     result: null,
@@ -169,12 +188,12 @@ function startHand(table: TxState, now: number, rng: Rng): TxState {
   }
   const players = s.players.map((p) => {
     const fresh: TxPlayer = { ...p, bet: 0, total: 0, cards: hole.get(p.id) ?? [], folded: false, allIn: false, acted: false, shown: false, result: null };
-    if (p.id === sb.id) return commit(fresh, SMALL_BLIND);
-    if (p.id === bb.id) return commit(fresh, BIG_BLIND);
+    if (p.id === sb.id) return commit(fresh, s.blinds.smallBlind);
+    if (p.id === bb.id) return commit(fresh, s.blinds.bigBlind);
     return fresh;
   });
   // Heads-up, a short big blind can post less than the small blind. Nobody owes more than the largest posted blind.
-  const posted = headsUp ? Math.max(...players.map((p) => p.bet)) : BIG_BLIND;
+  const posted = headsUp ? Math.max(...players.map((p) => p.bet)) : s.blinds.bigBlind;
   const dealt: TxState = {
     ...s,
     phase: "preflop",
@@ -185,13 +204,15 @@ function startHand(table: TxState, now: number, rng: Rng): TxState {
     sbId: sb.id,
     bbId: bb.id,
     currentBet: posted,
-    minRaise: BIG_BLIND,
+    minRaise: s.blinds.bigBlind,
     turnId: null,
     turnAt: null,
     startAt: null,
     dealAt: null,
     settleAt: null,
     runout: false,
+    ask: null,
+    second: null,
     round: s.round + 1,
   };
   return proceed(dealt, seatOf(bb), now + dealAnimMs(order.length), rng);
@@ -221,19 +242,39 @@ function closeStreet(s: TxState, now: number, rng: Rng): TxState {
     ...s,
     players: s.players.map((p) => ({ ...p, bet: 0, acted: false })),
     currentBet: 0,
-    minRaise: BIG_BLIND,
+    minRaise: s.blinds.bigBlind,
     turnId: null,
     turnAt: null,
   };
   if (s.board.length === 5) return showdown(base, now);
-  if (base.players.filter(canAct).length <= 1) return { ...base, runout: true, dealAt: now + REVEAL_MS };
+  if (base.players.filter(canAct).length <= 1) return startRunout(base, now);
   const { state, cards } = dealStreet(base);
   return proceed(state, state.button ?? -1, now + streetAnimMs(cards), rng);
 }
 
+// Bots have no opinion and always agree. Nobody is asked when a human is offline: they cannot answer, so the board runs once.
+function startRunout(s: TxState, now: number): TxState {
+  const voters = s.players.filter((p) => isLive(p) && !isTxBotId(p.id));
+  if (!s.runTwice || voters.length === 0 || !voters.every((p) => p.connected)) return { ...s, runout: true, dealAt: now + REVEAL_MS };
+  return { ...s, runout: true, ask: { ids: voters.map((p) => p.id), yes: [] }, dealAt: now + RUN_TWICE_ASK_MS };
+}
+
+// Anyone who left the hand since the question was asked no longer has a say.
+const allAgreed = (s: TxState): boolean => !!s.ask && s.ask.ids.every((id) => s.ask?.yes.includes(id) || !s.players.some((p) => p.id === id && isLive(p)));
+
+function settleAsk(s: TxState, twice: boolean, now: number): TxState {
+  if (!twice) return runoutStep({ ...s, ask: null }, now);
+  return { ...s, ask: null, second: s.board, dealAt: now + RUN_TWICE_BEAT_MS };
+}
+
+// Deals the next street of the first board, then of the second when running it twice, then pays out.
 function runoutStep(s: TxState, now: number): TxState {
-  if (s.board.length === 5) return showdown({ ...s, dealAt: null }, now);
-  return { ...dealStreet(s).state, dealAt: now + RUNOUT_MS };
+  if (s.board.length < 5) return { ...dealStreet(s).state, dealAt: now + RUNOUT_MS };
+  if (s.second && s.second.length < 5) {
+    const cards = s.second.length === 0 ? 3 : 1;
+    return { ...s, second: [...s.second, ...s.deck.slice(0, cards)], deck: s.deck.slice(cards), dealAt: now + RUNOUT_MS };
+  }
+  return showdown({ ...s, dealAt: null }, now);
 }
 
 function awardUncontested(s: TxState, now: number): TxState {
@@ -243,37 +284,53 @@ function awardUncontested(s: TxState, now: number): TxState {
     const won = isLive(p) ? pot : 0;
     return { ...p, bet: 0, chips: p.chips + won, result: { won, net: won - p.total, hand: null, best: [] } };
   });
-  return { ...s, players, phase: "showdown", turnId: null, turnAt: null, dealAt: null, runout: false, settleAt: now + FOLD_WIN_MS };
+  return { ...s, players, phase: "showdown", turnId: null, turnAt: null, dealAt: null, runout: false, ask: null, second: null, settleAt: now + FOLD_WIN_MS };
 }
 
 function showdown(s: TxState, now: number): TxState {
   const live = s.players.filter(isLive);
-  const hands = new Map(live.map((p) => [p.id, evaluate([...holeOf(p), ...s.board])]));
+  const rank = (board: TxCard[]) => new Map(live.map((p) => [p.id, evaluate([...holeOf(p), ...board])]));
+  const hands = rank(s.board);
+  const hands2 = s.second ? rank(s.second) : null;
+  const runs = hands2 ? [hands, hands2] : [hands];
   const won = new Map<string, number>();
+  const wonSecond = new Map<string, number>();
   const [top, next] = [...s.players].sort((a, b) => b.total - a.total);
   // A bet nobody matched goes back to its owner untouched; it is not a pot win.
   const refund = top && isLive(top) ? top.total - (next?.total ?? 0) : 0;
   const pots = buildPots(s.players.filter((p) => p.total > 0).map((p) => ({ id: p.id, total: p.id === top?.id ? top.total - refund : p.total, folded: !isLive(p) })));
   for (const pot of pots) {
     const contenders = live.filter((p) => pot.eligible.includes(p.id));
-    const top = Math.max(...contenders.map((p) => hands.get(p.id)?.value ?? 0));
-    const winners = after(
-      contenders.filter((p) => hands.get(p.id)?.value === top),
-      s.button ?? -1,
-    );
-    if (winners.length === 0) continue;
-    const share = Math.floor(pot.amount / winners.length);
-    const odd = pot.amount - share * winners.length; // odd chips go one each from the seat left of the button
-    winners.forEach((w, i) => won.set(w.id, (won.get(w.id) ?? 0) + share + (i < odd ? 1 : 0)));
+    // Running it twice splits every pot, side pots included, in half; the odd chip rides the first board.
+    const halves = runs.length === 2 ? [Math.ceil(pot.amount / 2), Math.floor(pot.amount / 2)] : [pot.amount];
+    runs.forEach((ranked, run) => {
+      const top = Math.max(...contenders.map((p) => ranked.get(p.id)?.value ?? 0));
+      const winners = after(
+        contenders.filter((p) => ranked.get(p.id)?.value === top),
+        s.button ?? -1,
+      );
+      const amount = halves[run] ?? 0;
+      if (winners.length === 0) return;
+      const share = Math.floor(amount / winners.length);
+      const odd = amount - share * winners.length; // odd chips go one each from the seat left of the button
+      winners.forEach((w, i) => {
+        const take = share + (i < odd ? 1 : 0);
+        won.set(w.id, (won.get(w.id) ?? 0) + take);
+        if (run === 1) wonSecond.set(w.id, (wonSecond.get(w.id) ?? 0) + take);
+      });
+    });
   }
   const players = s.players.map((p) => {
     if (p.cards.length === 0) return p;
     const take = won.get(p.id) ?? 0;
     const hand = hands.get(p.id);
     const back = p.id === top?.id ? refund : 0;
-    return { ...p, chips: p.chips + take + back, result: { won: take, net: take + back - p.total, hand: hand?.name ?? null, best: hand?.best ?? [] } };
+    const hand2 = hands2?.get(p.id);
+    const result: TxHandResult = { won: take, net: take + back - p.total, hand: hand?.name ?? null, best: hand?.best ?? [] };
+    if (hands2) result.second = { hand: hand2?.name ?? null, best: hand2?.best ?? [], won: wonSecond.get(p.id) ?? 0 };
+    return { ...p, chips: p.chips + take + back, result };
   });
-  return { ...s, players, phase: "showdown", turnId: null, turnAt: null, dealAt: null, runout: false, settleAt: now + SHOWDOWN_MS };
+  return { ...s, players, phase: "showdown", turnId: null, turnAt: null, dealAt: null, runout: false, ask: null, settleAt: now + SHOWDOWN_MS };
 }
 
 function resetTable(s: TxState, now: number): TxState {
@@ -281,9 +338,13 @@ function resetTable(s: TxState, now: number): TxState {
   const players = s.players
     .filter((p) => !p.gone && !isStale(p, now))
     .map((p) => ({ ...p, bet: 0, total: 0, cards: [], folded: false, allIn: false, acted: false, shown: false, result: null }));
+  const brokeAtTable = players.some((p) => p.seat !== null && p.chips === 0); // keep the full beat so they can rebuy before the deal
+  // The lobby carries the next hand's blinds, so a level change lands at the hand boundary and never mid-hand.
+  const blinds = blindsFor(s.pace, s.round - s.paceRound);
   return syncLobby(
-    { ...s, phase: "lobby", players, stacks, board: [], deck: [], currentBet: 0, minRaise: BIG_BLIND, turnId: null, turnAt: null, dealAt: null, settleAt: null, sbId: null, bbId: null, runout: false, startAt: null },
+    { ...s, phase: "lobby", players, stacks, blinds, board: [], deck: [], currentBet: 0, minRaise: blinds.bigBlind, turnId: null, turnAt: null, dealAt: null, settleAt: null, sbId: null, bbId: null, runout: false, ask: null, second: null, startAt: null },
     now,
+    brokeAtTable ? START_MS : AFTER_HAND_MS,
   );
 }
 
@@ -312,12 +373,16 @@ export function legalActions(s: TxState, id: string): TxActions | null {
   };
 }
 
-// The host may remove someone between hands, or at any time once they are offline or sitting out.
+// Rebuy and stand-up depend on whether the player holds cards in the current hand, not on the table phase.
+export const canRebuyTx = (p: TxPlayer): boolean => p.cards.length === 0 && p.chips === 0;
+export const canStandUpTx = (p: TxPlayer): boolean => p.seat !== null && !isLive(p);
+
+// The host may remove someone between hands, or at any time once they are offline, sitting out or a bot.
 export function canKickTx(s: TxState, id: string): boolean {
   const p = s.players.find((x) => x.id === id);
   if (!p) return false;
   if (s.phase === "lobby") return true;
-  return !p.gone && (!p.connected || p.sitOut);
+  return !p.gone && (!p.connected || p.sitOut || isTxBotId(id));
 }
 
 export function removeTxPlayer(s: TxState, id: string, opts: { now: number; rng?: Rng }): TxState {
@@ -348,21 +413,27 @@ export function applyTxIntent(s: TxState, actorId: string, intent: TxIntent, opt
       if (!Number.isInteger(seat) || seat < 0 || seat >= SEATS) return fail("No such seat");
       if (inHand) return fail("Finish your hand first");
       if (s.players.some((p) => p.seat === seat && p.id !== actorId)) return fail("Seat taken");
-      return lobby(patch(s, actorId, (p) => ({ ...p, seat, sitOut: false })));
+      return lobby(patch(s, actorId, (p) => ({ ...p, seat, sitOut: false, timedOut: false })));
     }
     case "standUp":
       if (me.seat === null) return fail("You're not seated");
-      if (isLive(me)) return fail("Finish your hand first");
-      return lobby(patch(s, actorId, (p) => ({ ...p, seat: null })));
+      if (!canStandUpTx(me)) return fail("Finish your hand first");
+      return lobby(patch(s, actorId, (p) => ({ ...p, seat: null, timedOut: false })));
     case "sitOut":
-      return lobby(patch(s, actorId, (p) => ({ ...p, sitOut: true })));
+      return lobby(patch(s, actorId, (p) => ({ ...p, sitOut: true, timedOut: false })));
     case "sitIn":
       if (me.seat === null) return fail("Take a seat first");
-      return lobby(patch(s, actorId, (p) => ({ ...p, sitOut: false })));
+      return lobby(patch(s, actorId, (p) => ({ ...p, sitOut: false, timedOut: false })));
     case "rebuy":
       if (inHand) return fail("Wait for the hand to finish");
-      if (me.chips > 0) return fail("You still have chips");
+      if (!canRebuyTx(me)) return fail("You still have chips");
       return lobby({ ...patch(s, actorId, (p) => ({ ...p, chips: START_CHIPS })), buyIns: { ...s.buyIns, [actorId]: (s.buyIns[actorId] ?? 0) + START_CHIPS } });
+    case "setPace": {
+      if (!opts.isHost) return fail("Only the host can change the blinds");
+      if (s.phase !== "lobby") return fail("Blinds change between hands");
+      const blinds = blindsFor(intent.pace, 0);
+      return done({ ...s, pace: intent.pace, paceRound: s.round, blinds, minRaise: blinds.bigBlind });
+    }
     case "react":
       if (me.seat === null) return fail("Take a seat first");
       if (me.reaction && now - me.reaction.at < REACTION_COOLDOWN_MS) return fail("Slow down");
@@ -370,6 +441,18 @@ export function applyTxIntent(s: TxState, actorId: string, intent: TxIntent, opt
     case "show":
       if (s.phase !== "showdown" || !isLive(me)) return fail("Nothing to show");
       return done(patch(s, actorId, (p) => ({ ...p, shown: true })));
+    case "setRunTwice":
+      if (!opts.isHost) return fail("Only the host can change this");
+      if (s.phase !== "lobby") return fail("Change this between hands");
+      return done({ ...s, runTwice: intent.on });
+    case "runTwice": {
+      const { ask } = s;
+      if (!ask || !s.runout) return fail("Nothing to vote on");
+      if (!ask.ids.includes(actorId) || !isLive(me)) return fail("You're not in this pot");
+      if (!intent.yes) return done(settleAsk(s, false, now));
+      const agreed: TxState = { ...s, ask: { ...ask, yes: [...new Set([...ask.yes, actorId])] } };
+      return done(allAgreed(agreed) ? settleAsk(agreed, true, now) : agreed);
+    }
     case "fold":
     case "check":
     case "call":
@@ -385,12 +468,13 @@ export function applyTxIntent(s: TxState, actorId: string, intent: TxIntent, opt
   const legal = legalActions(s, actorId);
   if (!legal) return fail("It's not your turn");
 
-  if (intent.type === "fold") return done(proceed(patch(s, actorId, (p) => ({ ...p, folded: true })), seatOf(me), now, rng));
+  const base = me.sitOut ? patch(s, actorId, (p) => ({ ...p, sitOut: false, timedOut: false })) : s; // acting is coming back
+  if (intent.type === "fold") return done(proceed(patch(base, actorId, (p) => ({ ...p, folded: true })), seatOf(me), now, rng));
   if (intent.type === "check") {
     if (!legal.canCheck) return fail("You must call or fold");
-    return done(proceed(patch(s, actorId, (p) => ({ ...p, acted: true })), seatOf(me), now, rng));
+    return done(proceed(patch(base, actorId, (p) => ({ ...p, acted: true })), seatOf(me), now, rng));
   }
-  const call = (): TxResult => done(proceed(patch(s, actorId, (p) => ({ ...commit(p, s.currentBet - p.bet), acted: true })), seatOf(me), now, rng));
+  const call = (): TxResult => done(proceed(patch(base, actorId, (p) => ({ ...commit(p, s.currentBet - p.bet), acted: true })), seatOf(me), now, rng));
   if (intent.type === "call") return legal.canCheck ? fail("Nothing to call") : call();
 
   const target = intent.type === "allIn" ? legal.maxRaiseTo : intent.amount;
@@ -402,11 +486,11 @@ export function applyTxIntent(s: TxState, actorId: string, intent: TxIntent, opt
 
   const size = target - s.currentBet;
   const full = size >= s.minRaise; // a short all-in does not reopen the betting for players who already acted
-  const players = s.players.map((p) => {
+  const players = base.players.map((p) => {
     if (p.id === actorId) return { ...commit(p, target - p.bet), acted: true };
     return full && canAct(p) ? { ...p, acted: false } : p;
   });
-  return done(proceed({ ...s, players, currentBet: target, minRaise: full ? size : s.minRaise }, seatOf(me), now, rng));
+  return done(proceed({ ...base, players, currentBet: target, minRaise: full ? size : s.minRaise }, seatOf(me), now, rng));
 }
 
 export function serverDeadline(s: TxState): number | null {
@@ -418,7 +502,10 @@ export function serverDeadline(s: TxState): number | null {
   }
   if (s.phase === "showdown") return s.settleAt;
   if (s.runout) return s.dealAt;
-  return s.turnAt === null ? null : s.turnAt + TURN_MS;
+  if (s.turnAt === null) return null;
+  const actor = s.players.find((p) => p.id === s.turnId);
+  if (!actor || (actor.connected && !actor.sitOut)) return s.turnAt + TURN_MS;
+  return Math.max(s.turnAt, actor.droppedAt ?? 0) + AWAY_TURN_MS; // a socket that drops mid-turn gets the full short clock from the drop
 }
 
 // The clock players see: ghost cleanup in an idle lobby is not a countdown.
@@ -432,10 +519,10 @@ export function onDeadline(s: TxState, now: number, rng: Rng = cryptoRng): TxSta
     return seal(startHand(s, now, rng), s);
   }
   if (s.phase === "showdown") return seal(resetTable(s, now), s);
-  if (s.runout) return seal(runoutStep(s, now), s);
+  if (s.runout) return seal(s.ask ? settleAsk(s, allAgreed(s), now) : runoutStep(s, now), s);
   const actor = s.players.find((p) => p.id === s.turnId);
   if (!actor) return s;
-  const timedOut = patch(s, actor.id, (p) => ({ ...p, sitOut: true }));
+  const timedOut = patch(s, actor.id, (p) => ({ ...p, sitOut: true, timedOut: true }));
   if (actor.bet >= s.currentBet) return seal(proceed(patch(timedOut, actor.id, (p) => ({ ...p, acted: true })), seatOf(actor), now, rng), s);
   return seal(proceed(patch(timedOut, actor.id, (p) => ({ ...p, folded: true })), seatOf(actor), now, rng), s);
 }
