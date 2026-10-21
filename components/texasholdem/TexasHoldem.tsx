@@ -14,7 +14,6 @@ import { cx } from "@/components/ui/cx";
 import { Toast } from "@/components/ui/Toast";
 import { tap } from "@/lib/client/haptics";
 import {
-  BIG_BLIND,
   CARD_SLIDE_MS,
   DEAL_STAGGER_MS,
   FOLD_WIN_MS,
@@ -22,7 +21,6 @@ import {
   REACTION_COOLDOWN_MS,
   SEATS,
   SHOWDOWN_MS,
-  SMALL_BLIND,
   TURN_MS,
   TX_REACTIONS,
   buildPots,
@@ -421,11 +419,18 @@ function Felt({ conn, me, revealed, clearing, secs }: { conn: TxConnection; me: 
           <CardFace key={i} card={null} className="absolute" size={25} style={{ left: i * 1.5, top: -i * 1.5 }} />
         ))}
       </div>
-      <div className="absolute top-[1%] right-[3%] z-20 flex items-center gap-1.5">
+      <div className="absolute top-[1%] right-[3%] z-20 flex items-start gap-1.5">
         <Watchers players={game.players} you={conn.you} />
-        <p aria-label={`Blinds ${SMALL_BLIND} and ${BIG_BLIND}`} className="rounded-full border border-white/10 bg-black/40 px-2 py-0.5 font-display text-[10px] tracking-[0.14em] text-fg/70 tabular-nums">
-          {SMALL_BLIND}/{BIG_BLIND}
-        </p>
+        <div className="flex flex-col items-end rounded-2xl border border-white/10 bg-black/40 px-2 py-0.5 font-display text-[10px] tracking-[0.14em] text-fg/85 tabular-nums">
+          <p aria-label={`Blinds ${game.blinds.smallBlind} and ${game.blinds.bigBlind}`}>
+            {game.blinds.smallBlind}/{game.blinds.bigBlind}
+          </p>
+          {game.blinds.next && (
+            <p className="max-w-[7.5rem] text-right text-[11px] leading-tight tracking-[0.04em]">
+              Next: {game.blinds.next.smallBlind}/{game.blinds.next.bigBlind} in {game.blinds.next.inHands} {game.blinds.next.inHands === 1 ? "hand" : "hands"}
+            </p>
+          )}
+        </div>
       </div>
 
       <div data-pot className="absolute left-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2" style={{ top: "34%" }}>
@@ -654,7 +659,7 @@ function Seat({
   const inHand = player.cards.length > 0;
   const ranked = game.phase === "showdown" && player.result?.hand != null; // a hand shown at a contested showdown stays up after its owner leaves
   const showCards = inHand && (mine || !player.folded || ranked);
-  const busted = !inHand && player.chips < BIG_BLIND;
+  const busted = !inHand && player.chips < game.blinds.bigBlind;
   const awardRef = useRef<HTMLSpanElement>(null);
   useFly(awardRef, won ? "[data-pot]" : undefined, "from", 150);
   const bubble = useReactionBubble(player.reaction);

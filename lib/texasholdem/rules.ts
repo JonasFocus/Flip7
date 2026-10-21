@@ -1,4 +1,5 @@
 import { cryptoRng } from "../blackjack/rules.ts";
+import { BLIND_LEVELS, blindsFor } from "./blinds.ts";
 import { buildPots, evaluate } from "./eval.ts";
 import type { Rank, Suit, TxActions, TxCard, TxHandResult, TxIntent, TxPhase, TxPlayer, TxState } from "./types.ts";
 
@@ -6,8 +7,8 @@ export const SEATS = 8;
 export const MAX_TX_PLAYERS = 12; // 8 seats plus rail watchers
 export const MAX_TX_BOTS = 7; // a table always keeps a seat for a human
 export const START_CHIPS = 2000; // 100 big blinds
-export const SMALL_BLIND = 10;
-export const BIG_BLIND = 20;
+export const SMALL_BLIND = BLIND_LEVELS[0][0]; // the opening blinds; a turbo table raises them
+export const BIG_BLIND = BLIND_LEVELS[0][1];
 export const TURN_MS = 25_000; // then the server checks, or folds if there is a bet to face
 export const AWAY_TURN_MS = 2000; // an offline or sitting-out actor gets this short clock instead of TURN_MS
 export const START_MS = 3000; // two funded players are seated: the next hand is dealt after this beat
@@ -90,6 +91,9 @@ export function createTxGame(): TxState {
     sbId: null,
     bbId: null,
     currentBet: 0,
+    pace: "casual",
+    paceRound: 0,
+    blinds: blindsFor("casual", 0),
     minRaise: BIG_BLIND,
     turnId: null,
     turnAt: null,
@@ -181,12 +185,12 @@ function startHand(table: TxState, now: number, rng: Rng): TxState {
   }
   const players = s.players.map((p) => {
     const fresh: TxPlayer = { ...p, bet: 0, total: 0, cards: hole.get(p.id) ?? [], folded: false, allIn: false, acted: false, shown: false, result: null };
-    if (p.id === sb.id) return commit(fresh, SMALL_BLIND);
-    if (p.id === bb.id) return commit(fresh, BIG_BLIND);
+    if (p.id === sb.id) return commit(fresh, s.blinds.smallBlind);
+    if (p.id === bb.id) return commit(fresh, s.blinds.bigBlind);
     return fresh;
   });
   // Heads-up, a short big blind can post less than the small blind. Nobody owes more than the largest posted blind.
-  const posted = headsUp ? Math.max(...players.map((p) => p.bet)) : BIG_BLIND;
+  const posted = headsUp ? Math.max(...players.map((p) => p.bet)) : s.blinds.bigBlind;
   const dealt: TxState = {
     ...s,
     phase: "preflop",
@@ -197,7 +201,7 @@ function startHand(table: TxState, now: number, rng: Rng): TxState {
     sbId: sb.id,
     bbId: bb.id,
     currentBet: posted,
-    minRaise: BIG_BLIND,
+    minRaise: s.blinds.bigBlind,
     turnId: null,
     turnAt: null,
     startAt: null,
@@ -235,7 +239,7 @@ function closeStreet(s: TxState, now: number, rng: Rng): TxState {
     ...s,
     players: s.players.map((p) => ({ ...p, bet: 0, acted: false })),
     currentBet: 0,
-    minRaise: BIG_BLIND,
+    minRaise: s.blinds.bigBlind,
     turnId: null,
     turnAt: null,
   };
@@ -332,8 +336,10 @@ function resetTable(s: TxState, now: number): TxState {
     .filter((p) => !p.gone && !isStale(p, now))
     .map((p) => ({ ...p, bet: 0, total: 0, cards: [], folded: false, allIn: false, acted: false, shown: false, result: null }));
   const brokeAtTable = players.some((p) => p.seat !== null && p.chips === 0); // keep the full beat so they can rebuy before the deal
+  // The lobby carries the next hand's blinds, so a level change lands at the hand boundary and never mid-hand.
+  const blinds = blindsFor(s.pace, s.round - s.paceRound);
   return syncLobby(
-    { ...s, phase: "lobby", players, stacks, board: [], deck: [], currentBet: 0, minRaise: BIG_BLIND, turnId: null, turnAt: null, dealAt: null, settleAt: null, sbId: null, bbId: null, runout: false, ask: null, second: null, startAt: null },
+    { ...s, phase: "lobby", players, stacks, blinds, board: [], deck: [], currentBet: 0, minRaise: blinds.bigBlind, turnId: null, turnAt: null, dealAt: null, settleAt: null, sbId: null, bbId: null, runout: false, ask: null, second: null, startAt: null },
     now,
     brokeAtTable ? START_MS : AFTER_HAND_MS,
   );
@@ -419,6 +425,12 @@ export function applyTxIntent(s: TxState, actorId: string, intent: TxIntent, opt
       if (inHand) return fail("Wait for the hand to finish");
       if (!canRebuyTx(me)) return fail("You still have chips");
       return lobby(patch(s, actorId, (p) => ({ ...p, chips: START_CHIPS })));
+    case "setPace": {
+      if (!opts.isHost) return fail("Only the host can change the blinds");
+      if (s.phase !== "lobby") return fail("Blinds change between hands");
+      const blinds = blindsFor(intent.pace, 0);
+      return done({ ...s, pace: intent.pace, paceRound: s.round, blinds, minRaise: blinds.bigBlind });
+    }
     case "react":
       if (me.seat === null) return fail("Take a seat first");
       if (me.reaction && now - me.reaction.at < REACTION_COOLDOWN_MS) return fail("Slow down");
