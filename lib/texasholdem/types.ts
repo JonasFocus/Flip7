@@ -62,6 +62,7 @@ export interface TxState {
   board: TxCard[];
   deck: TxCard[]; // REDACTED to []
   stacks: Record<string, number>; // chips kept for players who left with more than 0, restored if they rejoin; REDACTED to {}
+  buyIns: Record<string, number>; // chips each player has bought in tonight (starting stack plus every rebuy), kept after they leave so a rejoin keeps the tally
   pot: number; // everything committed this hand, including the current street
   button: number | null; // seat of the dealer button
   sbId: string | null;

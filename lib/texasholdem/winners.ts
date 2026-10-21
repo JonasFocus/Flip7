@@ -30,6 +30,24 @@ export function handLabel(r: TxHandResult | null): string | null {
 // Everything showdown paid into the stack: pot winnings plus an uncalled bet returned to its owner.
 export const paidOut = (p: TxPlayer): number => (p.result ? p.result.net + p.total : 0);
 
+export interface Standing {
+  id: string;
+  name: string;
+  buyIn: number;
+  net: number;
+}
+
+// Net winnings tonight, best first: what you hold minus every buy-in. Chips in a live pot still count as yours until the hand is paid, so a bet never reads as a loss.
+export function standings(s: TxState): Standing[] {
+  return s.players
+    .map((p) => {
+      const buyIn = s.buyIns[p.id] ?? 0;
+      const held = p.chips + (s.phase === "showdown" ? 0 : p.total);
+      return { id: p.id, name: p.name, buyIn, net: held - buyIn };
+    })
+    .sort((a, b) => b.net - a.net);
+}
+
 // The stack as the table shows it before the winner is called: at showdown the payout is already in `chips`.
 export const stackBeforeAward = (p: TxPlayer, phase: TxState["phase"]): number => (phase === "showdown" ? p.chips - paidOut(p) : p.chips);
 
