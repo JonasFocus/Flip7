@@ -164,3 +164,56 @@ test("a table holds seven bots at most and only the host can seat them", async (
   host.ws.close();
   guest.ws.close();
 });
+
+test("a mid-hand kick rejects rejoining while the removed seat still exists", async () => {
+  const host = await connect();
+  const guest = await connect();
+  try {
+    host.send({ t: "create", mode: "texasholdem", name: "Host", clientId: "kick-host" });
+    const code = (await until(() => latest(host), "room")).code;
+    guest.send({ t: "join", code, name: "Guest", clientId: "kick-guest" });
+    await until(() => latest(guest), "guest");
+    const guestId = game(guest)?.players.find((p) => p.name === "Guest")?.id;
+    assert.ok(guestId);
+    host.send({ t: "texasholdem", intent: { type: "sit", seat: 0 } });
+    guest.send({ t: "texasholdem", intent: { type: "sit", seat: 1 } });
+    await until(() => inHand(host) ? true : null, "deal");
+    guest.send({ t: "texasholdem", intent: { type: "sitOut" } });
+    await until(() => game(host)?.players.find((p) => p.id === guestId)?.sitOut ? true : null, "sit out");
+    host.send({ t: "removePlayer", playerId: guestId });
+    await until(() => errored(guest, "You were removed from the room"), "kick");
+    guest.inbox.length = 0;
+    guest.send({ t: "join", code, name: "Guest", clientId: "kick-guest" });
+    await until(() => guest.inbox.length ? true : null, "join response");
+    assert.ok(errored(guest, "You were removed from the room"));
+    assert.equal(game(host)?.players.find((p) => p.id === guestId)?.connected, false);
+  } finally {
+    host.ws.close();
+    guest.ws.close();
+  }
+});
+
+test("unrelated table updates do not postpone a bot turn", async () => {
+  const host = await connect();
+  let updates: ReturnType<typeof setInterval> | undefined;
+  try {
+    host.send({ t: "create", mode: "texasholdem", name: "Host", clientId: "steady-bot-host" });
+    await until(() => latest(host), "room");
+    host.send({ t: "texasholdem", intent: { type: "sit", seat: 0 } });
+    host.send({ t: "addBot" });
+    await until(() => game(host)?.phase === "preflop" ? true : null, "deal");
+    host.send({ t: "texasholdem", intent: { type: "call" } });
+    const before = await until(() => {
+      const g = game(host);
+      return g?.turnId && isTxBotId(g.turnId) ? g : null;
+    }, "bot turn");
+    updates = setInterval(() => host.send({ t: "texasholdem", intent: { type: "sitIn" } }), 100);
+    await until(() => {
+      const g = game(host);
+      return g && (g.turnId !== before.turnId || g.turnAt !== before.turnAt) ? true : null;
+    }, "bot acts despite updates");
+  } finally {
+    clearInterval(updates);
+    host.ws.close();
+  }
+});

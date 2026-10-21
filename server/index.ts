@@ -262,6 +262,7 @@ interface LiveRoom {
   lastActive: number;
   creatorId: string; // gets host back on return, so a reload or flaky signal doesn't cost the creator the room
   botTimer: NodeJS.Timeout | null;
+  txBotKey: string | null;
   nextRound: { round: number; at: number; timer: NodeJS.Timeout } | null; // roundOver: the server deals the next round at `at`
   cluesTimer: NodeJS.Timeout | null; // imposter clue and voting deadlines
   partyTimer: NodeJS.Timeout | null; // party games: fires onDeadline at the engine's serverDeadline
@@ -516,10 +517,10 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
   }
 
   function scheduleBot(live: LiveRoom) {
+    if (live.room.mode === "texasholdem") return scheduleTxBot(live);
     if (live.botTimer) clearTimeout(live.botTimer);
     live.botTimer = null;
     const { room } = live;
-    if (room.mode === "texasholdem") return scheduleTxBot(live);
     if (room.mode !== "virtual" || inRoom(room.code).length === 0) return;
     const game = room.game;
     const botId = awaitingPlayerId(game);
@@ -554,19 +555,27 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
     }, delay);
   }
 
-  // Hold'em bots play by the engine's own clock: the next due move is re-planned after every change.
+  // Keep the thinking deadline across reactions and other updates to the same turn.
   function scheduleTxBot(live: LiveRoom) {
     const { room } = live;
-    if (room.mode !== "texasholdem" || inRoom(room.code).length === 0) return;
-    const move = tx.nextTxBotMove(room.game, Date.now(), Math.random);
+    if (room.mode !== "texasholdem") return;
+    const move = inRoom(room.code).length > 0 ? tx.nextTxBotMove(room.game, Date.now(), Math.random) : null;
+    const game = room.game;
+    const key = move ? `${game.round}:${game.phase}:${game.turnId}:${game.turnAt}:${move.playerId}:${game.phase === "lobby" ? move.intent.type : "turn"}` : null;
+    if (live.botTimer && live.txBotKey === key) return;
+    if (live.botTimer) clearTimeout(live.botTimer);
+    live.botTimer = null;
+    live.txBotKey = key;
     if (!move) return;
-    const seq = room.game.seq;
     live.botTimer = setTimeout(() => {
       live.botTimer = null;
       try {
         const current = live.room;
-        if (current.mode !== "texasholdem" || current.game.seq !== seq) return;
-        const res = tx.applyTxIntent(current.game, move.playerId, move.intent, { isHost: false, now: Date.now() });
+        if (current.mode !== "texasholdem" || live.txBotKey !== key || inRoom(current.code).length === 0) return;
+        // Another player may have left while we waited, changing the legal action.
+        const next = tx.nextTxBotMove(current.game, Date.now(), Math.random);
+        if (!next || next.playerId !== move.playerId) return;
+        const res = tx.applyTxIntent(current.game, next.playerId, next.intent, { isHost: false, now: Date.now() });
         if (!res.ok) {
           console.error(`bot ${move.playerId} in ${current.code}: ${res.error}`);
           return;
@@ -690,7 +699,7 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
         : mode === "imposter"
           ? { code, mode, hostId: clientId, game: addImposterPlayer(createImposterGame(), { id: clientId, name }) }
           : { code, mode, hostId: clientId, game: addScoreSeat(createScoreGame(), { id: clientId, name, ownerId: clientId }) };
-    const live: LiveRoom = { room, lastActive: Date.now(), creatorId: clientId, botTimer: null, nextRound: null, cluesTimer: null, partyTimer: null, disconnectedAt: new Map(), awayStays: new Map(), kicked: new Set(), phase: room.game.phase };
+    const live: LiveRoom = { room, lastActive: Date.now(), creatorId: clientId, botTimer: null, txBotKey: null, nextRound: null, cluesTimer: null, partyTimer: null, disconnectedAt: new Map(), awayStays: new Map(), kicked: new Set(), phase: room.game.phase };
     rooms.set(code, live);
     attach(c, live, clientId, name, "create");
   }
@@ -725,7 +734,7 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
       else if (!allow(joinsByIp, c.ip, joinsPerIpPerMin)) return fail(c, TOO_MANY_JOINS);
       else room.game = addImposterPlayer(room.game, { id: clientId, name });
     } else if (isParty(room)) {
-      if (!seated && live.kicked.has(clientId)) return fail(c, KICKED_MESSAGE);
+      if (live.kicked.has(clientId)) return fail(c, KICKED_MESSAGE);
       if (!seated && room.game.players.length >= PARTY[room.mode].maxPlayers) return fail(c, "Room is full");
       if (!seated && room.game.phase !== "lobby" && !PARTY[room.mode].openJoin) return fail(c, "Game already started");
       if (!seated && !allow(joinsByIp, c.ip, joinsPerIpPerMin)) return fail(c, TOO_MANY_JOINS);
