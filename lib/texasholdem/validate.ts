@@ -9,7 +9,7 @@ export function parseTxIntent(v: unknown): TxIntent | null {
   if (!isObj(v)) return null;
   switch (v.type) {
     case "sit":
-      return onlyKeys(v, ["seat"]) && isInt(v.seat, 0, 9) ? { type: "sit", seat: v.seat } : null;
+      return onlyKeys(v, ["seat"]) && isInt(v.seat, 0, 7) ? { type: "sit", seat: v.seat } : null; // SEATS is 8; the engine re-checks
     case "bet":
       return onlyKeys(v, ["amount"]) && isInt(v.amount, 1, 1_000_000_000) ? { type: "bet", amount: v.amount } : null;
     case "setPace":

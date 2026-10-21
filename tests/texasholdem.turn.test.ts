@@ -42,3 +42,9 @@ test("the countdown ring stops easing and pulsing under reduced motion", () => {
   assert.match(ring, /motion-reduce:transition-none/);
   assert.match(ring, /tx-low/);
 });
+
+test("run it twice: single-board odds and the bad-beat callout stand down", () => {
+  // Odds keyed to the first board would misstate half the pot; a first-board loser may win the second.
+  assert.match(table, /game\.runout && game\.second === null \? game\.players\.filter/);
+  assert.match(table, /game\.second !== null\) return null;/);
+});

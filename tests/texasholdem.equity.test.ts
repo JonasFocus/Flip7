@@ -66,6 +66,6 @@ test("work can be done in slices", () => {
 
 test("the table only works out odds once betting is over and every live hand is face up", () => {
   const source = readFileSync(new URL("../components/texasholdem/TexasHoldem.tsx", import.meta.url), "utf8");
-  assert.match(source, /const contenders = game\.runout \? game\.players\.filter/);
+  assert.match(source, /const contenders = game\.runout && game\.second === null \? game\.players\.filter/);
   assert.match(source, /holes\.length > 1 && holes\.every\(\(h\) => h\.length === 2\)/);
 });

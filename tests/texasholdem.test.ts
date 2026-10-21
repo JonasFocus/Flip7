@@ -748,6 +748,7 @@ test("parseTxIntent is strict about shape, ints and extra fields", () => {
     { type: "bet", amount: 60, seat: 1 },
     { type: "sit", seat: -1 },
     { type: "sit", seat: 1.2 },
+    { type: "sit", seat: 8 },
     { type: "sit", seat: 10 },
     { type: "hit" },
   ])
@@ -1002,6 +1003,42 @@ test("three-handed bust to heads-up: last hand's big blind takes the button and 
   assert.equal(next.bbId, "b");
   assert.equal(next.button, 2);
   assert.equal(next.turnId, "c");
+});
+
+test("heads-up after a real hand: last hand's big blind takes the button (through the table reset)", () => {
+  let s = table(["a", "b", "c"]);
+  assert.deepEqual([s.button, s.sbId, s.bbId], [0, "b", "c"]);
+  s = act(s, "a", { type: "fold" });
+  s = act(s, "b", { type: "fold" });
+  assert.equal(s.phase, "showdown");
+  const lobby = onDeadline(s, s.settleAt!, newRng()); // resetTable: the path a real session takes
+  assert.equal(lobby.phase, "lobby");
+  const busted = { ...lobby, players: lobby.players.map((p) => (p.id === "a" ? { ...p, chips: 0 } : p)) };
+  const next = onDeadline(busted, busted.startAt!, newRng());
+  assert.deepEqual([next.button, next.sbId, next.bbId, next.turnId], [2, "c", "b", "c"]); // c is not the big blind twice
+});
+
+test("a ghost pruned after the grace period keeps their stack and buy-in tally for a rejoin", () => {
+  let s = createTxGame();
+  s = addTxPlayer(s, { id: "a", name: "A" });
+  s = addTxPlayer(s, { id: "b", name: "B" });
+  s = { ...s, players: s.players.map((p) => (p.id === "b" ? { ...p, chips: 1234 } : p)) };
+  s = setTxConnected(s, "b", false, NOW);
+  const pruned = onDeadline(s, NOW + DROP_GRACE_MS);
+  assert.deepEqual(pruned.players.map((p) => p.id), ["a"]);
+  const rejoined = addTxPlayer(pruned, { id: "b", name: "B" });
+  assert.equal(player(rejoined, "b").chips, 1234); // banked, not a fresh stack
+  assert.equal(rejoined.buyIns["b"], START_CHIPS); // and not a second buy-in
+});
+
+test("a ghost cleared at the hand boundary keeps their stack for a rejoin", () => {
+  const s = endedHand({ dropAt: NOW });
+  const banked = player(s, "c").chips;
+  const reset = onDeadline(s, NOW + DROP_GRACE_MS + 1, newRng());
+  assert.deepEqual(reset.players.map((p) => p.id), ["a", "b"]);
+  const rejoined = addTxPlayer(reset, { id: "c", name: "C" });
+  assert.equal(player(rejoined, "c").chips, banked);
+  assert.equal(rejoined.buyIns["c"], START_CHIPS);
 });
 
 test("railWatchers lists connected unseated players only", () => {

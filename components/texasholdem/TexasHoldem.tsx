@@ -29,7 +29,6 @@ import {
   dealAnimMs,
   handLabel,
   madeHand,
-  paidOut,
   railWatchers,
   oddsRunner,
   stackBeforeAward,
@@ -127,10 +126,11 @@ function useBadBeat(game: TxState): BadBeat | null {
   const [runoutRound, setRunoutRound] = useState<number | null>(null);
   if (game.runout && runoutRound !== game.round) setRunoutRound(game.round);
   return useMemo(() => {
-    if (game.phase !== "showdown" || runoutRound !== game.round) return null;
+    // Run it twice has no single river or loser: a first-board bad beat may still win the second board.
+    if (game.phase !== "showdown" || runoutRound !== game.round || game.second !== null) return null;
     const ranked = game.players.filter((p) => p.result?.hand != null).map((p) => ({ id: p.id, hole: p.cards.filter((c): c is TxCard => c !== null) }));
     return ranked.every((r) => r.hole.length === 2) ? findBadBeat(ranked, game.board) : null;
-  }, [game.phase, game.players, game.board, game.round, runoutRound]);
+  }, [game.phase, game.players, game.board, game.second, game.round, runoutRound]);
 }
 
 function BadBeatCallout({ loser, you }: { loser: TxPlayer; you: string }) {
@@ -160,7 +160,8 @@ const cardCode = (c: TxCard): string => `${c.rank}${c.suit}`;
 // Once betting is over and every live hand is face up, each contesting seat's chance to win the board so far.
 // Worked out here from the cards on the table only, in slices so a preflop runout never stalls a frame.
 function useRunoutOdds(game: TxState): Map<string, ShownOdds> | null {
-  const contenders = game.runout ? game.players.filter((p) => p.cards.length > 0 && !p.folded) : [];
+  // Once the board runs twice these single-board odds would lie about half the pot, so they stop.
+  const contenders = game.runout && game.second === null ? game.players.filter((p) => p.cards.length > 0 && !p.folded) : [];
   const holes = contenders.map((p) => p.cards.filter((c): c is TxCard => c !== null));
   const faceUp = holes.length > 1 && holes.every((h) => h.length === 2);
   const key = faceUp ? `${game.round}|${contenders.map((p, i) => `${p.id}:${holes[i]?.map(cardCode).join(",")}`).join("|")}|${game.board.map(cardCode).join(",")}` : null;

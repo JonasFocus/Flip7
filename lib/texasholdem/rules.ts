@@ -156,7 +156,10 @@ const isStale = (p: TxPlayer, now: number): boolean => !p.connected && p.dropped
 
 function pruneDropped(s: TxState, now: number): TxState {
   const keep = (p: TxPlayer) => p.cards.length > 0 || !isStale(p, now);
-  return s.players.every(keep) ? s : { ...s, players: s.players.filter(keep) };
+  if (s.players.every(keep)) return s;
+  // Pruned like a leave, not a bust: their chips bank for a later rejoin (see keepStack).
+  const stacks = s.players.filter((p) => !keep(p)).reduce(keepStack, s.stacks);
+  return { ...s, players: s.players.filter(keep), stacks };
 }
 
 export function setTxConnected(s: TxState, id: string, connected: boolean, now: number): TxState {
@@ -359,7 +362,7 @@ export function recapOf(s: TxState): TxRecap {
 
 function resetTable(s: TxState, now: number): TxState {
   const history = [recapOf(s), ...s.history].slice(0, HISTORY_HANDS);
-  const stacks = s.players.filter((p) => p.gone).reduce(keepStack, s.stacks);
+  const stacks = s.players.filter((p) => p.gone || isStale(p, now)).reduce(keepStack, s.stacks);
   const players = s.players
     .filter((p) => !p.gone && !isStale(p, now))
     .map((p) => ({ ...p, bet: 0, total: 0, cards: [], folded: false, allIn: false, acted: false, shown: false, result: null }));
@@ -367,7 +370,8 @@ function resetTable(s: TxState, now: number): TxState {
   // The lobby carries the next hand's blinds, so a level change lands at the hand boundary and never mid-hand.
   const blinds = blindsFor(s.pace, s.round - s.paceRound);
   return syncLobby(
-    { ...s, phase: "lobby", players, stacks, blinds, history, board: [], deck: [], currentBet: 0, minRaise: blinds.bigBlind, turnId: null, turnAt: null, dealAt: null, settleAt: null, sbId: null, bbId: null, runout: false, ask: null, second: null, startAt: null },
+    // sbId/bbId stay: startHand needs last hand's big blind to place the button when the table drops to heads-up.
+    { ...s, phase: "lobby", players, stacks, blinds, history, board: [], deck: [], currentBet: 0, minRaise: blinds.bigBlind, turnId: null, turnAt: null, dealAt: null, settleAt: null, runout: false, ask: null, second: null, startAt: null },
     now,
     brokeAtTable ? START_MS : AFTER_HAND_MS,
   );
