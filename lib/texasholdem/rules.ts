@@ -1,7 +1,8 @@
 import { cryptoRng } from "../blackjack/rules.ts";
 import { BLIND_LEVELS, blindsFor } from "./blinds.ts";
 import { buildPots, evaluate } from "./eval.ts";
-import type { Rank, Suit, TxActions, TxCard, TxHandResult, TxIntent, TxPhase, TxPlayer, TxState } from "./types.ts";
+import { handLabel, potWon } from "./winners.ts";
+import type { Rank, Suit, TxActions, TxCard, TxHandResult, TxIntent, TxPhase, TxPlayer, TxRecap, TxState } from "./types.ts";
 
 export const SEATS = 8;
 export const MAX_TX_PLAYERS = 12; // 8 seats plus rail watchers
@@ -22,6 +23,7 @@ export const RUN_TWICE_BEAT_MS = 1200; // everyone agreed: a beat before the fir
 export const DEAL_STAGGER_MS = 200; // client deal animation: gap between cards going round the table
 export const CARD_SLIDE_MS = 550; // client deal animation: one card's trip from the deck
 export const REACTION_COOLDOWN_MS = 1500; // between emoji reactions from one player
+export const HISTORY_HANDS = 5; // finished hands kept for the recap
 export const DROP_GRACE_MS = 75_000; // a dropped player keeps their seat this long; after it they are cleared at the next hand boundary
 
 // Two passes round the table; the first turn's clock starts once the last card lands.
@@ -105,6 +107,7 @@ export function createTxGame(): TxState {
     runTwice: true,
     ask: null,
     second: null,
+    history: [],
     round: 0,
     seq: 0,
   };
@@ -333,7 +336,29 @@ function showdown(s: TxState, now: number): TxState {
   return { ...s, players, phase: "showdown", turnId: null, turnAt: null, dealAt: null, runout: false, ask: null, settleAt: now + SHOWDOWN_MS };
 }
 
+// The hand as it ended, taken when the table clears so a hand turned face up during the showdown beat counts as shown.
+export function recapOf(s: TxState): TxRecap {
+  const dealt = s.players.filter((p) => p.cards.length > 0).sort(bySeat);
+  return {
+    round: s.round,
+    board: s.board,
+    second: s.second,
+    pot: potWon(dealt),
+    players: dealt.map((p) => ({
+      id: p.id,
+      name: p.name,
+      cards: p.cards,
+      shown: p.result?.hand != null || (p.shown && isLive(p)),
+      folded: p.folded,
+      hand: handLabel(p.result),
+      won: p.result?.won ?? 0,
+      net: p.result?.net ?? -p.total,
+    })),
+  };
+}
+
 function resetTable(s: TxState, now: number): TxState {
+  const history = [recapOf(s), ...s.history].slice(0, HISTORY_HANDS);
   const stacks = s.players.filter((p) => p.gone).reduce(keepStack, s.stacks);
   const players = s.players
     .filter((p) => !p.gone && !isStale(p, now))
@@ -342,7 +367,7 @@ function resetTable(s: TxState, now: number): TxState {
   // The lobby carries the next hand's blinds, so a level change lands at the hand boundary and never mid-hand.
   const blinds = blindsFor(s.pace, s.round - s.paceRound);
   return syncLobby(
-    { ...s, phase: "lobby", players, stacks, blinds, board: [], deck: [], currentBet: 0, minRaise: blinds.bigBlind, turnId: null, turnAt: null, dealAt: null, settleAt: null, sbId: null, bbId: null, runout: false, ask: null, second: null, startAt: null },
+    { ...s, phase: "lobby", players, stacks, blinds, history, board: [], deck: [], currentBet: 0, minRaise: blinds.bigBlind, turnId: null, turnAt: null, dealAt: null, settleAt: null, sbId: null, bbId: null, runout: false, ask: null, second: null, startAt: null },
     now,
     brokeAtTable ? START_MS : AFTER_HAND_MS,
   );
@@ -542,5 +567,7 @@ export function redactTx(s: TxState, viewerId: string): TxState {
     const visible = p.id === viewerId || shownDown || (isLive(p) && (s.runout || p.shown));
     return visible ? p : { ...p, cards: p.cards.map(() => null) };
   });
-  return { ...s, players, deck: [], stacks: {} };
+  // A recap keeps the same rule: cards the table never saw stay face down for everyone but their owner.
+  const history = s.history.map((h) => ({ ...h, players: h.players.map((p) => (p.shown || p.id === viewerId ? p : { ...p, cards: p.cards.map(() => null) })) }));
+  return { ...s, players, history, deck: [], stacks: {} };
 }
