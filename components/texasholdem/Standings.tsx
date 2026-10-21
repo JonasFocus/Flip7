@@ -3,11 +3,12 @@
 import { Sheet } from "@/components/ui/Sheet";
 import { cx } from "@/components/ui/cx";
 import { standings } from "@/lib/texasholdem";
+import { Recap } from "./Recap";
 import type { TxState } from "@/lib/texasholdem/types";
 
 const signed = (n: number): string => (n > 0 ? `+${n.toLocaleString()}` : n < 0 ? `-${Math.abs(n).toLocaleString()}` : "0");
 
-// Who is up tonight: every player's holdings minus their buy-ins, rebuys included.
+// Who is up tonight: every player's holdings minus their buy-ins, rebuys included. Below it, a recap of the last few hands.
 export function Standings({ game, you, open, onClose }: { game: TxState; you: string; open: boolean; onClose: () => void }) {
   const rows = standings(game);
   return (
@@ -27,6 +28,8 @@ export function Standings({ game, you, open, onClose }: { game: TxState; you: st
           </li>
         ))}
       </ol>
+      <h3 className="mt-5 mb-2 text-xs font-bold tracking-[0.12em] text-muted uppercase">Last hands</h3>
+      <Recap history={game.history} you={you} />
     </Sheet>
   );
 }

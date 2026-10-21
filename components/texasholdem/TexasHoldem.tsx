@@ -258,7 +258,7 @@ export function TexasHoldem({ conn }: { conn: TxConnection }) {
         <button
           type="button"
           onClick={() => setBoard(true)}
-          aria-label="Tonight's standings"
+          aria-label="Tonight's standings and last hands"
           className="min-h-11 rounded-full border border-line px-3 text-xs font-bold tracking-[0.12em] text-muted uppercase active:bg-surface-2"
         >
           Net

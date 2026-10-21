@@ -40,6 +40,26 @@ export interface TxPlayer {
   reaction: { emoji: TxReaction; at: number } | null; // last emoji sent and its server ms; shown briefly, stale ones ignored
 }
 
+// One finished hand, kept so players can look back after the next one is dealt.
+export interface TxRecapPlayer {
+  id: string;
+  name: string;
+  cards: (TxCard | null)[]; // null entries are hidden from this viewer (REDACTED): only hands shown down or turned face up stay visible
+  shown: boolean; // the table saw this hand: shown down at showdown or turned face up after a fold win
+  folded: boolean;
+  hand: string | null; // as in TxHandResult, naming both boards when it ran twice
+  won: number;
+  net: number;
+}
+
+export interface TxRecap {
+  round: number;
+  board: TxCard[];
+  second: TxCard[] | null; // run twice: the second board
+  pot: number; // chips paid out of the pots; an uncalled bet returned to its owner is not counted
+  players: TxRecapPlayer[]; // everyone dealt in, in seat order
+}
+
 export type TxPhase =
   | "lobby" // between hands; the next one starts once two funded players are seated
   | "preflop"
@@ -81,6 +101,7 @@ export interface TxState {
   runTwice: boolean; // host setting: offer to run the board twice when everyone is all-in before the river
   ask: { ids: string[]; yes: string[] } | null; // runout: players asked to run it twice and who agreed so far; the vote closes at dealAt
   second: TxCard[] | null; // run twice: the second board, dealt once the first is complete; the cards both boards share are repeated
+  history: TxRecap[]; // the last few finished hands, newest first
   round: number;
   seq: number;
 }
