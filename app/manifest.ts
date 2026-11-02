@@ -4,7 +4,7 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "Game Time · Family Game Night",
     short_name: "Game Time",
-    description: "Card games, casino tables and party games for game night.",
+    description: "Play Flip 7 online or keep score with physical cards.",
     id: "/",
     start_url: "/",
     display: "standalone",

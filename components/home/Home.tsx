@@ -12,22 +12,14 @@ import { JoinCode } from "./JoinCode";
 import { MODE_LABEL, OpenTables, useOpenRooms } from "./OpenTables";
 import { HowToPlay } from "./HowToPlay";
 
-type Mode = "online" | "imposter" | "liarsdice" | "hotpotato" | "spyfall" | "blackjack" | "bjduel" | "baccarat" | "roulette" | "texasholdem";
+type Mode = "virtual" | "physical";
 
 const LABEL = "text-[11px] font-bold uppercase tracking-[0.2em] text-muted";
 
-// Archived from the picker (rooms/logic intact): liarsdice, hotpotato, spyfall.
 const MODES: { id: Mode; title: string; blurb: string; cta: string; icon: ReactNode }[] = [
-  { id: "online", title: "Flip 7", blurb: "One phone each, with family", cta: "Create table", icon: <PeopleIcon /> },
-  { id: "imposter", title: "Imposter", blurb: "Find the faker · 3–10 players", cta: "Create room", icon: <MaskIcon /> },
-  { id: "blackjack", title: "Blackjack", blurb: "Beat the dealer · 5 seats", cta: "Open table", icon: <ChipIcon /> },
-  { id: "bjduel", title: "Head-to-Head 21", blurb: "Take a friend's chips · 2 players", cta: "Open duel", icon: <DuelIcon /> },
-  { id: "baccarat", title: "Baccarat", blurb: "Punto banco · 5 seats", cta: "Open table", icon: <BaccaratIcon /> },
-  { id: "roulette", title: "Roulette", blurb: "Spin the wheel · 8 seats", cta: "Open table", icon: <RouletteIcon /> },
-  { id: "texasholdem", title: "Texas Hold'em", blurb: "No-limit · 2–8 seats", cta: "Open table", icon: <HoldemIcon /> },
+  { id: "virtual", title: "Play online", blurb: "One phone per player", cta: "Create table", icon: <PeopleIcon /> },
+  { id: "physical", title: "Scorekeeper", blurb: "Play with your own cards", cta: "Start scorekeeper", icon: <PeopleIcon /> },
 ];
-
-const ROOM_MODE = { online: "virtual", imposter: "imposter", liarsdice: "liarsdice", hotpotato: "hotpotato", spyfall: "spyfall", blackjack: "blackjack", bjduel: "bjduel", baccarat: "baccarat", roulette: "roulette", texasholdem: "texasholdem" } as const;
 
 const noopSubscribe = () => () => {};
 
@@ -45,7 +37,7 @@ export function Home() {
   const deadCode = initialCode.length === 6 && !!openRooms.rooms && !openRooms.rooms.some((r) => r.code === initialCode);
   const [typedName, setName] = useState<string | null>(null);
   const name = typedName ?? savedName;
-  const [mode, setMode] = useState<Mode>("online");
+  const [mode, setMode] = useState<Mode>("virtual");
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [shaking, setShaking] = useState(false);
@@ -73,7 +65,7 @@ export function Home() {
     tap();
     setBusy(true);
     try {
-      const code = await createRoom(ROOM_MODE[mode], trimmed);
+      const code = await createRoom(mode, trimmed);
       router.push(`/room/${code}`);
     } catch (e) {
       fail();
@@ -195,61 +187,6 @@ function PeopleIcon() {
       <circle cx="9" cy="8" r="3.2" />
       <path d="M3 19.5c.6-3.3 3-5 6-5s5.4 1.7 6 5" />
       <path d="M16 5.2a3 3 0 0 1 0 5.6M18 14.8c1.6.7 2.6 2.2 3 4.7" />
-    </svg>
-  );
-}
-
-function MaskIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden className="size-6">
-      <path d="M3 7c3-1.5 6-1.5 9 0 3-1.5 6-1.5 9 0v4c0 4.5-3.5 8-9 8s-9-3.5-9-8V7Z" />
-      <path d="M7 11.5c.8-.6 1.8-.6 2.6 0M14.4 11.5c.8-.6 1.8-.6 2.6 0M9.5 15.5c1.5.8 3.5.8 5 0" />
-    </svg>
-  );
-}
-
-function BaccaratIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden className="size-6">
-      <rect x="3" y="5.5" width="10" height="14" rx="2" transform="rotate(-10 8 12.5)" />
-      <rect x="11" y="4.5" width="10" height="14" rx="2" transform="rotate(10 16 11.5)" />
-    </svg>
-  );
-}
-
-function RouletteIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" aria-hidden className="size-6">
-      <circle cx="12" cy="12" r="9" />
-      <circle cx="12" cy="12" r="3" />
-      <path d="M12 3v6M12 15v6M3 12h6M15 12h6" />
-    </svg>
-  );
-}
-
-function HoldemIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden className="size-6">
-      <path d="M12 3c2.6 3.4 7 5.6 7 9.4a3.8 3.8 0 0 1-6.2 2.9c.2 1.6.8 2.8 1.7 3.7h-5c.9-.9 1.5-2.1 1.7-3.7A3.8 3.8 0 0 1 5 12.4C5 8.6 9.4 6.4 12 3Z" />
-    </svg>
-  );
-}
-
-function ChipIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} strokeLinecap="round" aria-hidden className="size-6">
-      <circle cx="12" cy="12" r="8.5" />
-      <circle cx="12" cy="12" r="4" />
-      <path d="M12 3.5v3M12 17.5v3M3.5 12h3M17.5 12h3" />
-    </svg>
-  );
-}
-
-function DuelIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinejoin="round" aria-hidden className="size-6">
-      <rect x="3" y="5" width="9" height="13" rx="1.6" transform="rotate(-10 7.5 11.5)" />
-      <rect x="12" y="5" width="9" height="13" rx="1.6" transform="rotate(10 16.5 11.5)" />
     </svg>
   );
 }
