@@ -70,6 +70,7 @@ function latestRoom(c: TestClient): Room {
 function virtualGame(room: Room) {
   assert.equal(room.mode, "virtual");
   if (room.mode !== "virtual") throw new Error("expected virtual room");
+  assert.equal("balance" in room.game, false, "private draw history must never reach a phone");
   return room.game;
 }
 

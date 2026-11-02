@@ -5,11 +5,11 @@ import type { ActionCard, ApplyResult, Card, GameEvent, GameState, Intent, Playe
 export const MAX_GAME_PLAYERS = 10;
 
 // Internal: rules mutate a structuredClone of the input, so the public API stays pure.
-type Ctx = { s: GameState; events: GameEvent[]; rng: Rng };
+export type DrawAdjustment = (s: GameState, player: Player, card: Card, rng: Rng) => Card;
+type Ctx = { s: GameState; events: GameEvent[]; rng: Rng; adjustDraw?: DrawAdjustment };
 
 export function createGame(opts: { goal?: number } = {}): GameState {
   return {
-    balance: {},
     phase: "lobby",
     round: 0,
     goal: opts.goal ?? 200,
@@ -38,15 +38,14 @@ export function addPlayer(s: GameState, p: { id: string; name: string; isBot: bo
     status: "waiting",
     roundHistory: [],
   };
-  const stats = { consecutiveBusts: 0, roundsWon: 0, roundsWithoutWin: 0, currentWinStreak: 0, bestWinStreak: 0, gameWins: 0, assistedThisRound: false };
-  return { ...s, balance: { ...s.balance, [p.id]: stats }, players: [...s.players, player], seq: s.seq + 1, lastEvents: [] };
+  return { ...s, players: [...s.players, player], seq: s.seq + 1, lastEvents: [] };
 }
 
 export function setConnected(s: GameState, id: string, connected: boolean): GameState {
   return { ...s, players: s.players.map((p) => (p.id === id ? { ...p, connected } : p)) };
 }
 
-export function removePlayer(state: GameState, id: string, rng: Rng = Math.random): GameState {
+export function removePlayer(state: GameState, id: string, rng: Rng = Math.random, adjustDraw?: DrawAdjustment): GameState {
   const idx = state.players.findIndex((p) => p.id === id);
   const removed = state.players[idx];
   if (!removed) return state;
@@ -71,7 +70,7 @@ export function removePlayer(state: GameState, id: string, rng: Rng = Math.rando
     s.turnIndex = nextActiveIndex(s, s.dealerIndex);
   }
 
-  const c: Ctx = { s, events: [], rng };
+  const c: Ctx = { s, events: [], rng, adjustDraw };
   const pend = s.pending;
   if (pend?.type === "chooseTarget") {
     const options = pend.options.filter((o) => o !== id);
@@ -100,11 +99,11 @@ export function applyIntent(
   state: GameState,
   actorId: string,
   intent: Intent,
-  opts: { isHost: boolean; rng?: Rng },
+  opts: { isHost: boolean; rng?: Rng; adjustDraw?: DrawAdjustment },
 ): ApplyResult {
   if (!state.players.some((p) => p.id === actorId)) return { ok: false, error: "You are not in this game" };
   const s = structuredClone(state);
-  const c: Ctx = { s, events: [], rng: opts.rng ?? Math.random };
+  const c: Ctx = { s, events: [], rng: opts.rng ?? Math.random, adjustDraw: opts.adjustDraw };
   const error = handle(c, actorId, intent, opts.isHost);
   if (error) return { ok: false, error };
   s.deckCount = s.deck.length;
@@ -128,7 +127,7 @@ export function redactGame(s: GameState): GameState {
   return { ...visible, deck: [], deckCount: s.deck.length > 0 ? s.deck.length : s.deckCount };
 }
 
-// Probability the next card busts `playerId` (0 while holding Second Chance).
+// Bust probability for an unadjusted draw (0 while holding Second Chance).
 export function bustChance(s: GameState, playerId: string): number {
   const p = s.players.find((x) => x.id === playerId);
   return p && hasSecondChance(p) ? 0 : duplicateChance(s, playerId);
@@ -196,12 +195,6 @@ function handle(c: Ctx, actorId: string, intent: Intent, isHost: boolean): strin
         p.total = 0;
         p.roundHistory = [];
       }
-      for (const stats of Object.values(s.balance ?? {})) {
-        stats.consecutiveBusts = 0;
-        stats.roundsWithoutWin = 0;
-        stats.currentWinStreak = 0;
-        stats.assistedThisRound = false;
-      }
       s.recap = undefined;
       s.round = 0;
       s.deck = shuffle(buildDeck(), c.rng);
@@ -212,7 +205,7 @@ function handle(c: Ctx, actorId: string, intent: Intent, isHost: boolean): strin
       if (!isHost) return "Only the host can end the game";
       if (s.phase !== "playing" && s.phase !== "roundOver") return "The game is not in progress";
       clearPending(s);
-      endGame(c, false);
+      endGame(c);
       return null;
     case "hit": {
       if (awaitingPlayerId(s) !== actorId) return "It is not your turn";
@@ -279,8 +272,6 @@ function startRound(c: Ctx, dealerIndex: number): void {
   s.pending = null;
   s.actionQueue = [];
   for (const p of s.players) {
-    const stats = s.balance?.[p.id];
-    if (stats) stats.assistedThisRound = false;
     p.hand = [];
     p.status = "active";
   }
@@ -341,24 +332,7 @@ function takeCard(c: Ctx): Card | undefined {
 function drawTo(c: Ctx, p: Player, kind: "deal" | "draw"): void {
   const drawn = takeCard(c);
   if (!drawn) return endRound(c); // ponytail: every card is on the table; practically unreachable
-  let card = drawn;
-  const stats = c.s.balance?.[p.id];
-  const duplicate = drawn.kind === "number" && p.hand.some((h) => h.kind === "number" && h.value === drawn.value);
-  if (stats && !stats.assistedThisRound && duplicate && !hasSecondChance(p)) {
-    const leader = Math.max(...c.s.players.map((player) => player.total));
-    const chance = stats.consecutiveBusts >= 2 ? 0.8 : stats.roundsWithoutWin >= 3 && leader - p.total >= 30 ? 0.65 : 0;
-    const held = new Set(p.hand.flatMap((h) => h.kind === "number" ? [h.value] : []));
-    const safe = c.s.deck.flatMap((candidate, index) => candidate.kind !== "number" || !held.has(candidate.value) ? [index] : []);
-    if (chance > 0 && safe.length > 0 && c.rng() < chance) {
-      const index = safe[Math.floor(c.rng() * safe.length)];
-      const replacement = index === undefined ? undefined : c.s.deck[index];
-      if (index !== undefined && replacement) {
-        c.s.deck[index] = card;
-        card = replacement;
-        stats.assistedThisRound = true;
-      }
-    }
-  }
+  const card = c.adjustDraw ? c.adjustDraw(c.s, p, drawn, c.rng) : drawn;
   c.events.push({ type: kind, playerId: p.id, card });
   receive(c, p, card);
 }
@@ -460,34 +434,15 @@ function endRound(c: Ctx): void {
     p.roundHistory.push(pts);
     scores[p.id] = pts;
   }
-  const topRound = Math.max(0, ...Object.values(scores));
-  for (const p of s.players) {
-    const stats = s.balance?.[p.id];
-    if (!stats) continue;
-    const won = topRound > 0 && scores[p.id] === topRound;
-    stats.consecutiveBusts = p.status === "busted" ? stats.consecutiveBusts + 1 : 0;
-    stats.roundsWithoutWin = won ? 0 : stats.roundsWithoutWin + 1;
-    stats.currentWinStreak = won ? stats.currentWinStreak + 1 : 0;
-    if (won) stats.roundsWon++;
-    stats.bestWinStreak = Math.max(stats.bestWinStreak, stats.currentWinStreak);
-  }
   c.events.push({ type: "roundEnd", round: s.round, scores });
-  if (Math.max(...s.players.map((p) => p.total)) >= s.goal) endGame(c, true);
+  if (Math.max(...s.players.map((p) => p.total)) >= s.goal) endGame(c);
   else s.phase = "roundOver";
 }
 
-function endGame(c: Ctx, completed: boolean): void {
+function endGame(c: Ctx): void {
   const { s } = c;
   const top = Math.max(...s.players.map((p) => p.total));
   s.phase = "gameOver";
   const winnerIds = s.players.filter((p) => p.total === top).map((p) => p.id);
-  if (completed) for (const id of winnerIds) {
-    const stats = s.balance?.[id];
-    if (stats) stats.gameWins++;
-  }
-  s.recap = Object.fromEntries(s.players.flatMap((p) => {
-    const stats = s.balance?.[p.id];
-    return stats ? [[p.id, { gameWins: stats.gameWins, bestWinStreak: stats.bestWinStreak }]] : [];
-  }));
   c.events.push({ type: "gameOver", winnerIds });
 }

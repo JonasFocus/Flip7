@@ -27,6 +27,11 @@ export function GameOver({ conn }: { conn: TableConnection }) {
   const winners = sorted.filter((_, i) => ranks[i] === 1);
   const youWon = winners.some((p) => p.id === you);
   const recap = game.recap?.[you];
+  const highlights = [
+    recap?.gameWins ? `${recap.gameWins} ${recap.gameWins === 1 ? "game win" : "game wins"} this session` : null,
+    recap && recap.bestWinStreak > 1 ? `Best streak: ${recap.bestWinStreak} rounds` : null,
+    recap && recap.bestRoundScore > 0 ? `Best round: ${recap.bestRoundScore} points` : null,
+  ].filter((highlight) => highlight !== null);
   const podium = sorted.slice(0, 3).map((p, i) => ({ p, rank: ranks[i] ?? i + 1 }));
   // Visual order: 2nd, 1st, 3rd.
   const staged = [podium[1], podium[0], podium[2]].filter((x) => x !== undefined);
@@ -97,11 +102,9 @@ export function GameOver({ conn }: { conn: TableConnection }) {
           </div>
         </div>
 
-        {recap && (recap.gameWins > 0 || recap.bestWinStreak > 1) && (
+        {highlights.length > 0 && (
           <p className="px-4 pb-3 text-center text-sm font-semibold text-muted">
-            {recap.gameWins > 0 && `${recap.gameWins} ${recap.gameWins === 1 ? "game win" : "game wins"} this session`}
-            {recap.gameWins > 0 && recap.bestWinStreak > 1 && " · "}
-            {recap.bestWinStreak > 1 && `Best streak: ${recap.bestWinStreak} rounds`}
+            {highlights.join(" · ")}
           </p>
         )}
 

@@ -9,7 +9,6 @@ import { Sheet } from "@/components/ui/Sheet";
 import { cx } from "@/components/ui/cx";
 import { tap } from "@/lib/client/haptics";
 import type { TableConnection } from "@/lib/client/types";
-import { pickTarget } from "@/lib/engine/index";
 import type { ActionCard, GameState } from "@/lib/engine/types";
 import { roundPoints, useHeld } from "./util";
 
@@ -54,7 +53,7 @@ function Picker({ conn, card, optionIds, game }: { conn: TableConnection; card: 
   const { you } = conn;
   const copy = COPY[card.kind];
   const options = optionIds.flatMap((id) => game.players.filter((p) => p.id === id));
-  const suggested = pickTarget(game, you, card, optionIds);
+  const suggested = game.suggestedTargetId;
   const me = options.find((p) => p.id === you);
   const badge =
     card.kind === "secondChance"
@@ -63,7 +62,7 @@ function Picker({ conn, card, optionIds, game }: { conn: TableConnection; card: 
         ? me.total + roundPoints(me) >= game.goal
           ? "Wins the game"
           : "Bank it"
-        : "Best pick";
+        : "Suggested";
   const [selected, setSelected] = useState<string | null>(suggested ?? options[0]?.id ?? null);
   const [sent, setSent] = useState(false);
   if (sent && conn.error) setSent(false);
