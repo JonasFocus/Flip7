@@ -5,18 +5,13 @@ import { fileURLToPath } from "node:url";
 import { WebSocket, WebSocketServer } from "ws";
 import {
   BOT_NAMES,
-  addPlayer,
   addScoreSeat,
-  applyIntent,
   applyScoreIntent,
   awaitingPlayerId,
-  chooseBotIntent,
-  createGame,
   createScoreGame,
-  redactGame,
-  removePlayer,
   setConnected,
 } from "../lib/engine/index.ts";
+import { addPlayer, applyIntent, chooseBotIntent, createGame, redactGame, removePlayer } from "./flip7.ts";
 import type { GameEvent, Intent } from "../lib/engine/types.ts";
 import {
   addImposterPlayer,

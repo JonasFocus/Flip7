@@ -5,7 +5,8 @@ import type { ActionCard, ApplyResult, Card, GameEvent, GameState, Intent, Playe
 export const MAX_GAME_PLAYERS = 10;
 
 // Internal: rules mutate a structuredClone of the input, so the public API stays pure.
-type Ctx = { s: GameState; events: GameEvent[]; rng: Rng };
+export type DrawAdjustment = (s: GameState, player: Player, card: Card, rng: Rng) => Card;
+type Ctx = { s: GameState; events: GameEvent[]; rng: Rng; adjustDraw?: DrawAdjustment };
 
 export function createGame(opts: { goal?: number } = {}): GameState {
   return {
@@ -44,12 +45,14 @@ export function setConnected(s: GameState, id: string, connected: boolean): Game
   return { ...s, players: s.players.map((p) => (p.id === id ? { ...p, connected } : p)) };
 }
 
-export function removePlayer(state: GameState, id: string, rng: Rng = Math.random): GameState {
+export function removePlayer(state: GameState, id: string, rng: Rng = Math.random, adjustDraw?: DrawAdjustment): GameState {
   const idx = state.players.findIndex((p) => p.id === id);
   const removed = state.players[idx];
   if (!removed) return state;
   const s = structuredClone(state);
   s.players.splice(idx, 1);
+  if (s.balance) delete s.balance[id];
+  if (s.recap) delete s.recap[id];
   s.seq++;
   s.lastEvents = [];
   const n = s.players.length;
@@ -67,7 +70,7 @@ export function removePlayer(state: GameState, id: string, rng: Rng = Math.rando
     s.turnIndex = nextActiveIndex(s, s.dealerIndex);
   }
 
-  const c: Ctx = { s, events: [], rng };
+  const c: Ctx = { s, events: [], rng, adjustDraw };
   const pend = s.pending;
   if (pend?.type === "chooseTarget") {
     const options = pend.options.filter((o) => o !== id);
@@ -96,11 +99,11 @@ export function applyIntent(
   state: GameState,
   actorId: string,
   intent: Intent,
-  opts: { isHost: boolean; rng?: Rng },
+  opts: { isHost: boolean; rng?: Rng; adjustDraw?: DrawAdjustment },
 ): ApplyResult {
   if (!state.players.some((p) => p.id === actorId)) return { ok: false, error: "You are not in this game" };
   const s = structuredClone(state);
-  const c: Ctx = { s, events: [], rng: opts.rng ?? Math.random };
+  const c: Ctx = { s, events: [], rng: opts.rng ?? Math.random, adjustDraw: opts.adjustDraw };
   const error = handle(c, actorId, intent, opts.isHost);
   if (error) return { ok: false, error };
   s.deckCount = s.deck.length;
@@ -119,10 +122,12 @@ export function awaitingPlayerId(s: GameState): string | null {
 }
 
 export function redactGame(s: GameState): GameState {
-  return { ...s, deck: [], deckCount: s.deck.length > 0 ? s.deck.length : s.deckCount };
+  const { balance: _balance, ...visible } = s;
+  void _balance;
+  return { ...visible, deck: [], deckCount: s.deck.length > 0 ? s.deck.length : s.deckCount };
 }
 
-// Probability the next card busts `playerId` (0 while holding Second Chance).
+// Bust probability for an unadjusted draw (0 while holding Second Chance).
 export function bustChance(s: GameState, playerId: string): number {
   const p = s.players.find((x) => x.id === playerId);
   return p && hasSecondChance(p) ? 0 : duplicateChance(s, playerId);
@@ -180,7 +185,7 @@ function handle(c: Ctx, actorId: string, intent: Intent, isHost: boolean): strin
       if (s.phase !== "gameOver") return "The game is not over";
       {
         const players = s.players.map((p): Player => ({ ...p, ready: p.isBot, total: 0, hand: [], status: "waiting", roundHistory: [] }));
-        Object.assign(s, createGame({ goal: s.goal }), { seq: s.seq, players });
+        Object.assign(s, createGame({ goal: s.goal }), { seq: s.seq, players, balance: s.balance, recap: undefined });
       }
       return null;
     case "restart":
@@ -190,6 +195,7 @@ function handle(c: Ctx, actorId: string, intent: Intent, isHost: boolean): strin
         p.total = 0;
         p.roundHistory = [];
       }
+      s.recap = undefined;
       s.round = 0;
       s.deck = shuffle(buildDeck(), c.rng);
       s.discard = [];
@@ -324,8 +330,9 @@ function takeCard(c: Ctx): Card | undefined {
 }
 
 function drawTo(c: Ctx, p: Player, kind: "deal" | "draw"): void {
-  const card = takeCard(c);
-  if (!card) return endRound(c); // ponytail: every card is on the table; practically unreachable
+  const drawn = takeCard(c);
+  if (!drawn) return endRound(c); // ponytail: every card is on the table; practically unreachable
+  const card = c.adjustDraw ? c.adjustDraw(c.s, p, drawn, c.rng) : drawn;
   c.events.push({ type: kind, playerId: p.id, card });
   receive(c, p, card);
 }
@@ -436,5 +443,6 @@ function endGame(c: Ctx): void {
   const { s } = c;
   const top = Math.max(...s.players.map((p) => p.total));
   s.phase = "gameOver";
-  c.events.push({ type: "gameOver", winnerIds: s.players.filter((p) => p.total === top).map((p) => p.id) });
+  const winnerIds = s.players.filter((p) => p.total === top).map((p) => p.id);
+  c.events.push({ type: "gameOver", winnerIds });
 }

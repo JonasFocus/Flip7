@@ -5,7 +5,7 @@ import "./globals.css";
 const bungee = Bungee({ variable: "--font-bungee", weight: "400", subsets: ["latin"] });
 const outfit = Outfit({ variable: "--font-outfit", subsets: ["latin"] });
 
-const description = "Game night on your phones: Flip 7, Blackjack, Hold'em, Roulette, Imposter and more.";
+const description = "Play Flip 7 online with friends or keep score for a game with physical cards.";
 const productionHost = process.env.VERCEL_PROJECT_PRODUCTION_URL;
 
 export const metadata: Metadata = {

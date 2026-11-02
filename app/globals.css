@@ -125,8 +125,13 @@
   }
   body {
     background-color: var(--color-bg);
-    background-image: radial-gradient(oklch(1 0 0 / 0.045) 1px, transparent 1.2px);
-    background-size: 22px 22px;
+    background-image:
+      radial-gradient(ellipse 65% 55% at 8% 0%, oklch(0.37 0.12 295 / 0.38), transparent 72%),
+      radial-gradient(ellipse 50% 55% at 95% 12%, oklch(0.34 0.10 225 / 0.27), transparent 72%),
+      radial-gradient(ellipse 55% 45% at 50% 100%, oklch(0.32 0.09 315 / 0.24), transparent 75%),
+      repeating-linear-gradient(135deg, oklch(1 0 0 / 0.012) 0 1px, transparent 1px 7px),
+      linear-gradient(155deg, oklch(0.17 0.04 275), oklch(0.12 0.025 270) 60%, oklch(0.15 0.04 295));
+    background-attachment: fixed;
     color: var(--color-fg);
     font-family: var(--font-sans);
     touch-action: manipulation;

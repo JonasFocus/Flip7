@@ -32,15 +32,21 @@ export function bustInThree(s: GameState, playerId: string): number {
   return shielded ? 1 - (1 - q) ** 3 - 3 * q * (1 - q) ** 2 : 1 - (1 - q) ** 3;
 }
 
+export type BotOdds = {
+  nextDraw: typeof bustChance;
+  threeDraws: typeof bustInThree;
+};
+const ordinaryOdds: BotOdds = { nextDraw: bustChance, threeDraws: bustInThree };
+
 // Freeze: bank yourself when it wins the game or a big hand is at risk; otherwise lock in a leader
 // who has little on the table (never one it would push past the goal).
 // Flip Three: the rival with the most expected points to lose (bust loss minus the value of 3 free cards).
 // When no rival is expected to lose, take the cards yourself if they help, else give them to the weakest.
-// A spare Second Chance goes to the weakest player. Shared with the UI's "Best pick".
-export function pickTarget(s: GameState, chooserId: string, card: ActionCard, options: string[]): string | null {
+// A spare Second Chance goes to the weakest player. The server also uses this for target suggestions.
+export function pickTarget(s: GameState, chooserId: string, card: ActionCard, options: string[], odds: BotOdds = ordinaryOdds): string | null {
   const candidates = s.players.filter((p) => options.includes(p.id));
   const me = candidates.find((p) => p.id === chooserId);
-  if (card.kind === "freeze" && me && !doomed(s, me) && (standing(me) >= s.goal || (roundPoints(me) >= 25 && bustChance(s, me.id) >= 0.25)))
+  if (card.kind === "freeze" && me && !doomed(s, me) && (standing(me) >= s.goal || (roundPoints(me) >= 25 && odds.nextDraw(s, me.id) >= 0.25)))
     return me.id;
   const others = candidates.filter((p) => p.id !== chooserId);
   const pool = others.length > 0 ? others : candidates;
@@ -48,7 +54,7 @@ export function pickTarget(s: GameState, chooserId: string, card: ActionCard, op
   if (card.kind === "flipThree") {
     // ponytail: flat ~20-point value for three cards; derive from the deck if bots misjudge it
     const GAIN = 20;
-    const ev = (p: Player) => bustInThree(s, p.id) * roundPoints(p) - (1 - bustInThree(s, p.id)) * GAIN;
+    const ev = (p: Player) => odds.threeDraws(s, p.id) * roundPoints(p) - (1 - odds.threeDraws(s, p.id)) * GAIN;
     const best = pool.reduce((a, b) => (ev(b) + b.total / 1000 > ev(a) + a.total / 1000 ? b : a));
     if (ev(best) > 0) return best.id;
     if (me && ev(me) < 0) return me.id;
@@ -64,11 +70,11 @@ export function pickTarget(s: GameState, chooserId: string, card: ActionCard, op
   return pick.id;
 }
 
-export function chooseBotIntent(s: GameState, botId: string, rng: Rng = Math.random): Intent | null {
+export function chooseBotIntent(s: GameState, botId: string, rng: Rng = Math.random, odds: BotOdds = ordinaryOdds): Intent | null {
   if (awaitingPlayerId(s) !== botId) return null;
   const pend = s.pending;
   if (pend?.type === "chooseTarget") {
-    const targetId = pickTarget(s, botId, pend.card, pend.options);
+    const targetId = pickTarget(s, botId, pend.card, pend.options, odds);
     return targetId ? { type: "chooseTarget", targetId } : null;
   }
   if (pend?.type === "flipThree") return { type: "hit" };
@@ -82,7 +88,7 @@ export function chooseBotIntent(s: GameState, botId: string, rng: Rng = Math.ran
     const lockedIn = s.players.some((p) => p.id !== botId && p.status !== "active" && standing(p) === best);
     if (lockedIn || !s.players.some((p) => p.id !== botId && p.status === "active")) return { type: "hit" };
   } else if (me.total + pts >= s.goal) return { type: "stay" };
-  const risk = bustChance(s, botId);
+  const risk = odds.nextDraw(s, botId);
   // ponytail: fixed risk threshold with jitter; tune if bots feel too timid/bold
   let limit = 0.28 + (rng() - 0.5) * 0.1;
   if (pts >= 30) limit -= 0.08;

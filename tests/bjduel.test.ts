@@ -94,6 +94,7 @@ test("each player picks a buy-in of $20 to $100 at a time, and nothing deals unt
   // A top-up adds to what you have; each one is capped, the total isn't.
   s = act(s, "b", { type: "buyin", amount: 100 }, 2000);
   assert.deepEqual([player(s, "b").chips, player(s, "b").bought], [200, 200]);
+  s = { ...s, shoe: [c("10"), c("10"), c("9"), c("7"), c("8"), c("8"), ...newShoeForTest()] };
   s = onDeadline(s, 2000 + BET_MS);
   assert.equal(s.phase, "playing");
   assert.deepEqual(player(s, "a").stack, [5]);

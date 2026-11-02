@@ -57,7 +57,7 @@ export function useOpenRooms(): Load {
       ctrl = new AbortController();
       try {
         const rooms = await fetchOpenRooms(ctrl.signal);
-        setLoad({ rooms, error: null });
+        setLoad({ rooms: rooms.filter((room) => room.mode === "virtual" || room.mode === "physical"), error: null });
       } catch (e) {
         if (e instanceof DOMException && e.name === "AbortError") return;
         const error = navigator.onLine ? "Can't reach the game server" : "You're offline";
