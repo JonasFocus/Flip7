@@ -5,21 +5,13 @@ import { cx } from "@/components/ui/cx";
 import { Badge, StatusBadge } from "@/components/ui/Badge";
 import { isDuplicate, roundScore, shownPlayer, splitHand } from "./hand";
 
-function oddsColor(p: number): string {
-  if (p < 0.2) return "var(--color-active)";
-  if (p < 0.4) return "var(--color-accent)";
-  return "var(--color-busted)";
-}
-
 export function MyHand({
   me: live,
-  bust,
   hidden,
   pendingStatus,
   nextUp,
 }: {
   me: Player;
-  bust: number;
   hidden: Set<string>;
   pendingStatus: Set<string>;
   nextUp: boolean;
@@ -33,8 +25,6 @@ export function MyHand({
   const unique = uniqueNumbers(visible);
   const busted = me.status === "busted";
   const hasChance = visible.some((c) => c.kind === "secondChance");
-  const pct = Math.round(bust * 100);
-  const color = oddsColor(bust);
 
   const parts: string[] = [];
   if (score.numberSum > 0 || numbers.length > 0) parts.push(String(score.numberSum));
@@ -116,27 +106,8 @@ export function MyHand({
           <span className="ml-1.5 font-display text-xs tabular-nums text-muted">{unique}/7</span>
         </div>
 
-        {me.status === "active" ? (
-          <div className="flex min-w-0 flex-1 items-center gap-2">
-            <div
-              className="h-2 flex-1 overflow-hidden rounded-full bg-surface-2"
-              role="meter"
-              aria-label="Bust chance on next card"
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-valuenow={pct}
-            >
-              <div
-                className="h-full rounded-full transition-[width,background-color] duration-300 ease-[var(--ease-out)]"
-                style={{ width: `${pct}%`, backgroundColor: color }}
-              />
-            </div>
-            <span className="flex-none font-display text-xs tabular-nums" style={{ color: hasChance ? "var(--color-card-chance)" : color }}>
-              {hasChance ? "Safe" : `Bust ${pct}%`}
-            </span>
-          </div>
-        ) : busted || me.status === "waiting" ? null : (
-          // The header badge and the red 0 already say "bust".
+        {me.status === "active" && hasChance && <Badge tone="chance">Second Chance</Badge>}
+        {me.status !== "active" && !busted && me.status !== "waiting" && (
           <span className="flex-1 text-right text-xs font-semibold text-muted">{`${score.total} banked`}</span>
         )}
       </div>

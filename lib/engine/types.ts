@@ -49,7 +49,19 @@ export type GameEvent =
 
 export type Phase = "lobby" | "playing" | "roundOver" | "gameOver";
 
+export interface BalanceStats {
+  consecutiveBusts: number;
+  roundsWon: number;
+  roundsWithoutWin: number;
+  currentWinStreak: number;
+  bestWinStreak: number;
+  gameWins: number;
+  assistedThisRound: boolean;
+}
+
 export interface GameState {
+  balance?: Record<string, BalanceStats>;
+  recap?: Record<string, { gameWins: number; bestWinStreak: number }>;
   phase: Phase;
   round: number; // 1-based once play starts, 0 in lobby
   goal: number; // 200

@@ -9,7 +9,7 @@ import { Sheet } from "@/components/ui/Sheet";
 import { cx } from "@/components/ui/cx";
 import { tap } from "@/lib/client/haptics";
 import type { TableConnection } from "@/lib/client/types";
-import { bustInThree, pickTarget } from "@/lib/engine/index";
+import { pickTarget } from "@/lib/engine/index";
 import type { ActionCard, GameState } from "@/lib/engine/types";
 import { roundPoints, useHeld } from "./util";
 
@@ -93,7 +93,6 @@ function Picker({ conn, card, optionIds, game }: { conn: TableConnection; card: 
         {options.map((p, i) => {
           const isSel = p.id === selected;
           const pts = roundPoints(p);
-          const odds = card.kind === "flipThree" ? Math.round(bustInThree(game, p.id) * 100) : null;
           const shielded = p.hand.some((c) => c.kind === "secondChance");
           return (
             <li key={p.id} className="m-rise" style={{ animationDelay: `${60 + i * 40}ms` }}>
@@ -123,12 +122,6 @@ function Picker({ conn, card, optionIds, game }: { conn: TableConnection; card: 
                     <span className="font-semibold text-fg">{pts}</span> this round · {p.total} total
                   </span>
                 </span>
-                {odds !== null && (
-                  <span className="text-right text-xs text-muted tabular-nums">
-                    <span className={cx("block font-display text-base", odds >= 40 ? "text-busted" : "text-fg")}>{odds}%</span>
-                    bust in 3
-                  </span>
-                )}
                 <span
                   aria-hidden
                   className={cx(

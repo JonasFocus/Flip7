@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { awaitingPlayerId, bustChance } from "@/lib/engine";
+import { awaitingPlayerId } from "@/lib/engine";
 import type { TableConnection } from "@/lib/client/types";
 import { Toast } from "@/components/ui/Toast";
 import { cx } from "@/components/ui/cx";
@@ -35,14 +35,6 @@ export function Table({ conn }: { conn: TableConnection }) {
   const shownAwaiting = live ? awaitingId : beat.actor;
   const dealing = live ? game.dealing : beat.dealing;
   const yourTurn = caughtUp && game.phase === "playing" && awaitingId === you;
-  // Frozen while cards are still landing, so the meter never reacts to a card you haven't seen.
-  // Keyed by round, so a new deal never shows last round's odds next to an empty hand.
-  const [frozenBust, setFrozenBust] = useState({ round: game.round, value: 0 });
-  if (caughtUp && game.phase === "playing") {
-    const live = bustChance(game, you);
-    if (live !== frozenBust.value || game.round !== frozenBust.round) setFrozenBust({ round: game.round, value: live });
-  }
-  const bust = frozenBust.round === game.round ? frozenBust.value : 0;
   const seat = game.players.findIndex((p) => p.id === you);
   // Seat order starting to your left, so the rail reads like the table.
   const opponents = seat < 0 ? game.players : [...game.players.slice(seat + 1), ...game.players.slice(0, seat)];
@@ -89,7 +81,7 @@ export function Table({ conn }: { conn: TableConnection }) {
           yourTurn ? "border-accent shadow-[0_-8px_32px_-12px_oklch(0.89_0.18_98/0.45)]" : "border-line",
         )}
       >
-        {me && <MyHand me={me} bust={bust} hidden={hidden} pendingStatus={pendingStatus} nextUp={nextUp === you} />}
+        {me && <MyHand me={me} hidden={hidden} pendingStatus={pendingStatus} nextUp={nextUp === you} />}
         <ActionBar game={game} you={you} awaitingId={awaitingId} caughtUp={live} beat={beat} send={conn.send} autoPlay={conn.autoPlay} />
       </div>
 

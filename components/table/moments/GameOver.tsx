@@ -26,6 +26,7 @@ export function GameOver({ conn }: { conn: TableConnection }) {
   const ranks = rankOf(sorted, (p) => p.total);
   const winners = sorted.filter((_, i) => ranks[i] === 1);
   const youWon = winners.some((p) => p.id === you);
+  const recap = game.recap?.[you];
   const podium = sorted.slice(0, 3).map((p, i) => ({ p, rank: ranks[i] ?? i + 1 }));
   // Visual order: 2nd, 1st, 3rd.
   const staged = [podium[1], podium[0], podium[2]].filter((x) => x !== undefined);
@@ -95,6 +96,14 @@ export function GameOver({ conn }: { conn: TableConnection }) {
           )}
           </div>
         </div>
+
+        {recap && (recap.gameWins > 0 || recap.bestWinStreak > 1) && (
+          <p className="px-4 pb-3 text-center text-sm font-semibold text-muted">
+            {recap.gameWins > 0 && `${recap.gameWins} ${recap.gameWins === 1 ? "game win" : "game wins"} this session`}
+            {recap.gameWins > 0 && recap.bestWinStreak > 1 && " · "}
+            {recap.bestWinStreak > 1 && `Best streak: ${recap.bestWinStreak} rounds`}
+          </p>
+        )}
 
         <footer className="flex flex-none flex-col gap-2 border-t border-line px-4 pt-3 pb-safe-4 landscape:flex-row landscape:items-center landscape:pb-safe-3">
           {isHost ? (
