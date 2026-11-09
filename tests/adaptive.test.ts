@@ -38,9 +38,11 @@ function move(s: GameState, actor: string, intent: Intent, random = 0): GameStat
 }
 
 test('probability boundary, eligibility, and once per round', () => {
-  const s = setup(); s.balance!.a!.consecutiveBusts = 2;
-  assert.equal(move(s, 'a', {type: 'hit'}, 0.799).players[0]!.status, 'active');
-  assert.equal(move(s, 'a', {type: 'hit'}, 0.8).players[0]!.status, 'busted');
+  const s = setup(); s.balance!.a!.consecutiveBusts = 1;
+  assert.equal(move(s, 'a', {type: 'hit'}, 0.649).players[0]!.status, 'active');
+  assert.equal(move(s, 'a', {type: 'hit'}, 0.65).players[0]!.status, 'busted');
+  s.balance!.a!.consecutiveBusts = 2;
+  assert.equal(move(s, 'a', {type: 'hit'}, 0.999).players[0]!.status, 'active');
   s.balance!.a!.consecutiveBusts = 0;
   assert.equal(move(s, 'a', {type: 'hit'}).players[0]!.status, 'busted');
   s.balance!.a!.consecutiveLowRounds = 3; s.players[1]!.total = 30;
@@ -93,7 +95,7 @@ test('completed busts increment and a banked round clears the bust streak', () =
   const s = setup();
   s.players[1]!.status = 'stayed';
   s.balance!.a!.consecutiveBusts = 1;
-  const busted = move(s, 'a', {type:'hit'});
+  const busted = move(s, 'a', {type:'hit'}, 0.9);
   assert.equal(busted.phase, 'roundOver');
   assert.equal(busted.balance!.a!.consecutiveBusts, 2);
   assert.equal(busted.balance!.a!.consecutiveLowRounds, 1);
@@ -156,7 +158,7 @@ test('a player without a win still gets an honest personal-best recap', () => {
 test('bot decisions use the adjusted next-draw risk', () => {
   const s = setup();
   s.balance!.a!.consecutiveBusts = 2;
-  assert.ok(Math.abs(balanceOdds.nextDraw(s, 'a') - 0.1) < 1e-12);
+  assert.equal(balanceOdds.nextDraw(s, 'a'), 0);
   assert.equal(chooseBotIntent(s, 'a', () => 0)?.type, 'hit');
   s.balance!.a!.assistedThisRound = true;
   assert.equal(balanceOdds.nextDraw(s, 'a'), 0.5);
@@ -193,4 +195,56 @@ test('a real rescue cannot happen twice in one round or add a revealing event', 
   assert.equal(s.balance!.a!.assistedThisRound, false);
   assert.deepEqual(first.events.map((event) => event.type), ['draw']);
   assert.equal(move(first.state, 'a', { type: 'hit' }).players[0]!.status, 'busted');
+});
+
+test('after two busts a third-number hand gets one rescue, but a fourth-number hand does not', () => {
+  const s = setup();
+  s.players[1]!.status = 'stayed';
+  s.players[0]!.hand = [number('five', 5), number('six', 6), number('seven', 7)];
+  s.balance!.a!.consecutiveBusts = 1;
+  assert.equal(move(s, 'a', { type: 'hit' }).players[0]!.status, 'busted');
+  for (const streak of [2, 3, 5]) {
+    s.balance!.a!.consecutiveBusts = streak;
+    const saved = move(s, 'a', { type: 'hit' }, 0.999);
+    assert.equal(saved.players[0]!.status, 'active');
+    assert.equal(saved.balance!.a!.assistedThisRound, true);
+    assert.equal(balanceOdds.nextDraw(saved, 'a'), 1);
+    assert.equal(move(saved, 'a', { type: 'hit' }).players[0]!.status, 'busted');
+  }
+  s.players[0]!.hand.push(number('nine', 9));
+  assert.equal(move(s, 'a', { type: 'hit' }).players[0]!.status, 'busted');
+});
+
+test('rescues leave Freeze and Flip Three in the deck and select only a helpful card', () => {
+  const s = setup();
+  s.balance!.a!.consecutiveBusts = 2;
+  const actions: Card[] = [{ id: 'freeze', kind: 'freeze' }, { id: 'three', kind: 'flipThree' }];
+  for (const safe of [number('eight', 8), { id: 'plus', kind: 'plus', value: 2 }, { id: 'double', kind: 'x2' }, { id: 'shield', kind: 'secondChance' }] satisfies Card[]) {
+    s.deck = [...actions, safe, number('dup', 5)];
+    s.deckCount = s.deck.length;
+    const saved = move(s, 'a', { type: 'hit' });
+    assert.equal(saved.players[0]!.hand.at(-1)?.id, safe.id);
+    assert.equal(saved.pending, null);
+    assert.deepEqual(saved.deck.slice(0, 2), actions);
+    assert.deepEqual([...saved.deck, ...saved.players[0]!.hand].map((c) => c.id).sort(), ['dup', 'freeze', 'held', safe.id, 'three'].sort());
+  }
+  s.deck = [...actions, number('dup', 5)];
+  s.deckCount = s.deck.length;
+  assert.equal(balanceOdds.nextDraw(s, 'a'), 1 / 3);
+  const noRescue = move(s, 'a', { type: 'hit' });
+  assert.equal(noRescue.players[0]!.status, 'busted');
+  assert.equal(noRescue.balance!.a!.assistedThisRound, false);
+});
+
+test('a positive bank breaks the streak and the next round restores the one-rescue budget', () => {
+  const s = setup();
+  s.balance!.a!.consecutiveBusts = 2;
+  s.players[1]!.status = 'stayed';
+  const saved = move(s, 'a', { type: 'hit' });
+  assert.equal(saved.balance!.a!.assistedThisRound, true);
+  const banked = move(saved, 'a', { type: 'stay' });
+  assert.equal(banked.balance!.a!.consecutiveBusts, 0);
+  const next = move(banked, 'a', { type: 'nextRound' });
+  assert.equal(next.balance!.a!.assistedThisRound, false);
+  assert.equal(next.balance!.a!.consecutiveBusts, 0);
 });

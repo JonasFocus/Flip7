@@ -68,7 +68,7 @@ function RoomView({ code, name, onPlayHere }: { code: string; name: string; onPl
     );
   }
   if (room.imposter || room.dice || room.potato || room.spy || room.bj || room.duel || room.bac || room.rl || room.tx) {
-    return <NoticeScreen title="Game unavailable" message="Only Flip 7 is available right now. Start a new table from home." />;
+    return <NoticeScreen title="Game unavailable" message="Only Flip is available right now. Start a new table from home." />;
   }
   if (score) {
     return (

@@ -18,6 +18,7 @@ const MODIFIER_EXAMPLE: Card[] = [
 
 const RULES: { title: string; body: string; cards?: ReactNode }[] = [
   { title: "Hit or stay", body: "Draw cards one at a time. Stay to bank the sum of your numbers." },
+  { title: "Know the deck", body: "There is one 0, one 1, two 2s, three 3s, and so on up to twelve 12s. Higher numbers have more copies, so they are more likely to repeat." },
   {
     title: "Don't double up",
     body: "Draw a number you already have and you bust: zero this round.",
@@ -25,7 +26,7 @@ const RULES: { title: string; body: string; cards?: ReactNode }[] = [
       <PlayingCard key={card.id} card={card} size="xs" className={bust ? "ring-2 ring-busted" : undefined} />
     )),
   },
-  { title: "Flip 7", body: "Seven different numbers ends the round instantly, plus 15 bonus." },
+  { title: "Flip 7", body: "Seven different numbers ends the round instantly, plus 15 bonus. You can stay and bank points before seven." },
   {
     title: "Action cards",
     body: "Freeze banks someone out. Flip Three forces three draws. Second Chance saves one bust.",

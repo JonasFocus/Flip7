@@ -7,7 +7,7 @@ import { Badge, type BadgeTone } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 
 export const MODE_LABEL: Record<RoomMode, string> = {
-  virtual: "Online",
+  virtual: "Flip",
   physical: "Scorekeeper",
   imposter: "Imposter",
   liarsdice: "Liar's Dice",

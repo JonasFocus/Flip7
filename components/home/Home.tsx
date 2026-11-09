@@ -17,7 +17,7 @@ type Mode = "virtual" | "physical";
 const LABEL = "text-[11px] font-bold uppercase tracking-[0.2em] text-muted";
 
 const MODES: { id: Mode; title: string; blurb: string; cta: string; icon: ReactNode }[] = [
-  { id: "virtual", title: "Play online", blurb: "One phone per player", cta: "Create table", icon: <PeopleIcon /> },
+  { id: "virtual", title: "Flip", blurb: "Play online · One phone per player", cta: "Create table", icon: <PeopleIcon /> },
   { id: "physical", title: "Scorekeeper", blurb: "Play with your own cards", cta: "Start scorekeeper", icon: <PeopleIcon /> },
 ];
 

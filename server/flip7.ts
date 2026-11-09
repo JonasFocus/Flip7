@@ -11,9 +11,10 @@ import {
 import { chooseBotIntent as chooseBaseBotIntent, pickTarget, type BotOdds } from "../lib/engine/bots.ts";
 import type { Rng } from "../lib/engine/deck.ts";
 import { uniqueNumbers } from "../lib/engine/score.ts";
-import type { BalanceStats, GameEvent, GameState, Player } from "../lib/engine/types.ts";
+import type { BalanceStats, Card, GameEvent, GameState, Player } from "../lib/engine/types.ts";
 
 const EARLY_HAND_NUMBERS = 2;
+const STREAK_HAND_NUMBERS = 3;
 const MEANINGFUL_ROUND_SCORE = 15;
 
 function newStats(): BalanceStats {
@@ -40,11 +41,29 @@ export function addPlayer(s: GameState, player: Parameters<typeof addBasePlayer>
 
 function reliefChance(s: GameState, player: Player): number {
   const stats = s.balance?.[player.id];
-  if (!stats || stats.assistedThisRound || uniqueNumbers(player.hand) > EARLY_HAND_NUMBERS) return 0;
+  if (!stats || stats.assistedThisRound) return 0;
   const leader = Math.max(0, ...s.players.map((p) => p.total));
   if (leader > 0 && player.total >= leader) return 0;
-  if (stats.consecutiveBusts >= 2) return 0.8;
+  const numbers = uniqueNumbers(player.hand);
+  // Soften a second bust, then catch one duplicate during the third round while
+  // there is still a small hand to build on. Further hits remain the player's risk.
+  if (stats.consecutiveBusts >= 2) return numbers <= STREAK_HAND_NUMBERS ? 1 : 0;
+  if (numbers > EARLY_HAND_NUMBERS) return 0;
+  if (stats.consecutiveBusts === 1) return 0.65;
   return stats.consecutiveLowRounds >= 3 && leader - player.total >= 30 ? 0.65 : 0;
+}
+
+function isReliefCard(card: Card, held: Set<number>): boolean {
+  // A rescue should build the hand, not force a tiny bank or another three draws.
+  return card.kind === "number" ? !held.has(card.value) : card.kind === "plus" || card.kind === "x2" || card.kind === "secondChance";
+}
+
+function availableReliefChance(s: GameState, player: Player): number {
+  const chance = reliefChance(s, player);
+  if (chance === 0) return 0;
+  const held = new Set(player.hand.flatMap((card) => card.kind === "number" ? [card.value] : []));
+  const pool = s.deck.length > 0 ? s.deck : s.discard;
+  return pool.some((card) => isReliefCard(card, held)) ? chance : 0;
 }
 
 const adjustDraw: DrawAdjustment = (s, player, card, rng) => {
@@ -52,7 +71,7 @@ const adjustDraw: DrawAdjustment = (s, player, card, rng) => {
   if (chance === 0 || card.kind !== "number" || player.hand.some((c) => c.kind === "secondChance")) return card;
   const held = new Set(player.hand.flatMap((c) => c.kind === "number" ? [c.value] : []));
   if (!held.has(card.value)) return card;
-  const safe = s.deck.flatMap((candidate, index) => candidate.kind !== "number" || !held.has(candidate.value) ? [index] : []);
+  const safe = s.deck.flatMap((candidate, index) => isReliefCard(candidate, held) ? [index] : []);
   if (safe.length === 0 || rng() >= chance) return card;
   const index = safe[Math.floor(rng() * safe.length)];
   const replacement = index === undefined ? undefined : s.deck[index];
@@ -67,7 +86,7 @@ export const balanceOdds: BotOdds = {
   nextDraw(s, id) {
     const player = s.players.find((p) => p.id === id);
     const ordinary = ordinaryBustChance(s, id);
-    return player && ordinary < 1 ? ordinary * (1 - reliefChance(s, player)) : ordinary;
+    return player ? ordinary * (1 - availableReliefChance(s, player)) : ordinary;
   },
   threeDraws(s, id) {
     const player = s.players.find((p) => p.id === id);
@@ -75,7 +94,7 @@ export const balanceOdds: BotOdds = {
     const shielded = player?.hand.some((c) => c.kind === "secondChance");
     const ordinary = shielded ? 1 - (1 - q) ** 3 - 3 * q * (1 - q) ** 2 : 1 - (1 - q) ** 3;
     // Like the base bot estimate, hold today's hand and duplicate rate fixed for the three draws.
-    const chance = player && q < 1 ? reliefChance(s, player) : 0;
+    const chance = player ? availableReliefChance(s, player) : 0;
     const oneMoreDuplicate = shielded ? 3 * q ** 2 * (1 - q) : 3 * q * (1 - q) ** 2;
     return Math.max(0, ordinary - chance * oneMoreDuplicate);
   },

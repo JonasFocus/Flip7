@@ -40,7 +40,7 @@ export function TableHeader({
 
   return (
     <header className="flex h-14 flex-none items-center gap-3 px-4">
-      <h1 className="sr-only">Flip 7 · Round {game.round}</h1>
+      <h1 className="sr-only">Flip · Round {game.round}</h1>
       <div className="flex flex-col leading-none">
         <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted">Round</span>
         <span className="font-display text-xl tabular-nums">{game.round}</span>
