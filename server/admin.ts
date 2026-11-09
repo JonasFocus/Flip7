@@ -3,7 +3,6 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import type { LiveTable } from "../lib/admin.ts";
 import type { Activity } from "./activity.ts";
 
-export const DEFAULT_ADMIN_CODE = "0001";
 const FAILS_PER_IP = 5;
 const FAILS_PER_IP_WINDOW_MS = 15 * 60_000;
 // A 4-digit code is guessable from many IPs, so all wrong guesses together are capped too. The cost: someone
@@ -14,7 +13,7 @@ const FAILS_GLOBAL_WINDOW_MS = 60 * 60_000;
 const digest = (s: string) => createHash("sha256").update(s).digest();
 
 export interface AdminDeps {
-  code: string;
+  code?: string;
   activity: Activity;
   live: () => LiveTable[];
 }
@@ -22,7 +21,7 @@ export interface AdminDeps {
 // GET /admin/stats and /admin/events, authorized by `Authorization: Bearer <code>`. The code check lives
 // here on the server only; the page just forwards what was typed.
 export function adminRoutes(deps: AdminDeps) {
-  const want = digest(deps.code);
+  const want = deps.code?.trim() ? digest(deps.code) : null;
   const failsByIp = new Map<string, { count: number; windowStart: number }>();
   let global = { count: 0, windowStart: 0 };
 
@@ -46,6 +45,7 @@ export function adminRoutes(deps: AdminDeps) {
 
   // Returns false when the path isn't an admin route, so the caller can 404 it.
   function handle(req: IncomingMessage, res: ServerResponse, path: string, ip: string): boolean {
+    if (want === null) return false;
     if (path !== "/admin/stats" && path !== "/admin/events") return false;
     const json = (status: number, body: unknown) =>
       res.writeHead(status, { "Content-Type": "application/json", "Cache-Control": "no-store" }).end(JSON.stringify(body));
@@ -71,13 +71,19 @@ export function adminRoutes(deps: AdminDeps) {
       const days = raw === null || raw === "all" ? null : Math.max(1, Math.min(3650, Number(raw) || 7));
       json(200, deps.activity.stats(days, deps.live(), now));
     } else {
+      const rawLimit = q.get("limit");
+      const limit = rawLimit === null ? undefined : Number(rawLimit);
+      if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1)) {
+        json(400, { error: "Limit must be a positive integer" });
+        return true;
+      }
       const before = Number(q.get("before"));
       json(200, deps.activity.events({
         before: Number.isFinite(before) && before > 0 ? before : undefined,
         player: q.get("player") ?? undefined,
         mode: q.get("mode") ?? undefined,
         kind: q.get("kind") ?? undefined,
-        limit: Number(q.get("limit")) || undefined,
+        limit,
       }));
     }
     return true;

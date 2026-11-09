@@ -35,7 +35,7 @@ import { isPartyMode, KICKED_MESSAGE, MAX_PLAYERS, nextRoundDelayMs, REPLACED_CL
 import type { ClientMessage, PartyGames, PartyMode, PartyRoom, Room, RoomSummary, ServerMessage } from "../lib/protocol.ts";
 import { isUnknownGame, parseMessage } from "./validate.ts";
 import { Activity, deviceOf, type LogInput } from "./activity.ts";
-import { adminRoutes, DEFAULT_ADMIN_CODE } from "./admin.ts";
+import { adminRoutes } from "./admin.ts";
 import type { LiveTable } from "../lib/admin.ts";
 
 const TOO_MANY_JOINS = "Too many joins, try again in a minute";
@@ -310,7 +310,7 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
   // ponytail: linear scans over all sockets per broadcast; index sockets by room if this ever hosts thousands.
   const clients = new Set<Client>();
   const activity = opts.activity ?? new Activity(":memory:");
-  const admin = adminRoutes({ code: opts.adminCode ?? DEFAULT_ADMIN_CODE, activity, live: liveTables });
+  const admin = adminRoutes({ code: opts.adminCode, activity, live: liveTables });
   let lastPrune = Date.now();
 
   // One line in the activity log about what this socket's player did in its current room.
@@ -917,20 +917,26 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
   }
 
   const http = createServer((req, res) => {
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Authorization");
-    const path = (req.url ?? "/").split("?")[0] ?? "/";
-    if (req.method === "OPTIONS") {
-      res.writeHead(204).end();
-    } else if (req.method === "GET" && path === "/health") {
-      res.writeHead(200, { "Content-Type": "text/plain" }).end("ok");
-    } else if (req.method === "GET" && path === "/rooms") {
-      res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" }).end(JSON.stringify(summaries()));
-    } else if (admin.handle(req, res, path, peerIp(req))) {
-      // answered by the admin routes
-    } else {
-      res.writeHead(404, { "Content-Type": "text/plain" }).end("not found");
+    try {
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+      res.setHeader("Access-Control-Allow-Headers", "Authorization");
+      const path = (req.url ?? "/").split("?")[0] ?? "/";
+      if (req.method === "OPTIONS") {
+        res.writeHead(204).end();
+      } else if (req.method === "GET" && path === "/health") {
+        res.writeHead(200, { "Content-Type": "text/plain" }).end("ok");
+      } else if (req.method === "GET" && path === "/rooms") {
+        res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" }).end(JSON.stringify(summaries()));
+      } else if (admin.handle(req, res, path, peerIp(req))) {
+        // answered by the admin routes
+      } else {
+        res.writeHead(404, { "Content-Type": "text/plain" }).end("not found");
+      }
+    } catch (err) {
+      console.error("http handler error", err);
+      if (res.headersSent) res.destroy();
+      else res.writeHead(500, { "Content-Type": "application/json", "Cache-Control": "no-store" }).end(JSON.stringify({ error: "Server error" }));
     }
   });
 
@@ -1038,7 +1044,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   // With a Railway volume attached, Railway sets RAILWAY_VOLUME_MOUNT_PATH and the log survives deploys.
   const dir = process.env.ACTIVITY_DIR || process.env.RAILWAY_VOLUME_MOUNT_PATH || "data";
   const activity = new Activity(joinPath(dir, "activity.db"));
-  const adminCode = process.env.ADMIN_CODE || DEFAULT_ADMIN_CODE;
+  const adminCode = process.env.ADMIN_CODE;
   startServer(port, { activity, adminCode }).then(
     (s) => console.log(`flip7 server listening on :${s.port}`),
     (err: unknown) => {

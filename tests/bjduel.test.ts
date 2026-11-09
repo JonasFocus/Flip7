@@ -141,6 +141,8 @@ test("deals once both lock in; the first lock starts the other's clock", () => {
 
 test("a fresh shoe is shuffled on the felt before the first deal", () => {
   let s = seated();
+  // Keep a full shoe to trigger the shuffle animation, with no opening blackjacks.
+  s = { ...s, shoe: [...["10", "9", "6", "7", "8", "10"].map((rank) => c(rank as Rank)), ...s.shoe.slice(6)] };
   s = bothBet(s, 5, 1000);
   assert.equal(s.shuffled, true);
   assert.equal(s.turnAt, 1000 + SHUFFLE_MS + dealAnimMs(2));

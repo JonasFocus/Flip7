@@ -40,16 +40,62 @@ const until = async (check: () => Promise<boolean>) => {
   throw new Error("condition never held");
 };
 
-test("admin routes need the code, which defaults to 0001", async () => {
-  const server = await startServer(0);
+test("admin routes are disabled without an explicit nonblank code", async () => {
+  for (const adminCode of [undefined, "", "   "]) {
+    const server = await startServer(0, { adminCode });
+    try {
+      for (const path of ["/admin/stats", "/admin/events"]) {
+        for (const code of ["0001", ""]) {
+          const res = await fetch(`http://localhost:${server.port}${path}`, { headers: { Authorization: `Bearer ${code}` } });
+          assert.equal(res.status, 404);
+        }
+      }
+    } finally {
+      await server.close();
+    }
+  }
+});
+
+test("admin routes need the configured code", async () => {
+  const server = await startServer(0, { adminCode: "review-test-secret" });
   try {
     assert.equal((await get(server.port, "/admin/stats", null)).status, 401);
     assert.equal((await get(server.port, "/admin/stats", "1234")).status, 401);
-    const ok = await get<AdminStats>(server.port, "/admin/stats", "0001");
+    const ok = await get<AdminStats>(server.port, "/admin/stats", "review-test-secret");
     assert.equal(ok.status, 200);
     assert.equal(ok.body.players, 0);
   } finally {
     await server.close();
+  }
+});
+
+test("invalid event limits return 400 and leave the server usable", async () => {
+  const server = await startServer(0, { adminCode: "review-test-secret" });
+  try {
+    for (const limit of ["1.5", "NaN", "Infinity", "0", "-1", "", "9007199254740992"]) {
+      assert.equal((await get(server.port, `/admin/events?limit=${limit}`, "review-test-secret")).status, 400);
+    }
+    for (const query of ["", "?limit=1", "?limit=1000"]) {
+      assert.equal((await get(server.port, `/admin/events${query}`, "review-test-secret")).status, 200);
+    }
+    assert.equal((await fetch(`http://localhost:${server.port}/health`)).status, 200);
+  } finally {
+    await server.close();
+  }
+});
+
+test("an unexpected admin query failure returns 500 without stopping the server", async (t) => {
+  const activity = new Activity(":memory:");
+  const server = await startServer(0, { adminCode: "review-test-secret", activity });
+  const failure = t.mock.method(activity, "events", () => { throw new Error("test query failure"); });
+  try {
+    assert.equal((await get(server.port, "/admin/events", "review-test-secret")).status, 500);
+    assert.equal(await (await fetch(`http://localhost:${server.port}/health`)).text(), "ok");
+    failure.mock.restore();
+    assert.equal((await get(server.port, "/admin/events", "review-test-secret")).status, 200);
+  } finally {
+    await server.close();
+    activity.close();
   }
 });
 
@@ -64,7 +110,7 @@ test("wrong codes get locked out, even the right one after that", async () => {
 });
 
 test("joins, moves, leaves and play time land in the log and stats", async () => {
-  const server = await startServer(0, { createsPerIpPerMin: Infinity, joinsPerIpPerMin: Infinity });
+  const server = await startServer(0, { adminCode: "review-test-secret", createsPerIpPerMin: Infinity, joinsPerIpPerMin: Infinity });
   try {
     const host = await connect(server.port);
     host.send({ t: "create", mode: "virtual", name: "Ann", clientId: "ann-secret" });
@@ -79,7 +125,7 @@ test("joins, moves, leaves and play time land in the log and stats", async () =>
 
     let events: AdminEvents["events"] = [];
     await until(async () => {
-      events = (await get<AdminEvents>(server.port, "/admin/events", "0001")).body.events;
+      events = (await get<AdminEvents>(server.port, "/admin/events", "review-test-secret")).body.events;
       return events.some((e) => e.kind === "leave");
     });
     const kinds = events.map((e) => e.kind).reverse();
@@ -92,10 +138,10 @@ test("joins, moves, leaves and play time land in the log and stats", async () =>
     // The client's secret id never reaches the log, only its public hash.
     assert.ok(!JSON.stringify(events).includes("bob-secret"));
 
-    const bob = (await get<AdminEvents>(server.port, `/admin/events?player=${P("bob-secret")}`, "0001")).body.events;
+    const bob = (await get<AdminEvents>(server.port, `/admin/events?player=${P("bob-secret")}`, "review-test-secret")).body.events;
     assert.ok(bob.every((e) => e.player === P("bob-secret")));
 
-    const stats = (await get<AdminStats>(server.port, "/admin/stats?days=1", "0001")).body;
+    const stats = (await get<AdminStats>(server.port, "/admin/stats?days=1", "review-test-secret")).body;
     assert.equal(stats.players, 2);
     assert.equal(stats.visits, 1);
     assert.equal(stats.tables, 1);
