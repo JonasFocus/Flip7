@@ -270,6 +270,33 @@ test("auto-plays a disconnected human after the grace period, unless they come b
   }
 });
 
+test("auto-plays a connected human who sits on their turn too long", async () => {
+  const fast = await startServer(0, { idlePlayMs: 600, createsPerIpPerMin: Infinity, joinsPerIpPerMin: Infinity });
+  try {
+    const a = await connect(fast.port);
+    a.send({ t: "create", mode: "virtual", name: "Mom", clientId: "idle-a" });
+    const code = (await a.waitRoom(() => true)).room.code;
+    const b = await connect(fast.port);
+    b.send({ t: "join", code, name: "Dad", clientId: "idle-b" });
+    await a.waitRoom((m) => virtualGame(m.room).players.length === 2);
+    a.send({ t: "intent", intent: { type: "start" } });
+    const started = await a.waitRoom((m) => virtualGame(m.room).phase === "playing");
+    const game = virtualGame(started.room);
+    const awaited = awaitingPlayerId(game);
+    assert.ok(awaited);
+    // Both phones stay connected; the countdown is flagged idle, not offline.
+    assert.ok(started.room.mode === "virtual" && started.room.autoPlay?.playerId === awaited && started.room.autoPlay.idle === true);
+    const t0 = Date.now();
+    const moved = await a.waitRoom((m) => virtualGame(m.room).seq > game.seq);
+    assert.ok(Date.now() - t0 >= 450, "waits out the idle window first");
+    if (!game.pending) assert.ok(moved.events.some((e) => e.type === "stay" && e.playerId === awaited && e.auto === true));
+    a.ws.close();
+    b.ws.close();
+  } finally {
+    await fast.close();
+  }
+});
+
 test("kicked player gets the shared kick message and is out of the room", async () => {
   const a = await connect();
   const b = await connect();

@@ -34,9 +34,9 @@ export const isRoomMode = (v: unknown): v is RoomMode => ROOM_MODES.some((m) => 
 export const isPartyMode = (v: RoomMode): v is PartyMode => v === "liarsdice" || v === "hotpotato" || v === "spyfall" || v === "blackjack" || v === "baccarat" || v === "roulette" || v === "texasholdem" || v === "bjduel";
 
 export type Room =
-  // autoPlay: the awaited player is disconnected; the server acts for them in `inMs`.
+  // autoPlay: the server acts for the awaited human in `inMs`: they are disconnected, or (idle) sitting on their decision.
   // nextRoundInMs: roundOver only; the server deals the next round itself after this long (relative, so phone clock skew can't desync it).
-  | { code: string; mode: "virtual"; hostId: string; game: GameState; autoPlay?: { playerId: string; inMs: number }; nextRoundInMs?: number }
+  | { code: string; mode: "virtual"; hostId: string; game: GameState; autoPlay?: { playerId: string; inMs: number; idle?: true }; nextRoundInMs?: number }
   | { code: string; mode: "physical"; hostId: string; game: ScoreState }
   // game is redacted per viewer (lib/imposter redactImposter). cluesEndsInMs: clues phase only, relative ms until voting auto-starts.
   | { code: string; mode: "imposter"; hostId: string; game: ImposterState; cluesEndsInMs?: number; votingEndsInMs?: number }

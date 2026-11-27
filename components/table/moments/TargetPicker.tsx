@@ -10,6 +10,7 @@ import { cx } from "@/components/ui/cx";
 import { tap } from "@/lib/client/haptics";
 import type { TableConnection } from "@/lib/client/types";
 import type { ActionCard, GameState } from "@/lib/engine/types";
+import { IDLE_WARN_S, useSecondsLeft } from "../ActionBar";
 import { roundPoints, useHeld } from "./util";
 
 const DRAW_BEAT_MS = 1040;
@@ -76,6 +77,9 @@ function Picker({ conn, card, optionIds, game }: { conn: TableConnection; card: 
   }
 
   const target = options.find((p) => p.id === selected);
+  const auto = conn.autoPlay?.idle && conn.autoPlay.playerId === you ? conn.autoPlay.deadline : undefined;
+  const secondsLeft = useSecondsLeft(sent ? undefined : auto);
+  const idleLeft = secondsLeft !== null && secondsLeft <= IDLE_WARN_S ? secondsLeft : null;
 
   return (
     // Not dismissable: the game can't continue until a target is chosen.
@@ -137,6 +141,11 @@ function Picker({ conn, card, optionIds, game }: { conn: TableConnection; card: 
       </ul>
 
       <div className="sticky -bottom-px mt-3 bg-surface pt-3 pb-1">
+        {idleLeft !== null && (
+          <p role="status" className="mb-2 text-center text-sm font-semibold text-accent tabular-nums">
+            Picking for you in {idleLeft}s
+          </p>
+        )}
         <Button size="lg" block disabled={!target} loading={sent} onClick={confirm}>
           {target ? `${copy.verb} ${target.id === you ? "yourself" : target.name}` : "Pick a player"}
         </Button>

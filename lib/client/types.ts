@@ -24,7 +24,7 @@ export interface TableConnection {
   isHost: boolean;
   game: GameState;
   events: GameEvent[]; // events from the latest change, for animation
-  autoPlay?: { playerId: string; deadline: number }; // awaited player is offline; server plays for them at `deadline` (local ms)
+  autoPlay?: { playerId: string; deadline: number; idle?: boolean }; // server plays for the awaited player at `deadline` (local ms): offline, or idle on their turn
   nextRoundAt?: number; // roundOver: the next round deals itself at this local ms time
   error: string | null;
   send: (intent: Intent) => void;
