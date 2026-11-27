@@ -36,6 +36,7 @@ import type { ClientMessage, PartyGames, PartyMode, PartyRoom, Room, RoomSummary
 import { isUnknownGame, parseMessage } from "./validate.ts";
 import { Activity, deviceOf, type LogInput } from "./activity.ts";
 import { adminRoutes } from "./admin.ts";
+import { loadRooms, saveRooms, type SavedRoom } from "./persist.ts";
 import type { LiveTable } from "../lib/admin.ts";
 
 const TOO_MANY_JOINS = "Too many joins, try again in a minute";
@@ -285,12 +286,15 @@ interface Client {
 
 export interface RunningServer {
   port: number;
-  close: () => Promise<void>;
+  save: () => void; // write every table to `saveFile` now (no-op without one)
+  close: () => Promise<void>; // saves first, so a restart picks the games back up
 }
 
 export interface ServerOptions {
   autoPlayMs?: number;
   idlePlayMs?: number;
+  saveFile?: string; // tables are restored from here on start and written back while running and on close
+  saveEveryMs?: number;
   nextRoundMs?: number; // fixed round-over wait instead of the reveal-based one (tests)
   maxRooms?: number;
   createsPerIpPerMin?: number;
@@ -317,6 +321,7 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
   const activity = opts.activity ?? new Activity(":memory:");
   const admin = adminRoutes({ code: opts.adminCode, activity, live: liveTables });
   let lastPrune = Date.now();
+  let dirty = false; // a table changed since the last save
 
   // One line in the activity log about what this socket's player did in its current room.
   function track(c: Client, e: LogInput) {
@@ -412,6 +417,7 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
   }
 
   function changed(live: LiveRoom, events: GameEvent[]) {
+    dirty = true;
     live.lastActive = Date.now();
     const { phase } = live.room.game;
     if (live.phase === "lobby" && phase !== "lobby") {
@@ -428,6 +434,7 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
   }
 
   function deleteRoom(code: string) {
+    dirty = true;
     const live = rooms.get(code);
     if (live?.botTimer) clearTimeout(live.botTimer);
     if (live?.nextRound) clearTimeout(live.nextRound.timer);
@@ -951,6 +958,77 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
       });
   }
 
+  function save() {
+    if (!opts.saveFile) return;
+    try {
+      const saved: SavedRoom[] = [...rooms.values()].map((l) => ({
+        room: l.room,
+        creatorId: l.creatorId,
+        lastActive: l.lastActive,
+        kicked: [...l.kicked],
+        phase: l.phase,
+        awayStays: [...l.awayStays],
+      }));
+      saveRooms(opts.saveFile, saved);
+      dirty = false;
+    } catch (err) {
+      console.error("could not save tables", err);
+    }
+  }
+
+  // A saved table comes back with nobody connected: every human is offline until their phone reconnects
+  // (clients retry on their own), and the usual grace period applies before anyone is played for.
+  // Timers re-arm on the first reconnect, so a deadline that passed during the restart doesn't fire into an empty room.
+  function restore(saved: SavedRoom, now: number): LiveRoom {
+    const live: LiveRoom = {
+      room: saved.room,
+      lastActive: saved.lastActive,
+      creatorId: saved.creatorId,
+      botTimer: null,
+      txBotKey: null,
+      nextRound: null,
+      cluesTimer: null,
+      partyTimer: null,
+      disconnectedAt: new Map(),
+      awayStays: new Map(saved.awayStays),
+      turn: null,
+      kicked: new Set(saved.kicked),
+      phase: saved.phase,
+    };
+    const { room } = live;
+    if (room.mode === "virtual") {
+      for (const p of room.game.players) {
+        if (p.isBot) continue;
+        room.game = setConnected(room.game, p.id, false);
+        live.disconnectedAt.set(p.id, now);
+      }
+    } else if (room.mode === "imposter") {
+      for (const p of room.game.players) room.game = setImposterConnected(room.game, p.id, false);
+    } else if (isParty(room)) {
+      const ids = (room.game.players as { id: string }[]).map((p) => p.id);
+      withParty(room, (p) => {
+        for (const id of ids) p.set(p.e.setConnected(p.game, id, false, now));
+      });
+    }
+    return live;
+  }
+
+  if (opts.saveFile) {
+    const now = Date.now();
+    const saved = loadRooms(opts.saveFile);
+    for (const entry of saved) {
+      try {
+        if (!rooms.has(entry.room.code)) rooms.set(entry.room.code, restore(entry, now));
+      } catch (err) {
+        console.error(`could not restore table ${entry.room.code}`, err);
+      }
+    }
+    if (saved.length > 0) console.log(`restored ${rooms.size} of ${saved.length} saved tables`);
+  }
+  const autosave = setInterval(() => {
+    if (dirty) save();
+  }, opts.saveEveryMs ?? 5_000);
+
   const http = createServer((req, res) => {
     try {
       res.setHeader("Access-Control-Allow-Origin", "*");
@@ -1050,10 +1128,13 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
       const actual = typeof addr === "object" && addr ? addr.port : port;
       resolve({
         port: actual,
+        save,
         close: () =>
           new Promise<void>((done) => {
             clearInterval(heartbeat);
             clearInterval(cleanup);
+            clearInterval(autosave);
+            save();
             for (const code of [...rooms.keys()]) deleteRoom(code);
             for (const c of clients) c.ws.terminate();
             wss.close();
@@ -1080,8 +1161,26 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const dir = process.env.ACTIVITY_DIR || process.env.RAILWAY_VOLUME_MOUNT_PATH || "data";
   const activity = new Activity(joinPath(dir, "activity.db"));
   const adminCode = process.env.ADMIN_CODE;
-  startServer(port, { activity, adminCode }).then(
-    (s) => console.log(`flip7 server listening on :${s.port}`),
+  // Tables live next to the activity log, so they survive a deploy only when that dir is a volume.
+  const saveFile = joinPath(dir, "tables.json");
+  startServer(port, { activity, adminCode, saveFile }).then(
+    (s) => {
+      console.log(`flip7 server listening on :${s.port}, tables saved to ${saveFile}`);
+      // Railway sends SIGTERM before replacing the deployment: save the tables, then go.
+      let stopping = false;
+      const stop = (signal: string) => {
+        if (stopping) return;
+        stopping = true;
+        console.log(`${signal}: saving tables and shutting down`);
+        const force = setTimeout(() => process.exit(0), 3_000);
+        s.close().then(() => {
+          clearTimeout(force);
+          process.exit(0);
+        });
+      };
+      process.on("SIGTERM", () => stop("SIGTERM"));
+      process.on("SIGINT", () => stop("SIGINT"));
+    },
     (err: unknown) => {
       console.error(err);
       process.exit(1);

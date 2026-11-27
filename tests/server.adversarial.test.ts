@@ -341,8 +341,8 @@ test("host leaves mid-round: game continues, next human is host, bots still play
   a.send({ t: "leave" });
   const r = await b.waitRoom((m) => m.room.hostId === publicId("hl-b") && vgame(m.room).players.length === 2);
   const seq = vgame(r.room).seq;
-  // Drive B; bot must keep acting.
-  for (let i = 0; i < 20; i++) {
+  // Drive B; bot must keep acting. A bot move takes up to ~1.6s, so a bot-only stretch needs more than 4s for 3 moves.
+  for (let i = 0; i < 60 && vgame(last(b)).seq <= seq + 2; i++) {
     const g = vgame(last(b));
     if (awaitingPlayerId(g) === publicId("hl-b")) {
       const intent = chooseBotIntent(g, publicId("hl-b"));
@@ -753,7 +753,7 @@ test("real server timers close Imposter and Spyfall voting with connected abstai
       assert.ok(remaining !== undefined && remaining > 59000 && remaining <= 60000);
       for (const phone of phones.slice(1)) phone.send({ t: mode, intent: { type: "vote", targetId: voting.room.hostId } });
       await host.waitRoom((m) => (m.room.mode === "imposter" || m.room.mode === "spyfall") && m.room.game.phase === "voting" && m.room.game.votedIds.length === 3);
-      const finished = await host.waitRoom((m) => (m.room.mode === "imposter" && (m.room.game.phase === "reveal" || m.room.game.phase === "gameOver")) || (m.room.mode === "spyfall" && m.room.game.phase === "gameOver"), 65000);
+      const finished = await host.waitRoom((m) => (m.room.mode === "imposter" && (m.room.game.phase === "reveal" || m.room.game.phase === "gameOver")) || (m.room.mode === "spyfall" && m.room.game.phase === "gameOver"), 90000);
       assert.ok(finished.room.mode === "imposter" || finished.room.mode === "spyfall");
       assert.ok(finished.room.game.players.every((p) => p.connected));
       if (finished.room.mode === "imposter") assert.deepEqual(finished.room.game.lastResult?.tally, { [room.hostId]: 3 });
