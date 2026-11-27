@@ -341,8 +341,8 @@ test("host leaves mid-round: game continues, next human is host, bots still play
   a.send({ t: "leave" });
   const r = await b.waitRoom((m) => m.room.hostId === publicId("hl-b") && vgame(m.room).players.length === 2);
   const seq = vgame(r.room).seq;
-  // Drive B; bot must keep acting.
-  for (let i = 0; i < 20; i++) {
+  // Drive B; bot must keep acting. A bot move takes up to ~1.6s, so a bot-only stretch needs more than 4s for 3 moves.
+  for (let i = 0; i < 60 && vgame(last(b)).seq <= seq + 2; i++) {
     const g = vgame(last(b));
     if (awaitingPlayerId(g) === publicId("hl-b")) {
       const intent = chooseBotIntent(g, publicId("hl-b"));
