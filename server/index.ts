@@ -50,6 +50,8 @@ const JOINS_PER_IP_PER_MIN = 20;
 const MAX_LISTED_ROOMS = 100;
 const MAX_SOCKETS_PER_IP = 50;
 export const AUTO_PLAY_MS = 30_000;
+// A connected human who sits on a decision this long is played for too (a locked phone often keeps its socket a while).
+export const IDLE_PLAY_MS = 60_000;
 
 // The client's id is a secret resume token; everyone else only ever sees this hash of it (and can't forge a bot's "bot-" id).
 export const publicId = (secret: string) => createHash("sha256").update(secret).digest("base64url").slice(0, 22);
@@ -263,6 +265,7 @@ interface LiveRoom {
   partyTimer: NodeJS.Timeout | null; // party games: fires onDeadline at the engine's serverDeadline
   disconnectedAt: Map<string, number>; // humans who dropped mid-game; they get auto-played after AUTO_PLAY_MS
   awayStays: Map<string, { round: number; event: GameEvent }>; // auto-stays to replay to that human when they return
+  turn: { seq: number; playerId: string; at: number } | null; // virtual: when the awaited player's current decision began
   kicked: Set<string>; // virtual: removed by the host, rejoin refused. physical: lost their last seat, rejoin as spectator (Late arrival re-seats on purpose)
   phase: string; // last seen game phase, so the activity log can note when a table leaves the lobby
 }
@@ -287,6 +290,7 @@ export interface RunningServer {
 
 export interface ServerOptions {
   autoPlayMs?: number;
+  idlePlayMs?: number;
   nextRoundMs?: number; // fixed round-over wait instead of the reveal-based one (tests)
   maxRooms?: number;
   createsPerIpPerMin?: number;
@@ -298,6 +302,7 @@ export interface ServerOptions {
 
 export function startServer(port: number, opts: ServerOptions = {}): Promise<RunningServer> {
   const autoPlayMs = opts.autoPlayMs ?? AUTO_PLAY_MS;
+  const idlePlayMs = opts.idlePlayMs ?? IDLE_PLAY_MS;
   const nextRoundMs = (events: GameEvent[]) => opts.nextRoundMs ?? nextRoundDelayMs(events);
   const maxRooms = opts.maxRooms ?? MAX_ROOMS;
   const createsPerIpPerMin = opts.createsPerIpPerMin ?? CREATES_PER_IP_PER_MIN;
@@ -372,9 +377,10 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
     }
     if (room.mode !== "virtual") return room;
     const game = redactGame(room.game);
-    const awaited = awaitingPlayerId(game);
-    const since = awaited ? live.disconnectedAt.get(awaited) : undefined;
-    const autoPlay = awaited && since !== undefined ? { playerId: awaited, inMs: Math.max(0, since + autoPlayMs - Date.now()) } : undefined;
+    const takeover = autoPlayAt(live);
+    const autoPlay = takeover
+      ? { playerId: takeover.playerId, inMs: Math.max(0, takeover.at - Date.now()), ...(takeover.idle ? { idle: true as const } : {}) }
+      : undefined;
     const nextRoundInMs = live.nextRound ? Math.max(0, live.nextRound.at - Date.now()) : undefined;
     return { ...room, game, autoPlay, nextRoundInMs };
   }
@@ -412,6 +418,7 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
       activity.log({ kind: "start", code: live.room.code, mode: live.room.mode, detail: { players: live.room.game.players.length } });
     }
     live.phase = phase;
+    trackTurn(live);
     ensureHost(live);
     scheduleNextRound(live, events);
     scheduleClues(live);
@@ -511,6 +518,32 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
     }, Math.max(0, at - Date.now()));
   }
 
+  // Each applied move starts a fresh decision clock for whoever the game now waits on.
+  function trackTurn(live: LiveRoom) {
+    const { room } = live;
+    const awaited = room.mode === "virtual" ? awaitingPlayerId(room.game) : null;
+    if (room.mode !== "virtual" || !awaited) {
+      live.turn = null;
+      return;
+    }
+    if (live.turn?.seq === room.game.seq && live.turn.playerId === awaited) return;
+    live.turn = { seq: room.game.seq, playerId: awaited, at: Date.now() };
+  }
+
+  // When the server will act for the awaited human: AUTO_PLAY_MS after they dropped, or IDLE_PLAY_MS into a decision they sit on.
+  function autoPlayAt(live: LiveRoom): { playerId: string; at: number; idle?: true } | null {
+    const { room } = live;
+    if (room.mode !== "virtual") return null;
+    const awaited = awaitingPlayerId(room.game);
+    const player = room.game.players.find((p) => p.id === awaited);
+    if (!awaited || !player || player.isBot) return null;
+    const since = live.disconnectedAt.get(awaited);
+    const offline = since !== undefined && !isOnline(room.code, awaited) ? since + autoPlayMs : Infinity;
+    const idle = live.turn?.playerId === awaited ? live.turn.at + idlePlayMs : Infinity;
+    if (offline === Infinity && idle === Infinity) return null;
+    return offline <= idle ? { playerId: awaited, at: offline } : { playerId: awaited, at: idle, idle: true };
+  }
+
   function scheduleBot(live: LiveRoom) {
     if (live.room.mode === "texasholdem") return scheduleTxBot(live);
     if (live.botTimer) clearTimeout(live.botTimer);
@@ -521,17 +554,17 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
     const botId = awaitingPlayerId(game);
     const player = game.players.find((p) => p.id === botId);
     if (!botId || !player) return;
-    const since = live.disconnectedAt.get(botId);
-    if (!player.isBot && (since === undefined || isOnline(room.code, botId))) return;
+    const takeover = player.isBot ? null : autoPlayAt(live);
+    if (!player.isBot && !takeover) return;
     const pace = game.pending?.type === "flipThree" ? 585 : 910 + Math.random() * 650;
-    const delay = since === undefined ? pace : Math.max(pace, since + autoPlayMs - Date.now());
+    const delay = takeover ? Math.max(pace, takeover.at - Date.now()) : pace;
     const seq = game.seq;
     live.botTimer = setTimeout(() => {
       live.botTimer = null;
       try {
         const current = live.room;
         if (current.mode !== "virtual" || current.game.seq !== seq) return;
-        // An absent human just banks on a hit/stay turn; target picks and Flip Three draws need the bot brain.
+        // An absent or idle human just banks on a hit/stay turn; target picks and Flip Three draws need the bot brain.
         const intent: Intent | null = player.isBot || current.game.pending ? chooseBotIntent(current.game, botId) : { type: "stay" };
         if (!intent) return;
         const res = applyIntent(current.game, botId, intent, { isHost: false });
@@ -694,7 +727,7 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
         : mode === "imposter"
           ? { code, mode, hostId: clientId, game: addImposterPlayer(createImposterGame(), { id: clientId, name }) }
           : { code, mode, hostId: clientId, game: addScoreSeat(createScoreGame(), { id: clientId, name, ownerId: clientId }) };
-    const live: LiveRoom = { room, lastActive: Date.now(), creatorId: clientId, botTimer: null, txBotKey: null, nextRound: null, cluesTimer: null, partyTimer: null, disconnectedAt: new Map(), awayStays: new Map(), kicked: new Set(), phase: room.game.phase };
+    const live: LiveRoom = { room, lastActive: Date.now(), creatorId: clientId, botTimer: null, txBotKey: null, nextRound: null, cluesTimer: null, partyTimer: null, disconnectedAt: new Map(), awayStays: new Map(), turn: null, kicked: new Set(), phase: room.game.phase };
     rooms.set(code, live);
     attach(c, live, clientId, name, "create");
   }
@@ -711,6 +744,8 @@ export function startServer(port: number, opts: ServerOptions = {}): Promise<Run
       if (room.game.players.some((p) => p.id === clientId)) {
         room.game = setConnected(room.game, clientId, true);
         live.disconnectedAt.delete(clientId);
+        // Back on their turn: give them a full decision window rather than an instant takeover.
+        if (live.turn?.playerId === clientId) live.turn = null;
       } else if (room.game.phase !== "lobby") {
         return fail(c, "Game already started");
       } else if (room.game.players.length >= MAX_PLAYERS) {

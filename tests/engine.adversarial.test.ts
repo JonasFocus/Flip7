@@ -621,3 +621,23 @@ test("r4: bot never freezes the only rival when that banks the rival's game-winn
   assert.equal(s.pending?.type, "chooseTarget");
   assert.deepEqual(chooseBotIntent(s, "a", seeded(1)), { type: "chooseTarget", targetId: "a" });
 });
+
+test("the last player left mid-game wins instead of playing solo rounds to the goal", () => {
+  for (const phase of ["playing", "roundOver"] as const) {
+    let s = rigged({ a: [num(5), byId("x2")], b: [num(7)] }, [byId("fr0"), num(9)]);
+    if (phase === "roundOver") {
+      s = act(s, "a", { type: "stay" });
+      s = act(s, "b", { type: "stay" });
+      assert.equal(s.phase, "roundOver");
+    } else s = act(s, "a", { type: "hit" }); // a Freeze waits on a's pick
+    const before = s.players.find((p) => p.id === "a")?.total;
+    s = removePlayer(s, "b", seeded(2));
+    assert.equal(s.phase, "gameOver", phase);
+    assert.equal(s.pending, null);
+    assert.deepEqual(s.actionQueue, []);
+    assert.equal(s.players.find((p) => p.id === "a")?.total, before, "the unfinished round is not scored");
+    const go = s.lastEvents.find((e) => e.type === "gameOver");
+    assert.ok(go?.type === "gameOver" && go.winnerIds.length === 1 && go.winnerIds[0] === "a");
+    assertConserved(s, phase);
+  }
+});

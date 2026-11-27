@@ -37,7 +37,7 @@ const RULES: { title: string; body: string; cards?: ReactNode }[] = [
     body: "+2 to +10 add on top; ×2 doubles your numbers. They never bust you.",
     cards: MODIFIER_EXAMPLE.map((card) => <PlayingCard key={card.id} card={card} size="xs" />),
   },
-  { title: "Win", body: "First to 200 points at the end of a round takes the game." },
+  { title: "Win", body: "Once anyone reaches 200 at the end of a round, the highest total takes the game." },
 ];
 
 export function HowToPlay() {

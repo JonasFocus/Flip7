@@ -250,7 +250,7 @@ test("full room is listed as not joinable", async () => {
   h.ws.close();
 });
 
-test("a leave that ends the round broadcasts roundEnd", async () => {
+test("a leave that leaves one player broadcasts the game ending", async () => {
   for (let attempt = 0; attempt < 20; attempt++) {
     const a = await connect();
     a.send({ t: "create", mode: "virtual", name: "A", clientId: `re-a-${attempt}` });
@@ -289,7 +289,9 @@ test("a leave that ends the round broadcasts roundEnd", async () => {
     const seen = a.inbox.length;
     b.send({ t: "leave" });
     const ended = await a.waitRoom((m) => a.inbox.indexOf(m) >= seen && vgame(m.room).players.length === 1);
-    assert.ok(ended.events.some((e) => e.type === "roundEnd"), "roundEnd forwarded on leave");
+    // The last one standing takes the game rather than playing on alone.
+    assert.ok(ended.events.some((e) => e.type === "gameOver"), "gameOver forwarded on leave");
+    assert.equal(vgame(ended.room).phase, "gameOver");
     a.ws.close();
     return;
   }
@@ -452,7 +454,7 @@ test("BUG: a lobby seat kicked while offline keeps its disconnect stamp, so on r
       const intent = g.pending ? chooseBotIntent(g, publicId("ko-h")) : { type: "stay" as const };
       if (intent) h.send({ t: "intent", intent });
     }
-    auto = k2.inbox.some((m) => m.t === "room" && ((m.room.mode === "virtual" && m.room.autoPlay?.playerId === publicId("ko-kid")) || m.events.some((e) => e.type === "stay" && "auto" in e && e.auto === true)));
+    auto = k2.inbox.some((m) => m.t === "room" && ((m.room.mode === "virtual" && m.room.autoPlay?.playerId === publicId("ko-kid") && m.room.autoPlay.idle !== true) || m.events.some((e) => e.type === "stay" && "auto" in e && e.auto === true)));
     await sleep(100);
   }
   assert.equal(auto, false, "online rejoined kid got an auto-play countdown / auto-stay");

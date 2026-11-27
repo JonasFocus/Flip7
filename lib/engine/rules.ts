@@ -89,7 +89,11 @@ export function removePlayer(state: GameState, id: string, rng: Rng = Math.rando
   s.discard.push(...s.actionQueue.filter((q) => q.playerId === id).map((q) => q.card));
   s.actionQueue = s.actionQueue.filter((q) => q.playerId !== id);
 
-  advance(c);
+  // Nobody left to play against: the last one standing takes the game rather than playing solo rounds to the goal.
+  if (n === 1 && (s.phase === "playing" || s.phase === "roundOver")) {
+    clearPending(s);
+    endGame(c);
+  } else advance(c);
   s.deckCount = s.deck.length;
   s.lastEvents = c.events;
   return s;
