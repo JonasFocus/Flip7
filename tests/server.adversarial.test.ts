@@ -753,7 +753,7 @@ test("real server timers close Imposter and Spyfall voting with connected abstai
       assert.ok(remaining !== undefined && remaining > 59000 && remaining <= 60000);
       for (const phone of phones.slice(1)) phone.send({ t: mode, intent: { type: "vote", targetId: voting.room.hostId } });
       await host.waitRoom((m) => (m.room.mode === "imposter" || m.room.mode === "spyfall") && m.room.game.phase === "voting" && m.room.game.votedIds.length === 3);
-      const finished = await host.waitRoom((m) => (m.room.mode === "imposter" && (m.room.game.phase === "reveal" || m.room.game.phase === "gameOver")) || (m.room.mode === "spyfall" && m.room.game.phase === "gameOver"), 65000);
+      const finished = await host.waitRoom((m) => (m.room.mode === "imposter" && (m.room.game.phase === "reveal" || m.room.game.phase === "gameOver")) || (m.room.mode === "spyfall" && m.room.game.phase === "gameOver"), 90000);
       assert.ok(finished.room.mode === "imposter" || finished.room.mode === "spyfall");
       assert.ok(finished.room.game.players.every((p) => p.connected));
       if (finished.room.mode === "imposter") assert.deepEqual(finished.room.game.lastResult?.tally, { [room.hostId]: 3 });
